@@ -8,6 +8,8 @@ node_modules/
 out/
 build/
 dist/
+*.tsbuildinfo
+next-env.d.ts
 
 # Môi trường & secrets
 .env

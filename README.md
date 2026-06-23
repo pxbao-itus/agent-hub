@@ -21,13 +21,22 @@ Next.js (full-stack) · PostgreSQL + pgvector · Drizzle ORM · Auth.js · MCP T
 
 Nguyên tắc: ít phụ thuộc — toàn TypeScript + một Postgres, self-host bằng một lệnh.
 
-## Self-host
+## Development
+
+Yêu cầu: Node 20+, pnpm, Docker.
 
 ```bash
-docker compose up
+pnpm install                 # cài dependencies
+cp .env.example .env         # tạo env (điền AUTH_SECRET nếu cần)
+docker compose up -d         # Postgres + pgvector
+pnpm db:migrate              # tạo bảng
+pnpm db:seed                 # (tùy chọn) dữ liệu mẫu
+pnpm dev                     # http://localhost:3000
 ```
 
-_(Hướng dẫn chi tiết sẽ bổ sung khi MVP sẵn sàng.)_
+Lệnh DB khác: `pnpm db:generate` (sinh migration từ schema), `pnpm db:push`, `pnpm db:studio`.
+
+_(Hướng dẫn self-host production qua `docker compose` sẽ bổ sung khi MVP sẵn sàng.)_
 
 ## License
 
