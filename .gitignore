@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build / output
+.next/
+out/
+build/
+dist/
+
+# Môi trường & secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Hệ điều hành / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Test / coverage
+coverage/
