@@ -1,13 +1,14 @@
 import { db } from "@/server/db";
+import { auth } from "@/auth";
 
 /**
  * Context injected into every tRPC request.
- * Phase 2 will add `session` (authenticated user) from Auth.js.
  */
 export async function createContext() {
+  const session = await auth();
   return {
     db,
-    session: null as null | { userId: string },
+    session: session?.user?.id ? { userId: session.user.id } : null,
   };
 }
 
