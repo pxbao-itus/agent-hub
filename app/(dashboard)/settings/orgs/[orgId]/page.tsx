@@ -1,22 +1,22 @@
+import Link from "next/link";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
-import { orgs, departments, teams, memberships, users } from "@/server/db/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { orgs, departments, memberships, users } from "@/server/db/schema";
+import { eq, and } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Breadcrumb } from "../_components/breadcrumb";
 import { AddMemberForm } from "./add-member-form";
 import { CreateDeptForm } from "./create-dept-form";
-import { CreateTeamForm } from "./create-team-form";
 
 export default async function OrgDetailPage({ params }: { params: Promise<{ orgId: string }> }) {
   const { orgId } = await params;
   const session = await auth();
   const userId = session!.user!.id!;
+  const isSuperAdmin = session!.user!.systemRole === "superadmin";
 
   const org = await db.query.orgs.findFirst({ where: eq(orgs.id, orgId) });
   if (!org) notFound();
-
-  const isSuperAdmin = session!.user!.systemRole === "superadmin";
 
   const membership = await db.query.memberships.findFirst({
     where: and(
@@ -29,30 +29,22 @@ export default async function OrgDetailPage({ params }: { params: Promise<{ orgI
 
   const isAdmin = isSuperAdmin || membership?.role === "admin";
 
-  const depts = await db.query.departments.findMany({ where: eq(departments.orgId, orgId) });
-
-  const deptIds = depts.map((d) => d.id);
-  const allTeams = deptIds.length > 0
-    ? await db.query.teams.findMany({ where: inArray(teams.departmentId, deptIds) })
-    : [];
-
-  // Group teams by their parent department for O(1) lookup in render.
-  const teamsByDept = new Map<string, typeof allTeams>();
-  for (const team of allTeams) {
-    const list = teamsByDept.get(team.departmentId) ?? [];
-    list.push(team);
-    teamsByDept.set(team.departmentId, list);
-  }
-
-  const orgMembers = await db
-    .select({ id: memberships.id, role: memberships.role, name: users.name, email: users.email })
-    .from(memberships)
-    .innerJoin(users, eq(users.id, memberships.userId))
-    .where(and(eq(memberships.groupType, "org"), eq(memberships.groupId, orgId)));
+  const [depts, orgMembers] = await Promise.all([
+    db.query.departments.findMany({ where: eq(departments.orgId, orgId) }),
+    db
+      .select({ id: memberships.id, role: memberships.role, name: users.name, email: users.email })
+      .from(memberships)
+      .innerJoin(users, eq(users.id, memberships.userId))
+      .where(and(eq(memberships.groupType, "org"), eq(memberships.groupId, orgId))),
+  ]);
 
   return (
     <div className="space-y-8">
-      <div>
+      <div className="space-y-1">
+        <Breadcrumb segments={[
+          { label: "Organizations", href: "/settings/orgs" },
+          { label: org.name },
+        ]} />
         <h1 className="text-2xl font-bold">{org.name}</h1>
         <p className="text-sm text-muted-foreground">/{org.slug}</p>
       </div>
@@ -70,58 +62,32 @@ export default async function OrgDetailPage({ params }: { params: Promise<{ orgI
               <span className="rounded-full border px-2 py-0.5 text-xs">{m.role}</span>
             </div>
           ))}
+          {orgMembers.length === 0 && (
+            <p className="px-4 py-3 text-sm text-muted-foreground">No members yet.</p>
+          )}
         </div>
         {isAdmin && <AddMemberForm groupType="org" groupId={orgId} />}
       </section>
 
-      {/* Departments → Teams */}
+      {/* Departments */}
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">Departments</h2>
         {depts.length === 0 ? (
           <p className="text-sm text-muted-foreground">No departments yet.</p>
         ) : (
-          <div className="space-y-3">
-            {depts.map((dept) => {
-              const deptTeams = teamsByDept.get(dept.id) ?? [];
-              return (
-                <Card key={dept.id}>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {depts.map((dept) => (
+              <Link key={dept.id} href={`/settings/orgs/${orgId}/departments/${dept.id}`}>
+                <Card className="h-full transition-colors hover:bg-muted/50 cursor-pointer">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm">{dept.name}</CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    {/* Teams within this department */}
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Teams</p>
-                      {deptTeams.length === 0 ? (
-                        <p className="text-xs text-muted-foreground">No teams yet.</p>
-                      ) : (
-                        <div className="divide-y rounded-md border">
-                          {deptTeams.map((team) => (
-                            <div key={team.id} className="flex items-center justify-between px-3 py-2">
-                              <span className="text-sm">{team.name}</span>
-                              {isAdmin && (
-                                <AddMemberForm groupType="team" groupId={team.id} />
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {isAdmin && <CreateTeamForm departmentId={dept.id} />}
-                    </div>
-
-                    {/* Department-level members */}
-                    {isAdmin && (
-                      <div className="space-y-2 border-t pt-3">
-                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                          Department members
-                        </p>
-                        <AddMemberForm groupType="department" groupId={dept.id} />
-                      </div>
-                    )}
+                  <CardContent>
+                    <p className="text-xs text-muted-foreground">View teams & members →</p>
                   </CardContent>
                 </Card>
-              );
-            })}
+              </Link>
+            ))}
           </div>
         )}
         {isAdmin && <CreateDeptForm orgId={orgId} />}
