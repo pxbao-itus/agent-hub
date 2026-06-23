@@ -15,6 +15,8 @@ export default async function OrgDetailPage({ params }: { params: Promise<{ orgI
   const org = await db.query.orgs.findFirst({ where: eq(orgs.id, orgId) });
   if (!org) notFound();
 
+  const isSuperAdmin = session!.user!.systemRole === "superadmin";
+
   const membership = await db.query.memberships.findFirst({
     where: and(
       eq(memberships.userId, userId),
@@ -22,9 +24,9 @@ export default async function OrgDetailPage({ params }: { params: Promise<{ orgI
       eq(memberships.groupId, orgId),
     ),
   });
-  if (!membership) notFound();
+  if (!membership && !isSuperAdmin) notFound();
 
-  const isAdmin = membership.role === "admin";
+  const isAdmin = isSuperAdmin || membership?.role === "admin";
 
   const depts = await db.query.departments.findMany({ where: eq(departments.orgId, orgId) });
 

@@ -18,7 +18,9 @@ async function requireOrgRole(
   userId: string,
   orgId: string,
   minRole: "viewer" | "editor" | "admin" = "viewer",
+  systemRole: "user" | "superadmin" = "user",
 ) {
+  if (systemRole === "superadmin") return;
   const ROLES = ["viewer", "editor", "admin"];
   const m = await db.query.memberships.findFirst({
     where: and(
@@ -79,7 +81,7 @@ export const orgRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        await requireOrgRole(ctx.db, ctx.session.userId, input.orgId, "admin");
+        await requireOrgRole(ctx.db, ctx.session.userId, input.orgId, "admin", ctx.session.systemRole);
         const [dept] = await ctx.db
           .insert(departments)
           .values({ orgId: input.orgId, name: input.name, slug: input.slug })
@@ -90,7 +92,7 @@ export const orgRouter = router({
     list: protectedProcedure
       .input(z.object({ orgId: z.string().uuid() }))
       .query(async ({ ctx, input }) => {
-        await requireOrgRole(ctx.db, ctx.session.userId, input.orgId);
+        await requireOrgRole(ctx.db, ctx.session.userId, input.orgId, "viewer", ctx.session.systemRole);
         return ctx.db.query.departments.findMany({
           where: eq(departments.orgId, input.orgId),
         });
@@ -112,7 +114,7 @@ export const orgRouter = router({
             where: eq(departments.id, input.departmentId),
           });
           if (!dept) throw new TRPCError({ code: "NOT_FOUND" });
-          await requireOrgRole(ctx.db, ctx.session.userId, dept.orgId, "admin");
+          await requireOrgRole(ctx.db, ctx.session.userId, dept.orgId, "admin", ctx.session.systemRole);
           const [team] = await ctx.db
             .insert(teams)
             .values({ departmentId: input.departmentId, name: input.name, slug: input.slug })
@@ -127,7 +129,7 @@ export const orgRouter = router({
             where: eq(departments.id, input.departmentId),
           });
           if (!dept) throw new TRPCError({ code: "NOT_FOUND" });
-          await requireOrgRole(ctx.db, ctx.session.userId, dept.orgId);
+          await requireOrgRole(ctx.db, ctx.session.userId, dept.orgId, "viewer", ctx.session.systemRole);
           return ctx.db.query.teams.findMany({
             where: eq(teams.departmentId, input.departmentId),
           });
@@ -169,7 +171,7 @@ export const orgRouter = router({
           if (!dept) throw new TRPCError({ code: "NOT_FOUND" });
           orgId = dept.orgId;
         }
-        await requireOrgRole(ctx.db, ctx.session.userId, orgId, "admin");
+        await requireOrgRole(ctx.db, ctx.session.userId, orgId, "admin", ctx.session.systemRole);
 
         const target = await ctx.db.query.users.findFirst({
           where: eq(users.email, input.email),

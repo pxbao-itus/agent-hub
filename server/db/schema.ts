@@ -24,6 +24,9 @@ export const groupTypeEnum = pgEnum("group_type", ["org", "department", "team"])
 /** Member role within a group (kept simple for MVP). */
 export const roleEnum = pgEnum("role", ["viewer", "editor", "admin"]);
 
+/** Platform-level role: superadmin bypasses all org/group access checks. */
+export const systemRoleEnum = pgEnum("system_role", ["user", "superadmin"]);
+
 /** Who owns a prompt: a single user or any group at any level. */
 export const ownerTypeEnum = pgEnum("owner_type", [
   "user",
@@ -51,6 +54,8 @@ export const users = pgTable("users", {
   image: text("image"),
   /** Password hash for basic auth (Credentials). Null when user only has OAuth. */
   passwordHash: text("password_hash"),
+  /** Platform-level role. superadmin bypasses all org/group access checks. */
+  systemRole: systemRoleEnum("system_role").notNull().default("user"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

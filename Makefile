@@ -1,5 +1,5 @@
 .PHONY: dev build start test typecheck lint \
-        db/up db/down db/migrate db/generate db/push db/studio db/seed \
+        db/up db/down db/migrate db/generate db/push db/studio db/seed db/create-root \
         setup install
 
 # ── Dev ──────────────────────────────────────────────────────────────────────
@@ -38,6 +38,11 @@ db/studio:
 
 db/seed:
 	pnpm db:seed
+
+# Create or promote a superadmin account.
+# Usage: make db/create-root email=admin@example.com password=secret
+db/create-root:
+	ROOT_EMAIL=$(email) ROOT_PASSWORD=$(password) pnpm exec tsx server/scripts/create-superadmin.ts
 
 # ── Quality ──────────────────────────────────────────────────────────────────
 

@@ -8,7 +8,9 @@ export async function createContext() {
   const session = await auth();
   return {
     db,
-    session: session?.user?.id ? { userId: session.user.id } : null,
+    session: session?.user?.id
+      ? { userId: session.user.id, systemRole: session.user.systemRole ?? ("user" as const) }
+      : null,
   };
 }
 
