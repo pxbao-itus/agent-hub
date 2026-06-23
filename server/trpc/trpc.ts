@@ -20,8 +20,8 @@ const t = initTRPC.context<Context>().create({
 export const router = t.router;
 export const publicProcedure = t.procedure;
 
-/** Procedure yêu cầu đăng nhập. Auth thật sự sẽ nối ở Phase 2. */
+/** Procedure that requires an authenticated session. Enforced in Phase 2. */
 export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
-  // TODO(Phase 2): kiểm tra ctx.session, throw UNAUTHORIZED nếu chưa đăng nhập.
+  // TODO(Phase 2): check ctx.session, throw UNAUTHORIZED if not signed in.
   return next({ ctx });
 });

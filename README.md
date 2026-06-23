@@ -2,41 +2,41 @@
 
 > Open-source platform to **store, share, and use prompts** — with first-class **AI agent integration over MCP**.
 
-prompt-hub là nơi quản lý prompt tập trung cho cá nhân và tổ chức: lưu trữ, phân quyền theo **Organization → Department → Team → User**, versioning, và cho phép AI agent lấy prompt mới nhất **qua MCP** thay vì copy-paste.
+Centralized prompt management for individuals and teams: versioning, access control across **Organization → Department → Team → User**, and seamless AI agent integration via MCP — no more copy-pasting.
 
-> ⚠️ **Status: early / work-in-progress.** Đang trong giai đoạn thiết kế & xây MVP. Chưa sẵn sàng cho production.
+> ⚠️ **Status: early / work-in-progress.** Not ready for production.
 
-## Tính năng (mục tiêu MVP)
+## Features (MVP target)
 
-- 📦 **Quản lý prompt** với tags, mô tả, và biến template `{{var}}`.
-- 🕑 **Versioning** — mỗi lần lưu là một version immutable.
-- 🏢 **Phân quyền theo tổ chức** — owner là user hoặc team/department/org, kế thừa quyền theo cấp.
-- 🔌 **MCP server tích hợp** — cắm vào Claude Code, Cursor, hay bất kỳ agent hỗ trợ MCP. Dùng token có scope.
-- 🔎 **Tìm kiếm** — full-text (MVP) → semantic / hybrid search (kế tiếp).
-- 🔐 **Đa phương thức đăng nhập** — basic auth, Google, GitHub (pluggable).
+- 📦 **Prompt management** with tags, descriptions, and template variables `{{var}}`.
+- 🕑 **Versioning** — every save creates an immutable version.
+- 🏢 **Org-based access control** — owner can be a user, team, department, or org; permissions inherit upward.
+- 🔌 **MCP server** — plug into Claude Code, Cursor, or any MCP-compatible agent using a scoped token.
+- 🔎 **Search** — full-text (MVP) → semantic / hybrid search (coming next).
+- 🔐 **Multiple auth providers** — basic auth, Google, GitHub (pluggable via env).
 
 ## Tech stack
 
 Next.js (full-stack) · PostgreSQL + pgvector · Drizzle ORM · Auth.js · MCP TypeScript SDK.
 
-Nguyên tắc: ít phụ thuộc — toàn TypeScript + một Postgres, self-host bằng một lệnh.
+One principle: minimal moving parts — all TypeScript + one Postgres, self-hosted with a single command.
 
 ## Development
 
-Yêu cầu: Node 20+, pnpm, Docker.
+Requirements: Node 20+, pnpm, Docker.
 
 ```bash
-pnpm install                 # cài dependencies
-cp .env.example .env         # tạo env (điền AUTH_SECRET nếu cần)
+pnpm install                 # install dependencies
+cp .env.example .env         # configure env (set AUTH_SECRET)
 docker compose up -d         # Postgres + pgvector
-pnpm db:migrate              # tạo bảng
-pnpm db:seed                 # (tùy chọn) dữ liệu mẫu
+pnpm db:migrate              # create tables
+pnpm db:seed                 # (optional) seed sample data
 pnpm dev                     # http://localhost:3000
 ```
 
-Lệnh DB khác: `pnpm db:generate` (sinh migration từ schema), `pnpm db:push`, `pnpm db:studio`.
+Other DB commands: `pnpm db:generate` (generate migration from schema), `pnpm db:push`, `pnpm db:studio`.
 
-_(Hướng dẫn self-host production qua `docker compose` sẽ bổ sung khi MVP sẵn sàng.)_
+_(Production self-host guide via `docker compose` will be added when MVP is ready.)_
 
 ## License
 
@@ -44,4 +44,4 @@ _TBD._
 
 ## Contributing
 
-Dự án còn rất sớm. Issue & ý tưởng đều được hoan nghênh.
+The project is in early stages. Issues and ideas are welcome.

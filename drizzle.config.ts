@@ -7,7 +7,6 @@ export default defineConfig({
   dbCredentials: {
     url: process.env.DATABASE_URL!,
   },
-  // pgvector cần extension được tạo trước (xem db/init.sql / docker-compose).
   verbose: true,
   strict: true,
 });

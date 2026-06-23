@@ -18,13 +18,13 @@ import { relations } from "drizzle-orm";
 /* Enums                                                                       */
 /* -------------------------------------------------------------------------- */
 
-/** Cấp của một nhóm trong hierarchy org → department → team. */
+/** Level of a group in the org → department → team hierarchy. */
 export const groupTypeEnum = pgEnum("group_type", ["org", "department", "team"]);
 
-/** Vai trò của thành viên trong một nhóm (đơn giản ở MVP). */
+/** Member role within a group (kept simple for MVP). */
 export const roleEnum = pgEnum("role", ["viewer", "editor", "admin"]);
 
-/** Chủ sở hữu của prompt: một user hoặc một nhóm bất kỳ cấp nào. */
+/** Who owns a prompt: a single user or any group at any level. */
 export const ownerTypeEnum = pgEnum("owner_type", [
   "user",
   "org",
@@ -32,15 +32,15 @@ export const ownerTypeEnum = pgEnum("owner_type", [
   "team",
 ]);
 
-/** Phạm vi hiển thị của prompt. */
+/** Visibility scope of a prompt. */
 export const visibilityEnum = pgEnum("visibility", [
-  "private", // chỉ chủ sở hữu (user)
-  "group", // thành viên của nhóm sở hữu (kế thừa lên theo phương án A)
-  "public", // mọi người
+  "private", // owner only (user)
+  "group",   // members of the owning group (access inherits upward — option A)
+  "public",  // everyone
 ]);
 
 /* -------------------------------------------------------------------------- */
-/* Auth (tương thích @auth/drizzle-adapter) + basic auth                       */
+/* Auth (compatible with @auth/drizzle-adapter) + basic auth                  */
 /* -------------------------------------------------------------------------- */
 
 export const users = pgTable("users", {
@@ -49,7 +49,7 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   emailVerified: timestamp("email_verified", { withTimezone: true }),
   image: text("image"),
-  /** Hash mật khẩu cho basic auth (Credentials). Null nếu chỉ đăng nhập OAuth. */
+  /** Password hash for basic auth (Credentials). Null when user only has OAuth. */
   passwordHash: text("password_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -95,7 +95,7 @@ export const verificationTokens = pgTable(
 );
 
 /* -------------------------------------------------------------------------- */
-/* Tổ chức: org → department → team                                            */
+/* Organization: org → department → team                                       */
 /* -------------------------------------------------------------------------- */
 
 export const orgs = pgTable("orgs", {
@@ -143,10 +143,10 @@ export const teams = pgTable(
 );
 
 /**
- * Membership lưu ở cấp thấp nhất user tham gia.
- * Quyền cấp cao suy ra qua hierarchy (phương án A — kế thừa lên):
- * thành viên team ⇒ ngầm thuộc department + org cha.
- * `groupId` là polymorphic (trỏ orgs/departments/teams tùy groupType) nên không đặt FK.
+ * Memberships are stored at the lowest level the user directly belongs to.
+ * Access to parent groups (department, org) is derived via the hierarchy (option A — inherit upward):
+ * team member ⇒ implicitly belongs to parent department + org.
+ * `groupId` is polymorphic (points to orgs/departments/teams depending on groupType) — no FK.
  */
 export const memberships = pgTable(
   "memberships",
@@ -175,14 +175,14 @@ export const prompts = pgTable(
   "prompts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    /** Owner polymorphic: user / org / department / team. `ownerId` không đặt FK. */
+    /** Polymorphic owner: user / org / department / team. `ownerId` has no FK. */
     ownerType: ownerTypeEnum("owner_type").notNull(),
     ownerId: uuid("owner_id").notNull(),
     title: text("title").notNull(),
     description: text("description"),
     tags: text("tags").array().notNull().default([]),
     visibility: visibilityEnum("visibility").notNull().default("private"),
-    /** Trỏ version hiện hành. Rollback = đổi con trỏ này. Reference lazy nên không vòng lặp. */
+    /** Points to the current version. Rollback = update this pointer. */
     currentVersionId: uuid("current_version_id").references(
       (): import("drizzle-orm/pg-core").AnyPgColumn => promptVersions.id,
       { onDelete: "set null" }
@@ -197,7 +197,7 @@ export const prompts = pgTable(
   ]
 );
 
-/** Mỗi lần save tạo một version immutable. */
+/** Each save creates a new immutable version. */
 export const promptVersions = pgTable(
   "prompt_versions",
   {
@@ -208,7 +208,7 @@ export const promptVersions = pgTable(
     versionNo: integer("version_no").notNull(),
     body: text("body").notNull(),
     changelog: text("changelog"),
-    /** Gợi ý model/temperature... dạng JSON. */
+    /** Optional model/temperature hints stored as JSON. */
     modelHints: jsonb("model_hints"),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -235,10 +235,11 @@ export const promptVariables = pgTable(
 );
 
 /**
- * Embeddings cho semantic search (v0.2).
- * Lưu `embedderId` + `dimensions` cùng vector để biết vector thuộc model nào khi đổi provider.
- * NOTE: pgvector cần dimension cố định cho cột + index HNSW. Đặt 1024 (bge-m3) làm mặc định.
- * Đổi sang model khác dimension ⇒ cần migration/cột riêng (xem plans/architecture.md).
+ * Embeddings for semantic search (v0.2).
+ * `embedderId` + `dimensions` are stored alongside the vector so we know which model
+ * produced it when switching providers.
+ * NOTE: pgvector requires a fixed dimension per column + HNSW index. Defaults to 1024 (bge-m3).
+ * Switching to a model with different dimensions requires a new column or migration.
  */
 export const promptEmbeddings = pgTable(
   "prompt_embeddings",
@@ -264,9 +265,9 @@ export const promptEmbeddings = pgTable(
 /* -------------------------------------------------------------------------- */
 
 /**
- * Token do user tự gen trên UI để agent gọi MCP.
- * Chỉ lưu hash; `tokenPrefix` để hiển thị nhận diện.
- * Quy tắc bất biến: access(token) = access(user) ∩ scope(token).
+ * Tokens generated by users on the UI for agent MCP access.
+ * Only the hash is stored; `tokenPrefix` is used for display / identification.
+ * Invariant: access(token) = access(user) ∩ scope(token).
  */
 export const mcpTokens = pgTable(
   "mcp_tokens",
@@ -278,7 +279,7 @@ export const mcpTokens = pgTable(
     name: text("name").notNull(),
     tokenHash: text("token_hash").notNull().unique(),
     tokenPrefix: text("token_prefix").notNull(),
-    /** Định nghĩa scope: tập con prompt token được phép (theo owner/tag...). */
+    /** Scope definition: which prompts this token may access (by owner, tag, etc.). */
     scope: jsonb("scope"),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),

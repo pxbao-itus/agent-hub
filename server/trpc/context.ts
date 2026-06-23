@@ -1,8 +1,8 @@
 import { db } from "@/server/db";
 
 /**
- * Context cho mỗi request tRPC.
- * Phase 2 sẽ thêm `session` (user đã đăng nhập) từ Auth.js.
+ * Context injected into every tRPC request.
+ * Phase 2 will add `session` (authenticated user) from Auth.js.
  */
 export async function createContext() {
   return {

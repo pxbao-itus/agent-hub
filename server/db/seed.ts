@@ -13,9 +13,9 @@ import {
 import { eq } from "drizzle-orm";
 
 /**
- * Seed dữ liệu mẫu: một org → department → team, một user là thành viên team,
- * và một prompt do team sở hữu (có version + biến).
- * Chạy: pnpm db:seed (cần DATABASE_URL).
+ * Seeds sample data: one org → department → team, one user as team member,
+ * and one prompt owned by the team (with a version and variables).
+ * Run: pnpm db:seed (requires DATABASE_URL).
  */
 async function main() {
   console.log("Seeding…");
@@ -40,7 +40,7 @@ async function main() {
     .values({ name: "Demo User", email: "demo@example.com" })
     .returning();
 
-  // Membership ở cấp thấp nhất (team) — quyền org/dept suy ra qua hierarchy.
+  // Membership stored at the lowest level (team); org/dept access is derived via hierarchy (option A).
   await db.insert(memberships).values({
     userId: user.id,
     groupType: "team",
@@ -48,7 +48,6 @@ async function main() {
     role: "admin",
   });
 
-  // Prompt do team sở hữu, kèm một version và một biến.
   const [prompt] = await db
     .insert(prompts)
     .values({
