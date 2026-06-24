@@ -2,82 +2,80 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { eq, desc, and, or, sql } from "drizzle-orm";
 import { db } from "@/server/db";
-import { prompts, promptVersions, promptVariables } from "@/server/db/schema";
+import { prompts, promptVersions } from "@/server/db/schema";
 import { getAccessibleGroups } from "@/server/auth/access";
 import { renderTemplate } from "@/server/lib/template";
 
 type Identity = { userId: string; systemRole: "user" | "superadmin" };
 
-/** Build a per-request MCP server bound to a verified user identity. */
-export function createMcpServer(identity: Identity) {
-  const server = new McpServer({
-    name: "prompt-hub",
-    version: "0.1.0",
-  });
+/**
+ * Build a per-request MCP server.
+ * Each accessible prompt is registered as its own named slash command
+ * so agents can invoke prompts directly without going through list/get.
+ */
+export async function createMcpServer(identity: Identity): Promise<McpServer> {
+  const server = new McpServer({ name: "prompt-hub", version: "0.1.0" });
 
-  // ── prompts/list ────────────────────────────────────────────────────────────
-  server.registerPrompt(
-    "list",
-    {
-      description: "List all prompts accessible to the current token",
-    },
-    async () => {
-      const rows = await getAccessiblePrompts(identity);
-      return {
-        description: `${rows.length} prompt(s) available`,
+  const rows = await getPromptsForIdentity(identity);
+  const seen = new Set<string>();
+
+  for (const p of rows) {
+    const body = p.versions[0]?.body ?? "";
+    if (!body) continue;
+
+    const slug = uniqueSlug(p.title, p.id, seen);
+
+    // Build argsSchema from template variables (all optional — unset vars keep {{placeholder}})
+    const argsShape: Record<string, z.ZodOptional<z.ZodString>> = {};
+    for (const v of p.variables) {
+      argsShape[v.name] = z.string().describe(v.name).optional();
+    }
+
+    server.registerPrompt(
+      slug,
+      { description: p.description ?? p.title, argsSchema: argsShape },
+      async (args) => ({
+        description: p.title,
         messages: [
           {
             role: "user" as const,
             content: {
               type: "text" as const,
-              text: rows
-                .map((p) => `- **${p.title}** (id: \`${p.id}\`)${p.description ? ` — ${p.description}` : ""}`)
-                .join("\n") || "No prompts available.",
+              text: renderTemplate(body, args as Record<string, string>),
             },
           },
         ],
-      };
-    },
-  );
-
-  // ── prompts/get ─────────────────────────────────────────────────────────────
-  server.registerPrompt(
-    "get",
-    {
-      description: "Get a prompt by ID, optionally filling {{variables}}",
-      argsSchema: { id: z.string().describe("Prompt ID (UUID)") },
-    },
-    async ({ id, ...rest }) => {
-      const prompt = await getPromptForIdentity(identity, id as string);
-      if (!prompt) {
-        return {
-          messages: [{ role: "user" as const, content: { type: "text" as const, text: `Prompt ${id} not found.` } }],
-        };
-      }
-
-      const body = renderTemplate(prompt.body, rest as Record<string, string>);
-      const argDocs = prompt.variables.length > 0
-        ? "\n\nVariables: " + prompt.variables.map((v) => `{{${v.name}}}`).join(", ")
-        : "";
-
-      return {
-        description: prompt.title,
-        messages: [
-          {
-            role: "user" as const,
-            content: { type: "text" as const, text: body + argDocs },
-          },
-        ],
-      };
-    },
-  );
+      }),
+    );
+  }
 
   return server;
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function getAccessiblePrompts(identity: Identity) {
+function slugify(s: string): string {
+  return (
+    s
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/[\s_]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "prompt"
+  );
+}
+
+function uniqueSlug(title: string, id: string, seen: Set<string>): string {
+  const base = slugify(title);
+  if (!seen.has(base)) {
+    seen.add(base);
+    return base;
+  }
+  const withId = `${base}-${id.slice(0, 6)}`;
+  seen.add(withId);
+  return withId;
+}
+
+async function getPromptsForIdentity(identity: Identity) {
   const { userId, systemRole } = identity;
 
   let where;
@@ -101,37 +99,9 @@ async function getAccessiblePrompts(identity: Identity) {
     where,
     orderBy: desc(prompts.updatedAt),
     columns: { id: true, title: true, description: true },
-  });
-}
-
-async function getPromptForIdentity(identity: Identity, promptId: string) {
-  const { userId, systemRole } = identity;
-
-  const prompt = await db.query.prompts.findFirst({
-    where: eq(prompts.id, promptId),
     with: {
+      variables: { columns: { name: true } },
       versions: { orderBy: desc(promptVersions.versionNo), limit: 1 },
-      variables: true,
     },
   });
-  if (!prompt) return null;
-
-  // Access check
-  if (systemRole !== "superadmin" && prompt.visibility !== "public") {
-    const isOwner = prompt.ownerType === "user" && prompt.ownerId === userId;
-    if (!isOwner) {
-      if (prompt.visibility === "group") {
-        const groups = await getAccessibleGroups(userId, db);
-        const allowed = groups.some(
-          (g) => g.groupType === prompt.ownerType && g.groupId === prompt.ownerId,
-        );
-        if (!allowed) return null;
-      } else {
-        return null;
-      }
-    }
-  }
-
-  const body = prompt.versions[0]?.body ?? "";
-  return { ...prompt, body, variables: prompt.variables };
 }
