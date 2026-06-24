@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, count } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
 import { orgs, departments, teams, memberships, users } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
@@ -34,6 +34,49 @@ async function requireOrgRole(
     throw new TRPCError({ code: "FORBIDDEN" });
   }
   return m;
+}
+
+export async function resolveOwningOrgId(
+  db: DbClient,
+  groupType: "org" | "department" | "team",
+  groupId: string,
+): Promise<string> {
+  if (groupType === "org") return groupId;
+  if (groupType === "department") {
+    const dept = await db.query.departments.findFirst({ where: eq(departments.id, groupId) });
+    if (!dept) throw new TRPCError({ code: "NOT_FOUND" });
+    return dept.orgId;
+  }
+  const team = await db.query.teams.findFirst({ where: eq(teams.id, groupId) });
+  if (!team) throw new TRPCError({ code: "NOT_FOUND" });
+  const dept = await db.query.departments.findFirst({
+    where: eq(departments.id, team.departmentId),
+  });
+  if (!dept) throw new TRPCError({ code: "NOT_FOUND" });
+  return dept.orgId;
+}
+
+async function ensureNotLastOrgAdmin(db: DbClient, membershipId: string): Promise<void> {
+  const m = await db.query.memberships.findFirst({ where: eq(memberships.id, membershipId) });
+  if (!m || m.groupType !== "org" || m.role !== "admin") return;
+
+  const [{ adminCount }] = await db
+    .select({ adminCount: count() })
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.groupType, "org"),
+        eq(memberships.groupId, m.groupId),
+        eq(memberships.role, "admin"),
+      ),
+    );
+
+  if (adminCount <= 1) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Cannot remove the last admin of an organization",
+    });
+  }
 }
 
 // ── Org router ────────────────────────────────────────────────────────────────
@@ -92,7 +135,10 @@ export const orgRouter = router({
         ? ctx.db.select({ id: orgs.id, name: orgs.name }).from(orgs).where(inArray(orgs.id, orgIds))
         : [],
       deptIds.length
-        ? ctx.db.select({ id: departments.id, name: departments.name }).from(departments).where(inArray(departments.id, deptIds))
+        ? ctx.db
+            .select({ id: departments.id, name: departments.name })
+            .from(departments)
+            .where(inArray(departments.id, deptIds))
         : [],
       teamIds.length
         ? ctx.db.select({ id: teams.id, name: teams.name }).from(teams).where(inArray(teams.id, teamIds))
@@ -189,40 +235,23 @@ export const orgRouter = router({
   membership: router({
     add: protectedProcedure
       .input(
-        z.object({
-          email: z.string().email(),
-          groupType: z.enum(["org", "department", "team"]),
-          groupId: z.string().uuid(),
-          role: z.enum(["viewer", "editor", "admin"]).default("editor"),
-        }),
+        z
+          .object({
+            userId: z.string().uuid().optional(),
+            email: z.string().email().optional(),
+            groupType: z.enum(["org", "department", "team"]),
+            groupId: z.string().uuid(),
+            role: z.enum(["viewer", "editor", "admin"]).default("editor"),
+          })
+          .refine((d) => d.userId || d.email, { message: "userId or email is required" }),
       )
       .mutation(async ({ ctx, input }) => {
-        // Resolve parent org for auth check
-        let orgId: string;
-        if (input.groupType === "org") {
-          orgId = input.groupId;
-        } else if (input.groupType === "department") {
-          const dept = await ctx.db.query.departments.findFirst({
-            where: eq(departments.id, input.groupId),
-          });
-          if (!dept) throw new TRPCError({ code: "NOT_FOUND" });
-          orgId = dept.orgId;
-        } else {
-          const team = await ctx.db.query.teams.findFirst({
-            where: eq(teams.id, input.groupId),
-          });
-          if (!team) throw new TRPCError({ code: "NOT_FOUND" });
-          const dept = await ctx.db.query.departments.findFirst({
-            where: eq(departments.id, team.departmentId),
-          });
-          if (!dept) throw new TRPCError({ code: "NOT_FOUND" });
-          orgId = dept.orgId;
-        }
+        const orgId = await resolveOwningOrgId(ctx.db, input.groupType, input.groupId);
         await requireOrgRole(ctx.db, ctx.session.userId, orgId, "admin", ctx.session.systemRole);
 
-        const target = await ctx.db.query.users.findFirst({
-          where: eq(users.email, input.email),
-        });
+        const target = input.userId
+          ? await ctx.db.query.users.findFirst({ where: eq(users.id, input.userId) })
+          : await ctx.db.query.users.findFirst({ where: eq(users.email, input.email!) });
         if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
 
         const [membership] = await ctx.db
@@ -239,6 +268,52 @@ export const orgRouter = router({
           })
           .returning();
         return membership;
+      }),
+
+    updateRole: protectedProcedure
+      .input(
+        z.object({
+          membershipId: z.string().uuid(),
+          role: z.enum(["viewer", "editor", "admin"]),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const m = await ctx.db.query.memberships.findFirst({
+          where: eq(memberships.id, input.membershipId),
+        });
+        if (!m) throw new TRPCError({ code: "NOT_FOUND" });
+
+        const orgId = await resolveOwningOrgId(ctx.db, m.groupType, m.groupId);
+        await requireOrgRole(ctx.db, ctx.session.userId, orgId, "admin", ctx.session.systemRole);
+
+        // Guard: cannot demote the last org-level admin
+        if (m.role === "admin" && input.role !== "admin") {
+          await ensureNotLastOrgAdmin(ctx.db, input.membershipId);
+        }
+
+        const [updated] = await ctx.db
+          .update(memberships)
+          .set({ role: input.role })
+          .where(eq(memberships.id, input.membershipId))
+          .returning();
+        return updated;
+      }),
+
+    remove: protectedProcedure
+      .input(z.object({ membershipId: z.string().uuid() }))
+      .mutation(async ({ ctx, input }) => {
+        const m = await ctx.db.query.memberships.findFirst({
+          where: eq(memberships.id, input.membershipId),
+        });
+        if (!m) throw new TRPCError({ code: "NOT_FOUND" });
+
+        const orgId = await resolveOwningOrgId(ctx.db, m.groupType, m.groupId);
+        await requireOrgRole(ctx.db, ctx.session.userId, orgId, "admin", ctx.session.systemRole);
+
+        // Guard: cannot remove the last org-level admin
+        await ensureNotLastOrgAdmin(ctx.db, input.membershipId);
+
+        await ctx.db.delete(memberships).where(eq(memberships.id, input.membershipId));
       }),
 
     listForGroup: protectedProcedure

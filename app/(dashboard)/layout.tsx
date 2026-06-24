@@ -11,6 +11,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   if (!session) redirect("/auth/signin");
 
   const displayName = session.user?.name ?? session.user?.email ?? "User";
+  const isSuperAdmin = session.user?.systemRole === "superadmin";
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -23,7 +24,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <SidebarNav />
+          <SidebarNav isSuperAdmin={isSuperAdmin} />
         </div>
 
         <div className="border-t px-3 py-3">
@@ -42,7 +43,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       </aside>
 
       {/* ── Mobile header + drawer ────────────────────────────────────────── */}
-      <MobileHeader displayName={displayName} />
+      <MobileHeader displayName={displayName} isSuperAdmin={isSuperAdmin} />
 
       {/* ── Main content ──────────────────────────────────────────────────── */}
       <main className="flex-1 overflow-y-auto">

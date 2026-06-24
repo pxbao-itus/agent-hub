@@ -3,8 +3,9 @@ import { db } from "@/server/db";
 import { orgs, departments, teams, memberships, users } from "@/server/db/schema";
 import { eq, and } from "drizzle-orm";
 import { notFound } from "next/navigation";
+import { MemberList } from "@/components/ui/member-list";
 import { Breadcrumb } from "../../../../../_components/breadcrumb";
-import { AddMemberForm } from "../../../../add-member-form";
+import { AddMemberDialog } from "../../../../add-member-dialog";
 
 export default async function TeamDetailPage({
   params,
@@ -23,7 +24,6 @@ export default async function TeamDetailPage({
   ]);
   if (!org || !dept || !team || dept.orgId !== orgId || team.departmentId !== deptId) notFound();
 
-  // Access: must be org member (access is checked at org level per option A)
   const membership = await db.query.memberships.findFirst({
     where: and(
       eq(memberships.userId, userId),
@@ -36,7 +36,13 @@ export default async function TeamDetailPage({
   const isAdmin = isSuperAdmin || membership?.role === "admin";
 
   const teamMembers = await db
-    .select({ id: memberships.id, role: memberships.role, name: users.name, email: users.email })
+    .select({
+      id: memberships.id,
+      role: memberships.role,
+      userId: memberships.userId,
+      userName: users.name,
+      userEmail: users.email,
+    })
     .from(memberships)
     .innerJoin(users, eq(users.id, memberships.userId))
     .where(and(eq(memberships.groupType, "team"), eq(memberships.groupId, teamId)));
@@ -51,27 +57,20 @@ export default async function TeamDetailPage({
           { label: team.name },
         ]} />
         <h1 className="text-2xl font-bold">{team.name}</h1>
-        {team.slug && <p className="text-sm text-muted-foreground">/{team.slug}</p>}
+        {team.slug && <p className="text-sm text-muted-foreground font-mono">/{team.slug}</p>}
       </div>
 
-      {/* Members */}
       <section className="space-y-4">
-        <h2 className="text-lg font-semibold">Members</h2>
-        <div className="divide-y rounded-md border">
-          {teamMembers.map((m) => (
-            <div key={m.id} className="flex items-center justify-between px-4 py-3">
-              <div>
-                <p className="text-sm font-medium">{m.name ?? m.email}</p>
-                <p className="text-xs text-muted-foreground">{m.email}</p>
-              </div>
-              <span className="rounded-full border px-2 py-0.5 text-xs">{m.role}</span>
-            </div>
-          ))}
-          {teamMembers.length === 0 && (
-            <p className="px-4 py-3 text-sm text-muted-foreground">No members yet.</p>
-          )}
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Members</h2>
+            <p className="text-xs text-muted-foreground">
+              {teamMembers.length} member{teamMembers.length !== 1 ? "s" : ""}
+            </p>
+          </div>
+          {isAdmin && <AddMemberDialog groupType="team" groupId={teamId} />}
         </div>
-        {isAdmin && <AddMemberForm groupType="team" groupId={teamId} />}
+        <MemberList members={teamMembers} isAdmin={isAdmin} currentUserId={userId} />
       </section>
     </div>
   );

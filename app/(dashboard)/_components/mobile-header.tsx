@@ -6,7 +6,7 @@ import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SidebarNav } from "./sidebar-nav";
 
-export function MobileHeader({ displayName }: { displayName: string }) {
+export function MobileHeader({ displayName, isSuperAdmin }: { displayName: string; isSuperAdmin?: boolean }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -46,7 +46,7 @@ export function MobileHeader({ displayName }: { displayName: string }) {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <SidebarNav onNavigate={() => setOpen(false)} />
+          <SidebarNav onNavigate={() => setOpen(false)} isSuperAdmin={isSuperAdmin} />
         </div>
 
         <div className="border-t px-3 py-3">

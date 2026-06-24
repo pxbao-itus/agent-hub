@@ -3,6 +3,7 @@ import { router, publicProcedure } from "../trpc";
 import { orgRouter } from "./org";
 import { promptRouter } from "./prompt";
 import { tokenRouter } from "./token";
+import { userRouter } from "./user";
 
 export const appRouter = router({
   /** Health check: confirms the app is up and the DB is reachable. */
@@ -20,6 +21,7 @@ export const appRouter = router({
   org: orgRouter,
   prompt: promptRouter,
   token: tokenRouter,
+  user: userRouter,
 });
 
 export type AppRouter = typeof appRouter;
