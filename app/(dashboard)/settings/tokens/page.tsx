@@ -34,17 +34,11 @@ export default async function TokensPage() {
         </p>
       </div>
 
-      <div className="rounded-lg border bg-muted/40 px-4 py-3 text-sm">
-        <p className="font-medium">MCP endpoint</p>
-        <code className="mt-1 block text-xs text-muted-foreground">
-          {process.env.NEXTAUTH_URL ?? "http://localhost:3000"}/api/mcp
-        </code>
-        <p className="mt-2 text-xs text-muted-foreground">
-          Add to <code className="font-mono">~/.config/claude/claude_desktop_config.json</code> or your agent config.
-        </p>
-      </div>
 
-      <TokenManager initial={tokens} />
+<TokenManager
+        initial={tokens}
+        endpoint={`${process.env.NEXTAUTH_URL ?? "http://localhost:3000"}/api/mcp`}
+      />
     </div>
   );
 }
