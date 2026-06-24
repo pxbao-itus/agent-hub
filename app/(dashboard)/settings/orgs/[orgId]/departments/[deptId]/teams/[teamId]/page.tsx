@@ -6,6 +6,7 @@ import { notFound } from "next/navigation";
 import { MemberList } from "@/components/ui/member-list";
 import { Breadcrumb } from "../../../../../_components/breadcrumb";
 import { AddMemberDialog } from "../../../../add-member-dialog";
+import { getAccessibleGroups } from "@/server/auth/access";
 
 export default async function TeamDetailPage({
   params,
@@ -24,16 +25,20 @@ export default async function TeamDetailPage({
   ]);
   if (!org || !dept || !team || dept.orgId !== orgId || team.departmentId !== deptId) notFound();
 
-  const membership = await db.query.memberships.findFirst({
+  // Fix: use accessible groups (team member can access their own team page)
+  const accessibleGroups = await getAccessibleGroups(userId, db);
+  const accessibleSet = new Set(accessibleGroups.map((g) => `${g.groupType}:${g.groupId}`));
+  if (!isSuperAdmin && !accessibleSet.has(`team:${teamId}`)) notFound();
+
+  // isAdmin requires direct org-level admin membership (or superadmin)
+  const orgMembership = await db.query.memberships.findFirst({
     where: and(
       eq(memberships.userId, userId),
       eq(memberships.groupType, "org"),
       eq(memberships.groupId, orgId),
     ),
   });
-  if (!membership && !isSuperAdmin) notFound();
-
-  const isAdmin = isSuperAdmin || membership?.role === "admin";
+  const isAdmin = isSuperAdmin || orgMembership?.role === "admin";
 
   const teamMembers = await db
     .select({
@@ -50,12 +55,14 @@ export default async function TeamDetailPage({
   return (
     <div className="space-y-8">
       <div className="space-y-1">
-        <Breadcrumb segments={[
-          { label: "Organizations", href: "/settings/orgs" },
-          { label: org.name, href: `/settings/orgs/${orgId}` },
-          { label: dept.name, href: `/settings/orgs/${orgId}/departments/${deptId}` },
-          { label: team.name },
-        ]} />
+        <Breadcrumb
+          segments={[
+            { label: "Organizations", href: "/settings/orgs" },
+            { label: org.name, href: `/settings/orgs/${orgId}` },
+            { label: dept.name, href: `/settings/orgs/${orgId}/departments/${deptId}` },
+            { label: team.name },
+          ]}
+        />
         <h1 className="text-2xl font-bold">{team.name}</h1>
         {team.slug && <p className="text-sm text-muted-foreground font-mono">/{team.slug}</p>}
       </div>
