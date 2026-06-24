@@ -7,6 +7,8 @@ import { MemberList } from "@/components/ui/member-list";
 import { Breadcrumb } from "../../../../../_components/breadcrumb";
 import { AddMemberDialog } from "../../../../add-member-dialog";
 import { getAccessibleGroups } from "@/server/auth/access";
+import { fetchSubtreePrompts } from "@/server/lib/group-prompts";
+import { GroupPromptList } from "../../../../../_components/group-prompt-list";
 
 export default async function TeamDetailPage({
   params,
@@ -40,7 +42,7 @@ export default async function TeamDetailPage({
   });
   const isAdmin = isSuperAdmin || orgMembership?.role === "admin";
 
-  const teamMembers = await db
+  const [teamMembers, teamPrompts] = await Promise.all([db
     .select({
       id: memberships.id,
       role: memberships.role,
@@ -50,7 +52,14 @@ export default async function TeamDetailPage({
     })
     .from(memberships)
     .innerJoin(users, eq(users.id, memberships.userId))
-    .where(and(eq(memberships.groupType, "team"), eq(memberships.groupId, teamId)));
+    .where(and(eq(memberships.groupType, "team"), eq(memberships.groupId, teamId))),
+  fetchSubtreePrompts({
+    root: { type: "team", id: teamId },
+    viewerIsAdmin: isAdmin,
+    accessibleGroups,
+    db,
+  }),
+]);
 
   return (
     <div className="space-y-8">
@@ -78,6 +87,17 @@ export default async function TeamDetailPage({
           {isAdmin && <AddMemberDialog groupType="team" groupId={teamId} />}
         </div>
         <MemberList members={teamMembers} isAdmin={isAdmin} currentUserId={userId} />
+      </section>
+
+      {/* Prompts */}
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold">Prompts</h2>
+          <p className="text-xs text-muted-foreground">
+            {teamPrompts.length} prompt{teamPrompts.length !== 1 ? "s" : ""} in this team
+          </p>
+        </div>
+        <GroupPromptList items={teamPrompts} showOwnerLabel={false} />
       </section>
     </div>
   );

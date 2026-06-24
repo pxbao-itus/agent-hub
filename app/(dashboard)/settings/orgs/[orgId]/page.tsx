@@ -12,6 +12,8 @@ import { AddMemberDialog } from "./add-member-dialog";
 import { CreateDeptDialog } from "./create-dept-dialog";
 import { DeptCardGrid } from "./dept-card-grid";
 import { getAccessibleGroups } from "@/server/auth/access";
+import { fetchSubtreePrompts } from "@/server/lib/group-prompts";
+import { GroupPromptList } from "../_components/group-prompt-list";
 
 const getOrg = cache(async (orgId: string) =>
   db.query.orgs.findFirst({ where: eq(orgs.id, orgId) }),
@@ -51,7 +53,7 @@ export default async function OrgDetailPage({ params }: { params: Promise<{ orgI
     .filter((g) => g.groupType === "department")
     .map((g) => g.groupId);
 
-  const [allDeptsWithCount, orgMembers] = await Promise.all([
+  const [allDeptsWithCount, orgMembers, subtreePrompts] = await Promise.all([
     db
       .select({
         id: departments.id,
@@ -77,6 +79,12 @@ export default async function OrgDetailPage({ params }: { params: Promise<{ orgI
       .from(memberships)
       .innerJoin(users, eq(users.id, memberships.userId))
       .where(and(eq(memberships.groupType, "org"), eq(memberships.groupId, orgId))),
+    fetchSubtreePrompts({
+      root: { type: "org", id: orgId },
+      viewerIsAdmin: isAdmin,
+      accessibleGroups,
+      db,
+    }),
   ]);
 
   // Non-admins only see depts in their accessible path
@@ -132,6 +140,17 @@ export default async function OrgDetailPage({ params }: { params: Promise<{ orgI
           {isAdmin && <CreateDeptDialog orgId={orgId} orgSlug={org.slug} />}
         </div>
         <DeptCardGrid depts={visibleDepts} orgId={orgId} orgSlug={org.slug} isAdmin={isAdmin} />
+      </section>
+
+      {/* Prompts */}
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold">Prompts</h2>
+          <p className="text-xs text-muted-foreground">
+            {subtreePrompts.length} prompt{subtreePrompts.length !== 1 ? "s" : ""} across this org
+          </p>
+        </div>
+        <GroupPromptList items={subtreePrompts} showOwnerLabel />
       </section>
     </div>
   );

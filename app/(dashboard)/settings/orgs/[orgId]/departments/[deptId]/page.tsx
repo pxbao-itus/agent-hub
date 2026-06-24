@@ -9,6 +9,8 @@ import { AddMemberDialog } from "../../add-member-dialog";
 import { CreateTeamDialog } from "../../create-team-dialog";
 import { TeamCardGrid } from "./team-card-grid";
 import { getAccessibleGroups } from "@/server/auth/access";
+import { fetchSubtreePrompts } from "@/server/lib/group-prompts";
+import { GroupPromptList } from "../../../_components/group-prompt-list";
 
 export default async function DeptDetailPage({
   params,
@@ -46,7 +48,7 @@ export default async function DeptDetailPage({
     .filter((g) => g.groupType === "team")
     .map((g) => g.groupId);
 
-  const [allTeamsWithCount, deptMembers] = await Promise.all([
+  const [allTeamsWithCount, deptMembers, subtreePrompts] = await Promise.all([
     db
       .select({
         id: teams.id,
@@ -72,6 +74,12 @@ export default async function DeptDetailPage({
       .from(memberships)
       .innerJoin(users, eq(users.id, memberships.userId))
       .where(and(eq(memberships.groupType, "department"), eq(memberships.groupId, deptId))),
+    fetchSubtreePrompts({
+      root: { type: "department", id: deptId },
+      viewerIsAdmin: isAdmin,
+      accessibleGroups,
+      db,
+    }),
   ]);
 
   // Non-admins only see teams in their accessible path
@@ -125,6 +133,17 @@ export default async function DeptDetailPage({
           deptSlugPath={deptSlugPath}
           isAdmin={isAdmin}
         />
+      </section>
+
+      {/* Prompts */}
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold">Prompts</h2>
+          <p className="text-xs text-muted-foreground">
+            {subtreePrompts.length} prompt{subtreePrompts.length !== 1 ? "s" : ""} in this department
+          </p>
+        </div>
+        <GroupPromptList items={subtreePrompts} showOwnerLabel />
       </section>
     </div>
   );
