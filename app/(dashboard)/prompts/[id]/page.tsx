@@ -4,7 +4,7 @@ import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { prompts, promptVersions } from "@/server/db/schema";
 import { eq, desc } from "drizzle-orm";
-import { getAccessibleGroups } from "@/server/auth/access";
+import { getAccessibleGroups, canMutatePrompt } from "@/server/auth/access";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,7 +41,11 @@ export default async function PromptDetailPage({ params }: { params: Promise<{ i
     }
   }
 
-  const isOwner = (prompt.ownerType === "user" && prompt.ownerId === userId) || isSuperAdmin;
+  const canEdit = await canMutatePrompt(
+    { userId, systemRole: isSuperAdmin ? "superadmin" : "user" },
+    prompt,
+    db,
+  );
   const currentVersion = prompt.versions[0];
 
   return (
@@ -64,7 +68,7 @@ export default async function PromptDetailPage({ params }: { params: Promise<{ i
             </div>
           )}
         </div>
-        {isOwner && (
+        {canEdit && (
           <div className="flex shrink-0 gap-2">
             <Button asChild variant="outline" size="sm">
               <Link href={`/prompts/${id}/edit`}>Edit</Link>

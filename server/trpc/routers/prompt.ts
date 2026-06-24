@@ -3,7 +3,7 @@ import { eq, and, or, desc, sql, inArray, not } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../trpc";
 import { prompts, promptVersions, promptVariables, memberships } from "@/server/db/schema";
-import { getAccessibleGroups } from "@/server/auth/access";
+import { getAccessibleGroups, canMutatePrompt } from "@/server/auth/access";
 import { parseVariables } from "@/server/lib/template";
 import type { DbClient } from "@/server/db/types";
 
@@ -261,10 +261,8 @@ export const promptRouter = router({
       });
       if (!prompt) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const isOwner = prompt.ownerType === "user" && prompt.ownerId === userId;
-      if (!isOwner && systemRole !== "superadmin") {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
+      const allowed = await canMutatePrompt({ userId, systemRole }, prompt, ctx.db);
+      if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
 
       // Update metadata
       const metaUpdates = Object.fromEntries(
@@ -312,10 +310,8 @@ export const promptRouter = router({
       });
       if (!prompt) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const isOwner = prompt.ownerType === "user" && prompt.ownerId === userId;
-      if (!isOwner && systemRole !== "superadmin") {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
+      const allowed = await canMutatePrompt({ userId, systemRole }, prompt, ctx.db);
+      if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
 
       await ctx.db.delete(prompts).where(eq(prompts.id, input.id));
     }),

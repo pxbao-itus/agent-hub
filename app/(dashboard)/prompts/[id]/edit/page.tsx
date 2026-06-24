@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { prompts, promptVersions } from "@/server/db/schema";
 import { eq, desc } from "drizzle-orm";
+import { canMutatePrompt } from "@/server/auth/access";
 import { PromptForm } from "../../_components/prompt-form";
 
 export default async function EditPromptPage({ params }: { params: Promise<{ id: string }> }) {
@@ -17,8 +18,12 @@ export default async function EditPromptPage({ params }: { params: Promise<{ id:
   });
   if (!prompt) notFound();
 
-  const isOwner = (prompt.ownerType === "user" && prompt.ownerId === userId) || isSuperAdmin;
-  if (!isOwner) notFound();
+  const canEdit = await canMutatePrompt(
+    { userId, systemRole: isSuperAdmin ? "superadmin" : "user" },
+    prompt,
+    db,
+  );
+  if (!canEdit) notFound();
 
   const currentBody = prompt.versions[0]?.body ?? "";
 
