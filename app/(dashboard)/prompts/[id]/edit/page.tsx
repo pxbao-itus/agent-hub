@@ -33,6 +33,7 @@ export default async function EditPromptPage({ params }: { params: Promise<{ id:
         promptId={id}
         initial={{
           title: prompt.title,
+          slug: prompt.slug,
           description: prompt.description,
           body: currentBody,
           tags: prompt.tags,

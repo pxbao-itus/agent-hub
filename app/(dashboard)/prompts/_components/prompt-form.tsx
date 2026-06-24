@@ -19,6 +19,7 @@ type Props = {
   promptId: string;
   initial: {
     title: string;
+    slug?: string | null;
     description?: string | null;
     body: string;
     tags: string[];
@@ -26,9 +27,25 @@ type Props = {
   };
 };
 
+const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+function clientSlugify(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 export function PromptForm(props: Props) {
   const router = useRouter();
+
+  const initialSlug = props.mode === "edit" ? (props.initial.slug ?? "") : "";
+
   const [title, setTitle] = useState(props.mode === "edit" ? props.initial.title : "");
+  const [slug, setSlug] = useState(initialSlug);
+  const [slugTouched, setSlugTouched] = useState(!!initialSlug);
+  const [debouncedSlug, setDebouncedSlug] = useState(initialSlug);
   const [description, setDescription] = useState(
     props.mode === "edit" ? (props.initial.description ?? "") : "",
   );
@@ -40,6 +57,24 @@ export function PromptForm(props: Props) {
     props.mode === "edit" ? props.initial.visibility : "private",
   );
   const [changelog, setChangelog] = useState("");
+
+  // Auto-fill slug from title when user hasn't manually set one
+  useEffect(() => {
+    if (!slugTouched) setSlug(clientSlugify(title));
+  }, [title, slugTouched]);
+
+  // Debounce slug for the availability check
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSlug(slug), 500);
+    return () => clearTimeout(t);
+  }, [slug]);
+
+  const excludeId = props.mode === "edit" ? props.promptId : undefined;
+  const slugCheckEnabled = SLUG_RE.test(debouncedSlug) && debouncedSlug.length > 0 && debouncedSlug === slug;
+  const slugCheck = trpc.prompt.checkSlug.useQuery(
+    { slug: debouncedSlug, excludeId },
+    { enabled: slugCheckEnabled },
+  );
 
   const detectedVars = parseVariables(body);
 
@@ -60,12 +95,36 @@ export function PromptForm(props: Props) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const tags = parseTags(tagInput);
+    const slugVal = slug && SLUG_RE.test(slug) ? slug : undefined;
+
     if (props.mode === "create") {
-      create.mutate({ title, description: description || undefined, body, tags, visibility, changelog: changelog || undefined });
+      create.mutate({ title, slug: slugVal, description: description || undefined, body, tags, visibility, changelog: changelog || undefined });
     } else {
-      update.mutate({ id: props.promptId, title, description: description || undefined, body, tags, visibility, changelog: changelog || undefined });
+      update.mutate({ id: props.promptId, title, slug: slugVal ?? null, description: description || undefined, body, tags, visibility, changelog: changelog || undefined });
     }
   }
+
+  // Slug status
+  type SlugStatus = "empty" | "invalid" | "debouncing" | "checking" | "available" | "taken";
+  function getSlugStatus(): SlugStatus {
+    if (!slug) return "empty";
+    if (!SLUG_RE.test(slug)) return "invalid";
+    if (slug !== debouncedSlug) return "debouncing";
+    if (slugCheck.isLoading) return "checking";
+    if (slugCheck.data?.available === true) return "available";
+    if (slugCheck.data?.available === false) return "taken";
+    return "debouncing";
+  }
+  const slugStatus = getSlugStatus();
+
+  const slugStatusEl = {
+    empty: null,
+    invalid: <span className="text-xs text-destructive">Lowercase letters, numbers and hyphens only</span>,
+    debouncing: <span className="text-xs text-muted-foreground">…</span>,
+    checking: <span className="text-xs text-muted-foreground">Checking…</span>,
+    available: <span className="text-xs text-emerald-600 dark:text-emerald-400">✓ Available</span>,
+    taken: <span className="text-xs text-destructive">✗ Already taken — choose a different slug</span>,
+  }[slugStatus];
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
@@ -73,7 +132,42 @@ export function PromptForm(props: Props) {
 
       <div className="space-y-2">
         <Label htmlFor="title">Title</Label>
-        <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} required placeholder="My awesome prompt" />
+        <Input
+          id="title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          required
+          placeholder="My awesome prompt"
+        />
+      </div>
+
+      {/* Slug */}
+      <div className="space-y-1.5">
+        <div className="flex items-baseline justify-between">
+          <Label htmlFor="slug">
+            Slug <span className="text-muted-foreground font-normal">(MCP slash command name)</span>
+          </Label>
+          {slugTouched && (
+            <button
+              type="button"
+              className="text-xs text-muted-foreground hover:text-foreground underline"
+              onClick={() => { setSlugTouched(false); setSlug(clientSlugify(title)); }}
+            >
+              Reset to auto
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground select-none shrink-0">/mcp__prompt-hub__</span>
+          <Input
+            id="slug"
+            value={slug}
+            onChange={(e) => { setSlug(e.target.value); setSlugTouched(true); }}
+            placeholder="my-prompt"
+            className="h-8 text-sm font-mono"
+          />
+        </div>
+        <div className="min-h-[1.25rem]">{slugStatusEl}</div>
       </div>
 
       <div className="space-y-2">
@@ -134,7 +228,7 @@ export function PromptForm(props: Props) {
       )}
 
       <div className="flex gap-3 pt-2">
-        <Button type="submit" disabled={isPending}>
+        <Button type="submit" disabled={isPending || slugStatus === "taken"}>
           {isPending ? "Saving…" : props.mode === "create" ? "Create prompt" : "Save new version"}
         </Button>
         <Button type="button" variant="ghost" onClick={() => router.back()}>

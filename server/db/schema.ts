@@ -184,6 +184,8 @@ export const prompts = pgTable(
     ownerType: ownerTypeEnum("owner_type").notNull(),
     ownerId: uuid("owner_id").notNull(),
     title: text("title").notNull(),
+    /** Optional stable slug for the MCP slash command name. Unique per owner. */
+    slug: text("slug"),
     description: text("description"),
     tags: text("tags").array().notNull().default([]),
     visibility: visibilityEnum("visibility").notNull().default("private"),
@@ -201,6 +203,7 @@ export const prompts = pgTable(
     index("prompts_visibility_idx").on(t.visibility),
   ]
 );
+// Partial unique index enforced at migration level (slug nullable — see 0003_prompts_slug.sql)
 
 /** Each save creates a new immutable version. */
 export const promptVersions = pgTable(

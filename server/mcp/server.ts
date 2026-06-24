@@ -19,11 +19,16 @@ export async function createMcpServer(identity: Identity): Promise<McpServer> {
   const rows = await getPromptsForIdentity(identity);
   const seen = new Set<string>();
 
+  // Pre-seed `seen` with explicit slugs so auto-gen never collides with them
+  for (const p of rows) {
+    if (p.slug) seen.add(p.slug);
+  }
+
   for (const p of rows) {
     const body = p.versions[0]?.body ?? "";
     if (!body) continue;
 
-    const slug = uniqueSlug(p.title, p.id, seen);
+    const slug = p.slug ?? uniqueSlug(p.title, p.id, seen);
 
     // Build argsSchema from template variables (all optional — unset vars keep {{placeholder}})
     const argsShape: Record<string, z.ZodOptional<z.ZodString>> = {};
@@ -98,7 +103,7 @@ async function getPromptsForIdentity(identity: Identity) {
   return db.query.prompts.findMany({
     where,
     orderBy: desc(prompts.updatedAt),
-    columns: { id: true, title: true, description: true },
+    columns: { id: true, title: true, description: true, slug: true },
     with: {
       variables: { columns: { name: true } },
       versions: { orderBy: desc(promptVersions.versionNo), limit: 1 },

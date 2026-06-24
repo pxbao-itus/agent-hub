@@ -60,12 +60,38 @@ async function accessCondition(
 // ── Router ───────────────────────────────────────────────────────────────────
 
 const visibilityEnum = z.enum(["private", "group", "public"]);
+const slugSchema = z
+  .string()
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug must be lowercase alphanumeric with hyphens")
+  .max(100);
 
 export const promptRouter = router({
+  /** Check whether a slug is available for the current user. */
+  checkSlug: protectedProcedure
+    .input(
+      z.object({
+        slug: slugSchema,
+        excludeId: z.string().uuid().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const existing = await ctx.db.query.prompts.findFirst({
+        where: and(
+          eq(prompts.ownerType, "user"),
+          eq(prompts.ownerId, ctx.session.userId),
+          eq(prompts.slug, input.slug),
+          input.excludeId ? not(eq(prompts.id, input.excludeId)) : undefined,
+        ),
+        columns: { id: true },
+      });
+      return { available: !existing };
+    }),
+
   create: protectedProcedure
     .input(
       z.object({
         title: z.string().min(1).max(200),
+        slug: slugSchema.optional(),
         description: z.string().max(500).optional(),
         body: z.string().min(1),
         tags: z.array(z.string()).default([]),
@@ -83,6 +109,7 @@ export const promptRouter = router({
           ownerType: "user",
           ownerId: userId,
           title: input.title,
+          slug: input.slug ?? null,
           description: input.description,
           tags: input.tags,
           visibility: input.visibility,
@@ -196,6 +223,7 @@ export const promptRouter = router({
       z.object({
         id: z.string().uuid(),
         title: z.string().min(1).max(200).optional(),
+        slug: slugSchema.nullable().optional(),
         description: z.string().max(500).nullable().optional(),
         body: z.string().min(1).optional(),
         tags: z.array(z.string()).optional(),
