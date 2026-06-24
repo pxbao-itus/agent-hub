@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { router, publicProcedure } from "../trpc";
 import { orgRouter } from "./org";
+import { promptRouter } from "./prompt";
 
 export const appRouter = router({
   /** Health check: confirms the app is up and the DB is reachable. */
@@ -16,6 +17,7 @@ export const appRouter = router({
   }),
 
   org: orgRouter,
+  prompt: promptRouter,
 });
 
 export type AppRouter = typeof appRouter;
