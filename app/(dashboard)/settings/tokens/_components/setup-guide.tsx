@@ -39,10 +39,11 @@ export function SetupGuide({ endpoint, token }: Props) {
     2,
   );
 
-  const cliAdd = `claude mcp add prompt-hub \\
-  --transport http-sse \\
-  --header "Authorization: Bearer ${t}" \\
-  ${endpoint}`;
+  // Correct syntax: URL is positional arg after name, -H comes after URL
+  const cliAdd =
+    `claude mcp add prompt-hub ${endpoint}` +
+    ` \\\n  --transport http` +
+    ` \\\n  -H "Authorization: Bearer ${t}"`;
 
   const cursorConfig = JSON.stringify(
     {
@@ -79,13 +80,13 @@ export function SetupGuide({ endpoint, token }: Props) {
       {/* Claude Code */}
       {tab === "Claude Code" && (
         <div className="space-y-4">
-          {/* Option 1 — CLI */}
+          {/* Option A — CLI */}
           <div className="space-y-1.5">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               Option A — CLI (user-wide)
             </p>
             <p className="text-xs text-muted-foreground">
-              Run once in your terminal. Available in every project.
+              Run once in your terminal. Registers the server for all your projects.
             </p>
             <Snippet
               id="cli"
@@ -95,13 +96,14 @@ export function SetupGuide({ endpoint, token }: Props) {
             />
           </div>
 
-          {/* Option 2 — .mcp.json */}
+          {/* Option B — .mcp.json */}
           <div className="space-y-1.5">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               Option B — .mcp.json (project-scoped)
             </p>
             <p className="text-xs text-muted-foreground">
-              Create <code className="font-mono">.mcp.json</code> in your project root. Commit it (the token stays in your env, not the file) or add to <code className="font-mono">.gitignore</code>.
+              Create <code className="font-mono">.mcp.json</code> in your project root.
+              Add to <code className="font-mono">.gitignore</code> if your token is in the file.
             </p>
             <Snippet
               id="json-cc"
@@ -115,14 +117,14 @@ export function SetupGuide({ endpoint, token }: Props) {
 
       {/* Claude Desktop */}
       {tab === "Claude Desktop" && (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <p className="text-xs text-muted-foreground">
             Edit your Claude Desktop config file, then restart the app.
           </p>
-          <div className="rounded-md bg-muted/60 px-3 py-2 text-xs font-mono space-y-0.5">
-            <p className="text-muted-foreground">macOS</p>
+          <div className="rounded-md bg-muted/60 px-3 py-2 text-[11px] font-mono space-y-1">
+            <p className="text-muted-foreground not-italic">macOS</p>
             <p>~/Library/Application Support/Claude/claude_desktop_config.json</p>
-            <p className="mt-1 text-muted-foreground">Windows</p>
+            <p className="mt-1 text-muted-foreground not-italic">Windows</p>
             <p>%APPDATA%\Claude\claude_desktop_config.json</p>
           </div>
           <Snippet
@@ -136,7 +138,7 @@ export function SetupGuide({ endpoint, token }: Props) {
 
       {/* Cursor */}
       {tab === "Cursor" && (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <p className="text-xs text-muted-foreground">
             Edit <code className="font-mono">~/.cursor/mcp.json</code> (global) or{" "}
             <code className="font-mono">.cursor/mcp.json</code> in your project root, then restart Cursor.
@@ -152,7 +154,7 @@ export function SetupGuide({ endpoint, token }: Props) {
 
       {!token && (
         <p className="text-xs text-muted-foreground italic">
-          Generate a token above — the snippets will auto-fill with the real token.
+          Generate a token above — the snippets will auto-fill with the real value.
         </p>
       )}
     </div>
@@ -172,18 +174,21 @@ function Snippet({
 }) {
   void id;
   return (
-    <div className="relative group">
-      <pre className="rounded-md border bg-muted/60 px-3 py-3 text-[11px] font-mono leading-relaxed overflow-x-auto whitespace-pre-wrap break-all">
+    <div className="rounded-md border bg-muted/60 overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b bg-muted/80">
+        <span className="text-[10px] text-muted-foreground select-none">shell</span>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-5 px-2 text-[10px] font-medium"
+          onClick={onCopy}
+        >
+          {copied ? "✓ Copied" : "Copy"}
+        </Button>
+      </div>
+      <pre className="px-3 py-3 text-[11px] font-mono leading-relaxed overflow-x-auto whitespace-pre">
         {text}
       </pre>
-      <Button
-        size="sm"
-        variant="outline"
-        className="absolute top-2 right-2 h-6 px-2 text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
-        onClick={onCopy}
-      >
-        {copied ? "Copied!" : "Copy"}
-      </Button>
     </div>
   );
 }
