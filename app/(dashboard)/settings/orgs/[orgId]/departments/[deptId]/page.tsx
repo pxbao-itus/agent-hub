@@ -102,7 +102,12 @@ export default async function DeptDetailPage({
             ))}
           </div>
         )}
-        {isAdmin && <CreateTeamForm departmentId={deptId} />}
+        {isAdmin && (
+          <CreateTeamForm
+            departmentId={deptId}
+            deptSlugPath={[org.slug, dept.slug].filter(Boolean).join(".")}
+          />
+        )}
       </section>
     </div>
   );

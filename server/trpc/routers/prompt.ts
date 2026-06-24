@@ -2,7 +2,7 @@ import { z } from "zod";
 import { eq, and, or, desc, sql, inArray, not } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../trpc";
-import { prompts, promptVersions, promptVariables } from "@/server/db/schema";
+import { prompts, promptVersions, promptVariables, memberships } from "@/server/db/schema";
 import { getAccessibleGroups } from "@/server/auth/access";
 import { parseVariables } from "@/server/lib/template";
 import type { DbClient } from "@/server/db/types";
@@ -66,19 +66,23 @@ const slugSchema = z
   .max(100);
 
 export const promptRouter = router({
-  /** Check whether a slug is available for the current user. */
+  /** Check whether a slug is available within a given owner space. */
   checkSlug: protectedProcedure
     .input(
       z.object({
         slug: slugSchema,
+        ownerType: z.enum(["user", "org", "department", "team"]).default("user"),
+        ownerId: z.string().uuid().optional(),
         excludeId: z.string().uuid().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
+      const ownerId =
+        input.ownerType === "user" ? ctx.session.userId : (input.ownerId ?? ctx.session.userId);
       const existing = await ctx.db.query.prompts.findFirst({
         where: and(
-          eq(prompts.ownerType, "user"),
-          eq(prompts.ownerId, ctx.session.userId),
+          eq(prompts.ownerType, input.ownerType),
+          eq(prompts.ownerId, ownerId),
           eq(prompts.slug, input.slug),
           input.excludeId ? not(eq(prompts.id, input.excludeId)) : undefined,
         ),
@@ -97,17 +101,34 @@ export const promptRouter = router({
         tags: z.array(z.string()).default([]),
         visibility: visibilityEnum.default("private"),
         changelog: z.string().max(300).optional(),
+        ownerType: z.enum(["user", "org", "department", "team"]).default("user"),
+        ownerId: z.string().uuid().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { userId } = ctx.session;
+      const { userId, systemRole } = ctx.session;
+
+      // Resolve effective owner + verify access
+      const ownerType = input.ownerType;
+      const ownerId = ownerType === "user" ? userId : (input.ownerId ?? userId);
+
+      if (ownerType !== "user" && systemRole !== "superadmin") {
+        const membership = await ctx.db.query.memberships.findFirst({
+          where: and(
+            eq(memberships.userId, userId),
+            eq(memberships.groupType, ownerType as "org" | "department" | "team"),
+            eq(memberships.groupId, ownerId),
+          ),
+        });
+        if (!membership) throw new TRPCError({ code: "FORBIDDEN" });
+      }
 
       // 1. Insert prompt (currentVersionId null until we have the version id)
       const [prompt] = await ctx.db
         .insert(prompts)
         .values({
-          ownerType: "user",
-          ownerId: userId,
+          ownerType,
+          ownerId,
           title: input.title,
           slug: input.slug ?? null,
           description: input.description,

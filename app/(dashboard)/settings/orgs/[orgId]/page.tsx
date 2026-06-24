@@ -90,7 +90,7 @@ export default async function OrgDetailPage({ params }: { params: Promise<{ orgI
             ))}
           </div>
         )}
-        {isAdmin && <CreateDeptForm orgId={orgId} />}
+        {isAdmin && <CreateDeptForm orgId={orgId} orgSlug={org.slug} />}
       </section>
     </div>
   );

@@ -38,6 +38,8 @@ export default async function EditPromptPage({ params }: { params: Promise<{ id:
           body: currentBody,
           tags: prompt.tags,
           visibility: prompt.visibility,
+          ownerType: prompt.ownerType as "user" | "org" | "department" | "team",
+          ownerId: prompt.ownerId,
         }}
       />
     </div>

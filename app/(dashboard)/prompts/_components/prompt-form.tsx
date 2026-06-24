@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { parseVariables } from "@/server/lib/template";
 
 type Visibility = "private" | "group" | "public";
+type OwnerType = "user" | "org" | "department" | "team";
 
 type Props = {
   mode: "create";
@@ -24,6 +25,8 @@ type Props = {
     body: string;
     tags: string[];
     visibility: Visibility;
+    ownerType: OwnerType;
+    ownerId: string;
   };
 };
 
@@ -57,6 +60,30 @@ export function PromptForm(props: Props) {
     props.mode === "edit" ? props.initial.visibility : "private",
   );
   const [changelog, setChangelog] = useState("");
+  // "user:" = personal space; "org:<id>" / "department:<id>" / "team:<id>" = group space
+  const [selectedSpaceKey, setSelectedSpaceKey] = useState<string>("user:");
+
+  const mySpaces = trpc.org.mySpaces.useQuery(undefined, { enabled: props.mode === "create" });
+
+  // Derive current owner
+  const ownerType: OwnerType =
+    props.mode === "edit"
+      ? props.initial.ownerType
+      : selectedSpaceKey === "user:"
+      ? "user"
+      : (selectedSpaceKey.split(":")[0] as OwnerType);
+
+  const ownerId: string | undefined =
+    props.mode === "edit"
+      ? props.initial.ownerId
+      : selectedSpaceKey === "user:"
+      ? undefined
+      : selectedSpaceKey.split(":")[1];
+
+  const slugPath =
+    props.mode === "create" && selectedSpaceKey !== "user:"
+      ? (mySpaces.data?.find((s) => `${s.type}:${s.id}` === selectedSpaceKey)?.slugPath ?? "")
+      : "";
 
   // Auto-fill slug from title when user hasn't manually set one
   useEffect(() => {
@@ -72,7 +99,7 @@ export function PromptForm(props: Props) {
   const excludeId = props.mode === "edit" ? props.promptId : undefined;
   const slugCheckEnabled = SLUG_RE.test(debouncedSlug) && debouncedSlug.length > 0 && debouncedSlug === slug;
   const slugCheck = trpc.prompt.checkSlug.useQuery(
-    { slug: debouncedSlug, excludeId },
+    { slug: debouncedSlug, ownerType, ownerId, excludeId },
     { enabled: slugCheckEnabled },
   );
 
@@ -98,9 +125,28 @@ export function PromptForm(props: Props) {
     const slugVal = slug && SLUG_RE.test(slug) ? slug : undefined;
 
     if (props.mode === "create") {
-      create.mutate({ title, slug: slugVal, description: description || undefined, body, tags, visibility, changelog: changelog || undefined });
+      create.mutate({
+        title,
+        slug: slugVal,
+        description: description || undefined,
+        body,
+        tags,
+        visibility,
+        changelog: changelog || undefined,
+        ownerType,
+        ownerId,
+      });
     } else {
-      update.mutate({ id: props.promptId, title, slug: slugVal ?? null, description: description || undefined, body, tags, visibility, changelog: changelog || undefined });
+      update.mutate({
+        id: props.promptId,
+        title,
+        slug: slugVal ?? null,
+        description: description || undefined,
+        body,
+        tags,
+        visibility,
+        changelog: changelog || undefined,
+      });
     }
   }
 
@@ -126,9 +172,39 @@ export function PromptForm(props: Props) {
     taken: <span className="text-xs text-destructive">✗ Already taken — choose a different slug</span>,
   }[slugStatus];
 
+  const slugPrefix = slugPath ? `${slugPath}.` : "";
+
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       {error && <p className="text-sm text-destructive">{error.message}</p>}
+
+      {/* Space selector — create mode only */}
+      {props.mode === "create" && (
+        <div className="space-y-2">
+          <Label htmlFor="space">Space</Label>
+          <select
+            id="space"
+            value={selectedSpaceKey}
+            onChange={(e) => { setSelectedSpaceKey(e.target.value); setSlugTouched(false); }}
+            disabled={mySpaces.isLoading}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          >
+            <option value="user:">Personal space</option>
+            {mySpaces.data?.map((s) => (
+              <option key={`${s.type}:${s.id}`} value={`${s.type}:${s.id}`}>
+                {s.name} ({s.slugPath})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Owner info — edit mode, non-user space */}
+      {props.mode === "edit" && props.initial.ownerType !== "user" && (
+        <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          Space: <span className="font-medium text-foreground capitalize">{props.initial.ownerType}</span>
+        </div>
+      )}
 
       <div className="space-y-2">
         <Label htmlFor="title">Title</Label>
@@ -157,14 +233,16 @@ export function PromptForm(props: Props) {
             </button>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground select-none shrink-0">/mcp__prompt-hub__</span>
+        <div className="flex items-center gap-1 overflow-x-auto">
+          <span className="text-xs text-muted-foreground select-none shrink-0 font-mono whitespace-nowrap">
+            /mcp__prompt-hub__{slugPrefix}
+          </span>
           <Input
             id="slug"
             value={slug}
             onChange={(e) => { setSlug(e.target.value); setSlugTouched(true); }}
             placeholder="my-prompt"
-            className="h-8 text-sm font-mono"
+            className="h-8 text-sm font-mono min-w-0"
           />
         </div>
         <div className="min-h-[1.25rem]">{slugStatusEl}</div>

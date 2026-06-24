@@ -5,6 +5,7 @@ import { db } from "@/server/db";
 import { prompts, promptVersions } from "@/server/db/schema";
 import { getAccessibleGroups } from "@/server/auth/access";
 import { renderTemplate } from "@/server/lib/template";
+import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
 
 type Identity = { userId: string; systemRole: "user" | "superadmin" };
 
@@ -17,18 +18,31 @@ export async function createMcpServer(identity: Identity): Promise<McpServer> {
   const server = new McpServer({ name: "prompt-hub", version: "0.1.0" });
 
   const rows = await getPromptsForIdentity(identity);
+
+  // Resolve hierarchical slug paths for all owner entities in one batch
+  const ownerSlugPaths = await resolveOwnerSlugPaths(
+    rows.map((p) => ({ ownerType: p.ownerType, ownerId: p.ownerId })),
+    db,
+  );
+
   const seen = new Set<string>();
 
-  // Pre-seed `seen` with explicit slugs so auto-gen never collides with them
+  // Pre-seed `seen` with all explicit slugs (across all spaces) to prevent collisions
   for (const p of rows) {
-    if (p.slug) seen.add(p.slug);
+    if (p.slug) {
+      const spacePath = ownerSlugPaths.get(`${p.ownerType}:${p.ownerId}`) ?? "";
+      const full = [spacePath, p.slug].filter(Boolean).join(".");
+      seen.add(full);
+    }
   }
 
   for (const p of rows) {
     const body = p.versions[0]?.body ?? "";
     if (!body) continue;
 
-    const slug = p.slug ?? uniqueSlug(p.title, p.id, seen);
+    const spacePath = ownerSlugPaths.get(`${p.ownerType}:${p.ownerId}`) ?? "";
+    const localSlug = p.slug ?? uniqueSlug(p.title, p.id, seen);
+    const slug = [spacePath, localSlug].filter(Boolean).join(".");
 
     // Build argsSchema from template variables (all optional — unset vars keep {{placeholder}})
     const argsShape: Record<string, z.ZodOptional<z.ZodString>> = {};
@@ -103,7 +117,7 @@ async function getPromptsForIdentity(identity: Identity) {
   return db.query.prompts.findMany({
     where,
     orderBy: desc(prompts.updatedAt),
-    columns: { id: true, title: true, description: true, slug: true },
+    columns: { id: true, title: true, description: true, slug: true, ownerType: true, ownerId: true },
     with: {
       variables: { columns: { name: true } },
       versions: { orderBy: desc(promptVersions.versionNo), limit: 1 },
