@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { eq, and, inArray, count } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
-import { orgs, departments, teams, memberships, users } from "@/server/db/schema";
+import { orgs, departments, teams, memberships, users, prompts } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import type { DbClient } from "@/server/db/types";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
@@ -56,6 +56,10 @@ export async function resolveOwningOrgId(
   return dept.orgId;
 }
 
+function requireSuperAdmin(systemRole: "user" | "superadmin"): void {
+  if (systemRole !== "superadmin") throw new TRPCError({ code: "FORBIDDEN" });
+}
+
 async function ensureNotLastOrgAdmin(db: DbClient, membershipId: string): Promise<void> {
   const m = await db.query.memberships.findFirst({ where: eq(memberships.id, membershipId) });
   if (!m || m.groupType !== "org" || m.role !== "admin") return;
@@ -85,6 +89,7 @@ export const orgRouter = router({
   create: protectedProcedure
     .input(z.object({ name: z.string().min(1).max(100), slug: slugSchema }))
     .mutation(async ({ ctx, input }) => {
+      requireSuperAdmin(ctx.session.systemRole);
       const [org] = await ctx.db
         .insert(orgs)
         .values({ name: input.name, slug: input.slug })
@@ -191,6 +196,69 @@ export const orgRouter = router({
         });
       }),
 
+    update: protectedProcedure
+      .input(
+        z.object({
+          departmentId: z.string().uuid(),
+          name: z.string().min(1).max(100).optional(),
+          slug: slugSchema.optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const dept = await ctx.db.query.departments.findFirst({
+          where: eq(departments.id, input.departmentId),
+        });
+        if (!dept) throw new TRPCError({ code: "NOT_FOUND" });
+        await requireOrgRole(ctx.db, ctx.session.userId, dept.orgId, "admin", ctx.session.systemRole);
+        const [updated] = await ctx.db
+          .update(departments)
+          .set({
+            ...(input.name !== undefined && { name: input.name }),
+            ...(input.slug !== undefined && { slug: input.slug }),
+          })
+          .where(eq(departments.id, input.departmentId))
+          .returning();
+        return updated;
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ departmentId: z.string().uuid() }))
+      .mutation(async ({ ctx, input }) => {
+        const dept = await ctx.db.query.departments.findFirst({
+          where: eq(departments.id, input.departmentId),
+        });
+        if (!dept) throw new TRPCError({ code: "NOT_FOUND" });
+        await requireOrgRole(ctx.db, ctx.session.userId, dept.orgId, "admin", ctx.session.systemRole);
+
+        await ctx.db.transaction(async (tx) => {
+          const childTeams = await tx
+            .select({ id: teams.id })
+            .from(teams)
+            .where(eq(teams.departmentId, input.departmentId));
+          const childTeamIds = childTeams.map((t) => t.id);
+
+          // Delete prompts owned by dept
+          await tx.delete(prompts).where(
+            and(eq(prompts.ownerType, "department"), eq(prompts.ownerId, input.departmentId)),
+          );
+          // Delete prompts owned by child teams
+          if (childTeamIds.length > 0) {
+            await tx.delete(prompts).where(
+              and(eq(prompts.ownerType, "team"), inArray(prompts.ownerId, childTeamIds)),
+            );
+            await tx.delete(memberships).where(
+              and(eq(memberships.groupType, "team"), inArray(memberships.groupId, childTeamIds)),
+            );
+          }
+          // Delete dept-level memberships
+          await tx.delete(memberships).where(
+            and(eq(memberships.groupType, "department"), eq(memberships.groupId, input.departmentId)),
+          );
+          // Delete dept (teams cascade via FK)
+          await tx.delete(departments).where(eq(departments.id, input.departmentId));
+        });
+      }),
+
     // ── Team sub-router ─────────────────────────────────────────────────────
 
     team: router({
@@ -225,6 +293,55 @@ export const orgRouter = router({
           await requireOrgRole(ctx.db, ctx.session.userId, dept.orgId, "viewer", ctx.session.systemRole);
           return ctx.db.query.teams.findMany({
             where: eq(teams.departmentId, input.departmentId),
+          });
+        }),
+
+      update: protectedProcedure
+        .input(
+          z.object({
+            teamId: z.string().uuid(),
+            name: z.string().min(1).max(100).optional(),
+            slug: slugSchema.optional(),
+          }),
+        )
+        .mutation(async ({ ctx, input }) => {
+          const team = await ctx.db.query.teams.findFirst({ where: eq(teams.id, input.teamId) });
+          if (!team) throw new TRPCError({ code: "NOT_FOUND" });
+          const dept = await ctx.db.query.departments.findFirst({
+            where: eq(departments.id, team.departmentId),
+          });
+          if (!dept) throw new TRPCError({ code: "NOT_FOUND" });
+          await requireOrgRole(ctx.db, ctx.session.userId, dept.orgId, "admin", ctx.session.systemRole);
+          const [updated] = await ctx.db
+            .update(teams)
+            .set({
+              ...(input.name !== undefined && { name: input.name }),
+              ...(input.slug !== undefined && { slug: input.slug }),
+            })
+            .where(eq(teams.id, input.teamId))
+            .returning();
+          return updated;
+        }),
+
+      delete: protectedProcedure
+        .input(z.object({ teamId: z.string().uuid() }))
+        .mutation(async ({ ctx, input }) => {
+          const team = await ctx.db.query.teams.findFirst({ where: eq(teams.id, input.teamId) });
+          if (!team) throw new TRPCError({ code: "NOT_FOUND" });
+          const dept = await ctx.db.query.departments.findFirst({
+            where: eq(departments.id, team.departmentId),
+          });
+          if (!dept) throw new TRPCError({ code: "NOT_FOUND" });
+          await requireOrgRole(ctx.db, ctx.session.userId, dept.orgId, "admin", ctx.session.systemRole);
+
+          await ctx.db.transaction(async (tx) => {
+            await tx.delete(prompts).where(
+              and(eq(prompts.ownerType, "team"), eq(prompts.ownerId, input.teamId)),
+            );
+            await tx.delete(memberships).where(
+              and(eq(memberships.groupType, "team"), eq(memberships.groupId, input.teamId)),
+            );
+            await tx.delete(teams).where(eq(teams.id, input.teamId));
           });
         }),
     }),
