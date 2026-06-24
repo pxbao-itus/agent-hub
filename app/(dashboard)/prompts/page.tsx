@@ -5,6 +5,8 @@ import { db } from "@/server/db";
 import { prompts, promptVersions } from "@/server/db/schema";
 import { desc, eq, or, sql, and } from "drizzle-orm";
 import { getAccessibleGroups } from "@/server/auth/access";
+import { hybridSearch, fetchPromptsByIds } from "@/server/lib/search";
+import { getEmbedder } from "@/server/embedder";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,24 +43,35 @@ export default async function PromptsPage({ searchParams }: Props) {
     );
   }
 
-  const ftsFilter = q
-    ? sql`to_tsvector('english', ${prompts.title} || ' ' || coalesce(${prompts.description}, '')) @@ plainto_tsquery('english', ${q})`
-    : undefined;
-
   const tagFilter = tag ? sql`${tag} = ANY(${prompts.tags})` : undefined;
 
-  const where = and(accessWhere, ftsFilter, tagFilter);
-
   // ── Queries ────────────────────────────────────────────────────────────────
-  const [rows, allPrompts] = await Promise.all([
-    db.query.prompts.findMany({
-      where,
+  let rows: Awaited<ReturnType<typeof fetchPromptsByIds>>;
+
+  if (q) {
+    const { ids } = await hybridSearch({
+      query: q,
+      accessCondition: accessWhere,
+      tagFilter,
+      embedder: getEmbedder(),
+      db,
+      limit,
+      offset,
+    });
+    rows = await fetchPromptsByIds(ids, db);
+  } else {
+    const tagWhere = and(accessWhere, tagFilter);
+    rows = await db.query.prompts.findMany({
+      where: tagWhere,
       orderBy: desc(prompts.updatedAt),
       limit,
       offset,
       with: { versions: { limit: 1, orderBy: desc(promptVersions.versionNo) } },
-    }),
-    // Fetch all accessible tags for the filter bar (no search/tag filter)
+    });
+  }
+
+  const [allPrompts] = await Promise.all([
+    // Fetch all accessible tags for the filter bar
     db.query.prompts.findMany({
       where: accessWhere,
       columns: { tags: true },

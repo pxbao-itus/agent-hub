@@ -1,11 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { eq, desc, and, or, sql } from "drizzle-orm";
+import { eq, desc, and, or, sql, inArray } from "drizzle-orm";
 import { db } from "@/server/db";
 import { prompts, promptVersions } from "@/server/db/schema";
 import { getAccessibleGroups } from "@/server/auth/access";
 import { renderTemplate } from "@/server/lib/template";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
+import { hybridSearch, fetchPromptsByIds } from "@/server/lib/search";
+import { getEmbedder } from "@/server/embedder";
 
 type Identity = { userId: string; systemRole: "user" | "superadmin" };
 
@@ -67,6 +69,52 @@ export async function createMcpServer(identity: Identity): Promise<McpServer> {
       }),
     );
   }
+
+  // ── Tool: search_prompts ───────────────────────────────────────────────────
+  // Useful when the agent doesn't know the slug yet and wants to discover prompts.
+
+  // Reuse the already-loaded accessible prompt IDs as the access filter for search.
+  const accessibleIds = rows.map((r) => r.id);
+  const accessCondition = accessibleIds.length ? inArray(prompts.id, accessibleIds) : sql`false`;
+
+  server.tool(
+    "search_prompts",
+    "Search for prompts by meaning or keywords. Returns matching prompt slugs you can call directly.",
+    {
+      query: z.string().describe("What you're looking for — describe the task or topic"),
+      limit: z.number().int().min(1).max(20).optional().default(5),
+    },
+    async ({ query, limit = 5 }) => {
+      const { ids } = await hybridSearch({
+        query,
+        accessCondition,
+        embedder: getEmbedder(),
+        db,
+        limit,
+        offset: 0,
+      });
+      const results = await fetchPromptsByIds(ids, db);
+
+      if (!results.length) {
+        return { content: [{ type: "text" as const, text: "No prompts found." }] };
+      }
+
+      const lines = results.map((p) => {
+        const spacePath = ownerSlugPaths.get(`${p.ownerType}:${p.ownerId}`) ?? "";
+        const localSlug = p.slug ?? slugify(p.title);
+        const fullSlug = [spacePath, localSlug].filter(Boolean).join(".");
+        const desc = p.description ? `: ${p.description}` : "";
+        return `- ${fullSlug}${desc}`;
+      });
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: lines.join("\n"),
+        }],
+      };
+    },
+  );
 
   return server;
 }

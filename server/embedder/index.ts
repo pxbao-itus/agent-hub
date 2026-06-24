@@ -1,8 +1,11 @@
 /**
  * Pluggable embedding interface.
  *
- * Swap implementations via EMBEDDER env var without touching call sites.
- * Default: NullEmbedder (no-op, returns empty vectors) until v0.2.
+ * Switch implementation via EMBEDDER env var (null | local).
+ * Default: NullEmbedder (no-op). Set EMBEDDER=local to use bge-m3 locally.
+ *
+ * Call setEmbedder() from instrumentation.ts at startup to register a real
+ * implementation before the first request is handled.
  */
 
 export interface Embedder {
@@ -23,10 +26,17 @@ export class NullEmbedder implements Embedder {
   }
 }
 
-let _instance: Embedder | null = null;
+let _instance: Embedder = new NullEmbedder();
 
-/** Returns the singleton Embedder for this process. */
+/** Returns the current singleton Embedder. Always synchronous. */
 export function getEmbedder(): Embedder {
-  if (!_instance) _instance = new NullEmbedder();
   return _instance;
+}
+
+/**
+ * Register the embedder for this process. Called once from instrumentation.ts
+ * before any requests are served. Safe to call multiple times (last write wins).
+ */
+export function setEmbedder(e: Embedder): void {
+  _instance = e;
 }

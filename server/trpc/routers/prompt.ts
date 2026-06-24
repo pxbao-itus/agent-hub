@@ -4,6 +4,8 @@ import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../trpc";
 import { prompts, promptVersions, promptVariables, memberships } from "@/server/db/schema";
 import { getAccessibleGroups, canMutatePrompt } from "@/server/auth/access";
+import { hybridSearch, fetchPromptsByIds } from "@/server/lib/search";
+import { getEmbedder } from "@/server/embedder";
 import { parseVariables } from "@/server/lib/template";
 import type { DbClient } from "@/server/db/types";
 
@@ -171,6 +173,7 @@ export const promptRouter = router({
         query: z.string().optional(),
         tag: z.string().optional(),
         mine: z.boolean().default(false),
+        mode: z.enum(["keyword", "hybrid"]).default("hybrid"),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -180,12 +183,27 @@ export const promptRouter = router({
         ? and(eq(prompts.ownerType, "user"), eq(prompts.ownerId, userId))
         : await accessCondition(userId, ctx.db, systemRole);
 
-      const ftsFilter = input.query
-        ? sql`to_tsvector('english', ${prompts.title} || ' ' || coalesce(${prompts.description}, '')) @@ plainto_tsquery('english', ${input.query})`
-        : undefined;
-
       const tagFilter = input.tag
         ? sql`${input.tag} = ANY(${prompts.tags})`
+        : undefined;
+
+      // Use hybrid search when a query is provided and mode is hybrid
+      if (input.query && input.mode === "hybrid") {
+        const { ids } = await hybridSearch({
+          query: input.query,
+          accessCondition: condition,
+          tagFilter,
+          embedder: getEmbedder(),
+          db: ctx.db,
+          limit: input.limit,
+          offset: input.offset,
+        });
+        const items = await fetchPromptsByIds(ids, ctx.db);
+        return { items, total: items.length + input.offset };
+      }
+
+      const ftsFilter = input.query
+        ? sql`to_tsvector('english', ${prompts.title} || ' ' || coalesce(${prompts.description}, '')) @@ plainto_tsquery('english', ${input.query})`
         : undefined;
 
       const where = and(condition, ftsFilter, tagFilter);

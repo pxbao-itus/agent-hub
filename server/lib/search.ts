@@ -1,0 +1,130 @@
+import { and, eq, inArray, isNotNull, type SQL } from "drizzle-orm";
+import { sql } from "drizzle-orm";
+import type { DbClient } from "@/server/db/types";
+import { prompts, promptVersions, promptEmbeddings } from "@/server/db/schema";
+import type { Embedder } from "@/server/embedder";
+
+const FTS_POOL = 50;
+const VEC_POOL = 50;
+
+/**
+ * Pure Reciprocal Rank Fusion. Each input list is ordered best-first.
+ * Returns merged IDs ordered best-first.
+ * k=60 is the standard RRF constant.
+ */
+export function rrfMerge(rankedLists: string[][], k = 60): string[] {
+  const scores = new Map<string, number>();
+  for (const list of rankedLists) {
+    list.forEach((id, rank) => {
+      scores.set(id, (scores.get(id) ?? 0) + 1 / (k + rank + 1));
+    });
+  }
+  return [...scores.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([id]) => id);
+}
+
+/** Run FTS, return IDs ordered by ts_rank DESC. */
+async function runFts(
+  query: string,
+  accessCondition: SQL | undefined,
+  tagFilter: SQL | undefined,
+  dbClient: DbClient,
+): Promise<string[]> {
+  const tsvec = sql`to_tsvector('english', ${prompts.title} || ' ' || coalesce(${prompts.description}, ''))`;
+  const tsquery = sql`plainto_tsquery('english', ${query})`;
+
+  const rows = await dbClient
+    .select({ id: prompts.id })
+    .from(prompts)
+    .where(and(accessCondition, tagFilter, sql`${tsvec} @@ ${tsquery}`))
+    .orderBy(sql`ts_rank(${tsvec}, ${tsquery}) DESC`)
+    .limit(FTS_POOL);
+
+  return rows.map((r) => r.id);
+}
+
+/** Run cosine vector search, return IDs ordered by similarity DESC. */
+async function runVectorSearch(
+  queryVec: number[],
+  embedder: Embedder,
+  accessCondition: SQL | undefined,
+  tagFilter: SQL | undefined,
+  dbClient: DbClient,
+): Promise<string[]> {
+  // Format as pgvector literal: [0.1,0.2,...,0.3]
+  const vecLiteral = `[${queryVec.map((n) => n.toFixed(6)).join(",")}]`;
+
+  const rows = await dbClient
+    .select({ id: prompts.id })
+    .from(prompts)
+    .innerJoin(
+      promptVersions,
+      and(
+        eq(promptVersions.id, prompts.currentVersionId!),
+        isNotNull(prompts.currentVersionId),
+      ),
+    )
+    .innerJoin(
+      promptEmbeddings,
+      and(
+        eq(promptEmbeddings.promptVersionId, promptVersions.id),
+        eq(promptEmbeddings.embedderId, embedder.embedderId),
+      ),
+    )
+    .where(and(accessCondition, tagFilter))
+    .orderBy(sql`${promptEmbeddings.embedding} <=> ${vecLiteral}::vector`)
+    .limit(VEC_POOL);
+
+  return rows.map((r) => r.id);
+}
+
+export interface HybridSearchResult {
+  ids: string[];
+  mode: "hybrid" | "keyword";
+}
+
+/**
+ * Hybrid search: FTS + vector cosine via RRF.
+ * Falls back to keyword-only when the embedder is null.
+ */
+export async function hybridSearch(opts: {
+  query: string;
+  accessCondition: SQL | undefined;
+  tagFilter?: SQL | undefined;
+  embedder: Embedder;
+  db: DbClient;
+  limit: number;
+  offset: number;
+}): Promise<HybridSearchResult> {
+  const { query, accessCondition, tagFilter, embedder, db: dbClient, limit, offset } = opts;
+  const semantic = embedder.embedderId !== "null";
+
+  if (!semantic) {
+    // Keyword-only fallback
+    const ids = await runFts(query, accessCondition, tagFilter, dbClient);
+    return { ids: ids.slice(offset, offset + limit), mode: "keyword" };
+  }
+
+  // Embed query + run FTS in parallel
+  const [[queryVec], ftsIds] = await Promise.all([
+    embedder.embed([query]),
+    runFts(query, accessCondition, tagFilter, dbClient),
+  ]);
+
+  const vecIds = await runVectorSearch(queryVec, embedder, accessCondition, tagFilter, dbClient);
+  const merged = rrfMerge([ftsIds, vecIds]);
+
+  return { ids: merged.slice(offset, offset + limit), mode: "hybrid" };
+}
+
+/** Fetch full prompt rows for the given IDs, preserving the provided order. */
+export async function fetchPromptsByIds(ids: string[], dbClient: DbClient) {
+  if (!ids.length) return [];
+  const rows = await dbClient.query.prompts.findMany({
+    where: inArray(prompts.id, ids),
+    with: { versions: { limit: 1, orderBy: sql`version_no DESC` } },
+  });
+  const map = new Map(rows.map((r) => [r.id, r]));
+  return ids.map((id) => map.get(id)).filter(Boolean) as typeof rows;
+}
