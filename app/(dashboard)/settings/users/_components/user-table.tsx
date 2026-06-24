@@ -6,23 +6,25 @@ import { trpc } from "@/lib/trpc/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "@/hooks/use-toast";
 import { MoreHorizontal, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { EditUserDialog } from "./edit-user-dialog";
 
-type User = {
+export type UserRow = {
   id: string;
   name: string | null;
   email: string;
   image: string | null;
   systemRole: "user" | "superadmin";
+  hasPassword: boolean;
   createdAt: Date;
   orgCount: number;
 };
 
 type Props = {
-  users: User[];
+  users: UserRow[];
   currentUserId: string;
   query: string;
   offset: number;
@@ -31,12 +33,15 @@ type Props = {
 };
 
 type RoleAction = { userId: string; email: string; role: "user" | "superadmin" } | null;
+type DeleteTarget = { userId: string; email: string } | null;
 
 export function UserTable({ users, currentUserId, query, offset, limit, hasMore }: Props) {
   const router = useRouter();
   const [search, setSearch] = useState(query);
   const [isPending, startTransition] = useTransition();
   const [roleAction, setRoleAction] = useState<RoleAction>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
+  const [editTarget, setEditTarget] = useState<UserRow | null>(null);
 
   const setSystemRole = trpc.user.setSystemRole.useMutation({
     onSuccess: () => {
@@ -47,6 +52,15 @@ export function UserTable({ users, currentUserId, query, offset, limit, hasMore 
     onError: (e) => toast({ title: "Failed to update role", description: e.message, variant: "destructive" }),
   });
 
+  const deleteUser = trpc.user.delete.useMutation({
+    onSuccess: () => {
+      toast({ title: "User deleted", variant: "success" });
+      setDeleteTarget(null);
+      router.refresh();
+    },
+    onError: (e) => toast({ title: "Failed to delete user", description: e.message, variant: "destructive" }),
+  });
+
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     startTransition(() => {
@@ -54,6 +68,13 @@ export function UserTable({ users, currentUserId, query, offset, limit, hasMore 
       if (search) params.set("q", search);
       router.push(`/settings/users?${params.toString()}`);
     });
+  }
+
+  function navigate(newOffset: number) {
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (newOffset > 0) params.set("offset", String(newOffset));
+    router.push(`/settings/users?${params.toString()}`);
   }
 
   return (
@@ -77,6 +98,7 @@ export function UserTable({ users, currentUserId, query, offset, limit, hasMore 
             <tr className="border-b bg-muted/50">
               <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">User</th>
               <th className="px-4 py-2.5 text-left font-medium text-muted-foreground hidden sm:table-cell">Role</th>
+              <th className="px-4 py-2.5 text-left font-medium text-muted-foreground hidden md:table-cell">Auth</th>
               <th className="px-4 py-2.5 text-left font-medium text-muted-foreground hidden md:table-cell">Orgs</th>
               <th className="px-4 py-2.5 text-left font-medium text-muted-foreground hidden lg:table-cell">Joined</th>
               <th className="w-10" />
@@ -85,7 +107,7 @@ export function UserTable({ users, currentUserId, query, offset, limit, hasMore 
           <tbody className="divide-y">
             {users.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
                   No users found.
                 </td>
               </tr>
@@ -99,7 +121,7 @@ export function UserTable({ users, currentUserId, query, offset, limit, hasMore 
                     </span>
                     <div className="min-w-0">
                       {u.name && <p className="truncate font-medium">{u.name}</p>}
-                      <p className={`truncate text-muted-foreground ${!u.name ? "font-medium text-foreground" : "text-xs"}`}>
+                      <p className={`truncate ${!u.name ? "font-medium text-foreground" : "text-xs text-muted-foreground"}`}>
                         {u.email}
                       </p>
                     </div>
@@ -110,6 +132,11 @@ export function UserTable({ users, currentUserId, query, offset, limit, hasMore 
                     {u.systemRole}
                   </Badge>
                 </td>
+                <td className="px-4 py-3 hidden md:table-cell">
+                  <span className="text-xs text-muted-foreground">
+                    {u.hasPassword ? "Password" : "OAuth only"}
+                  </span>
+                </td>
                 <td className="px-4 py-3 hidden md:table-cell text-muted-foreground">
                   {u.orgCount}
                 </td>
@@ -117,32 +144,41 @@ export function UserTable({ users, currentUserId, query, offset, limit, hasMore 
                   {u.createdAt.toLocaleDateString()}
                 </td>
                 <td className="px-4 py-3">
-                  {u.id !== currentUserId && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                          <MoreHorizontal className="h-4 w-4" />
-                          <span className="sr-only">Actions</span>
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        {u.systemRole === "superadmin" ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                        <MoreHorizontal className="h-4 w-4" />
+                        <span className="sr-only">Actions</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => setEditTarget(u)}>
+                        Edit
+                      </DropdownMenuItem>
+                      {u.id !== currentUserId && (
+                        <>
+                          <DropdownMenuItem
+                            onSelect={() =>
+                              setRoleAction({
+                                userId: u.id,
+                                email: u.email,
+                                role: u.systemRole === "superadmin" ? "user" : "superadmin",
+                              })
+                            }
+                          >
+                            {u.systemRole === "superadmin" ? "Remove superadmin" : "Make superadmin"}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
                           <DropdownMenuItem
                             className="text-destructive focus:text-destructive"
-                            onSelect={() => setRoleAction({ userId: u.id, email: u.email, role: "user" })}
+                            onSelect={() => setDeleteTarget({ userId: u.id, email: u.email })}
                           >
-                            Remove superadmin
+                            Delete user
                           </DropdownMenuItem>
-                        ) : (
-                          <DropdownMenuItem
-                            onSelect={() => setRoleAction({ userId: u.id, email: u.email, role: "superadmin" })}
-                          >
-                            Make superadmin
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
+                        </>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </td>
               </tr>
             ))}
@@ -153,41 +189,25 @@ export function UserTable({ users, currentUserId, query, offset, limit, hasMore 
       {/* Pagination */}
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
-          Showing {offset + 1}–{offset + users.length}
+          {users.length > 0 ? `Showing ${offset + 1}–${offset + users.length}` : "No results"}
         </p>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={offset === 0}
-            onClick={() => {
-              const params = new URLSearchParams();
-              if (query) params.set("q", query);
-              const prev = Math.max(0, offset - limit);
-              if (prev > 0) params.set("offset", String(prev));
-              router.push(`/settings/users?${params.toString()}`);
-            }}
-          >
-            <ChevronLeft className="h-4 w-4" />
-            Prev
+          <Button variant="outline" size="sm" disabled={offset === 0} onClick={() => navigate(Math.max(0, offset - limit))}>
+            <ChevronLeft className="h-4 w-4" /> Prev
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!hasMore}
-            onClick={() => {
-              const params = new URLSearchParams();
-              if (query) params.set("q", query);
-              params.set("offset", String(offset + limit));
-              router.push(`/settings/users?${params.toString()}`);
-            }}
-          >
-            Next
-            <ChevronRight className="h-4 w-4" />
+          <Button variant="outline" size="sm" disabled={!hasMore} onClick={() => navigate(offset + limit)}>
+            Next <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
       </div>
 
+      {/* Edit dialog */}
+      <EditUserDialog
+        user={editTarget ? { id: editTarget.id, name: editTarget.name, email: editTarget.email, hasPassword: editTarget.hasPassword } : null}
+        onClose={() => setEditTarget(null)}
+      />
+
+      {/* Toggle superadmin AlertDialog */}
       <AlertDialog open={!!roleAction} onOpenChange={(open) => !open && setRoleAction(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -208,6 +228,28 @@ export function UserTable({ users, currentUserId, query, offset, limit, hasMore 
               disabled={setSystemRole.isPending}
             >
               {setSystemRole.isPending ? "Updating…" : "Confirm"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete AlertDialog */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete user?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>{deleteTarget?.email}</strong> will be permanently deleted along with all their personal prompts and memberships. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteTarget && deleteUser.mutate({ userId: deleteTarget.userId })}
+              disabled={deleteUser.isPending}
+            >
+              {deleteUser.isPending ? "Deleting…" : "Delete permanently"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

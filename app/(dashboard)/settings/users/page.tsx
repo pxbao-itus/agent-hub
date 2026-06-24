@@ -3,9 +3,9 @@ import { auth } from "@/auth";
 import { notFound } from "next/navigation";
 import { db } from "@/server/db";
 import { users, memberships } from "@/server/db/schema";
-import { eq, and, or, ilike, count } from "drizzle-orm";
-import { Badge } from "@/components/ui/badge";
+import { eq, and, or, ilike, count, sql } from "drizzle-orm";
 import { UserTable } from "./_components/user-table";
+import { CreateUserDialog } from "./_components/create-user-dialog";
 
 export const metadata: Metadata = { title: "User Management" };
 
@@ -36,6 +36,7 @@ export default async function UsersPage({
       email: users.email,
       image: users.image,
       systemRole: users.systemRole,
+      hasPassword: sql<boolean>`(${users.passwordHash} is not null)`,
       createdAt: users.createdAt,
       orgCount: count(memberships.id),
     })
@@ -52,11 +53,14 @@ export default async function UsersPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">User Management</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Manage system roles and view all users. Superadmin only.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">User Management</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Create, edit, and delete platform users. Superadmin only.
+          </p>
+        </div>
+        <CreateUserDialog />
       </div>
 
       <UserTable
