@@ -120,6 +120,7 @@ export const promptRouter = router({
       z.object({
         limit: z.number().min(1).max(100).default(20),
         offset: z.number().min(0).default(0),
+        query: z.string().optional(),
         tag: z.string().optional(),
         mine: z.boolean().default(false),
       }),
@@ -131,11 +132,15 @@ export const promptRouter = router({
         ? and(eq(prompts.ownerType, "user"), eq(prompts.ownerId, userId))
         : await accessCondition(userId, ctx.db, systemRole);
 
+      const ftsFilter = input.query
+        ? sql`to_tsvector('english', ${prompts.title} || ' ' || coalesce(${prompts.description}, '')) @@ plainto_tsquery('english', ${input.query})`
+        : undefined;
+
       const tagFilter = input.tag
         ? sql`${input.tag} = ANY(${prompts.tags})`
         : undefined;
 
-      const where = tagFilter ? and(condition, tagFilter) : condition;
+      const where = and(condition, ftsFilter, tagFilter);
 
       const [rows, [{ count }]] = await Promise.all([
         ctx.db.query.prompts.findMany({

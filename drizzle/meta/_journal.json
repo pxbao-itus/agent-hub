@@ -8,6 +8,20 @@
       "when": 1782203937355,
       "tag": "0000_flippant_maximus",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1782208780277,
+      "tag": "0001_tough_shadow_king",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782295200000,
+      "tag": "0002_prompts_fts",
+      "breakpoints": true
     }
   ]
 }
