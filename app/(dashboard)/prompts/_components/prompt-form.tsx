@@ -60,30 +60,42 @@ export function PromptForm(props: Props) {
     props.mode === "edit" ? props.initial.visibility : "private",
   );
   const [changelog, setChangelog] = useState("");
-  // "user:" = personal space; "org:<id>" / "department:<id>" / "team:<id>" = group space
-  const [selectedSpaceKey, setSelectedSpaceKey] = useState<string>("user:");
+  // Only relevant in create mode + group visibility.
+  // "" = not yet selected; "org:<id>" / "department:<id>" / "team:<id>"
+  const [selectedSpaceKey, setSelectedSpaceKey] = useState<string>("");
 
+  // Pre-load spaces in create mode so they're ready when user picks "Group"
   const mySpaces = trpc.org.mySpaces.useQuery(undefined, { enabled: props.mode === "create" });
 
-  // Derive current owner
+  // Auto-select first available space when user switches to group visibility
+  useEffect(() => {
+    if (props.mode !== "create") return;
+    if (visibility !== "group") return;
+    if (selectedSpaceKey) return; // already chosen
+    const first = mySpaces.data?.[0];
+    if (first) setSelectedSpaceKey(`${first.type}:${first.id}`);
+  }, [visibility, mySpaces.data, props.mode, selectedSpaceKey]);
+
+  // Derive current owner from visibility + space selection
   const ownerType: OwnerType =
     props.mode === "edit"
       ? props.initial.ownerType
-      : selectedSpaceKey === "user:"
-      ? "user"
-      : (selectedSpaceKey.split(":")[0] as OwnerType);
+      : visibility === "group" && selectedSpaceKey
+      ? (selectedSpaceKey.split(":")[0] as OwnerType)
+      : "user";
 
   const ownerId: string | undefined =
     props.mode === "edit"
       ? props.initial.ownerId
-      : selectedSpaceKey === "user:"
-      ? undefined
-      : selectedSpaceKey.split(":")[1];
+      : visibility === "group" && selectedSpaceKey
+      ? selectedSpaceKey.split(":")[1]
+      : undefined;
 
-  const slugPath =
-    props.mode === "create" && selectedSpaceKey !== "user:"
-      ? (mySpaces.data?.find((s) => `${s.type}:${s.id}` === selectedSpaceKey)?.slugPath ?? "")
-      : "";
+  const selectedSpace =
+    props.mode === "create" && visibility === "group" && selectedSpaceKey
+      ? mySpaces.data?.find((s) => `${s.type}:${s.id}` === selectedSpaceKey)
+      : undefined;
+  const slugPath = selectedSpace?.slugPath ?? "";
 
   // Auto-fill slug from title when user hasn't manually set one
   useEffect(() => {
@@ -97,7 +109,13 @@ export function PromptForm(props: Props) {
   }, [slug]);
 
   const excludeId = props.mode === "edit" ? props.promptId : undefined;
-  const slugCheckEnabled = SLUG_RE.test(debouncedSlug) && debouncedSlug.length > 0 && debouncedSlug === slug;
+  const slugCheckEnabled =
+    SLUG_RE.test(debouncedSlug) &&
+    debouncedSlug.length > 0 &&
+    debouncedSlug === slug &&
+    // Don't check until space is resolved for group prompts
+    (visibility !== "group" || !!selectedSpaceKey);
+
   const slugCheck = trpc.prompt.checkSlug.useQuery(
     { slug: debouncedSlug, ownerType, ownerId, excludeId },
     { enabled: slugCheckEnabled },
@@ -114,6 +132,10 @@ export function PromptForm(props: Props) {
 
   const isPending = create.isPending || update.isPending;
   const error = create.error ?? update.error;
+
+  // Disable submit if group is selected but no space is resolved
+  const groupUnresolved =
+    props.mode === "create" && visibility === "group" && !selectedSpaceKey;
 
   function parseTags(raw: string) {
     return raw.split(",").map((t) => t.trim()).filter(Boolean);
@@ -177,27 +199,6 @@ export function PromptForm(props: Props) {
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       {error && <p className="text-sm text-destructive">{error.message}</p>}
-
-      {/* Space selector — create mode only */}
-      {props.mode === "create" && (
-        <div className="space-y-2">
-          <Label htmlFor="space">Space</Label>
-          <select
-            id="space"
-            value={selectedSpaceKey}
-            onChange={(e) => { setSelectedSpaceKey(e.target.value); setSlugTouched(false); }}
-            disabled={mySpaces.isLoading}
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-          >
-            <option value="user:">Personal space</option>
-            {mySpaces.data?.map((s) => (
-              <option key={`${s.type}:${s.id}`} value={`${s.type}:${s.id}`}>
-                {s.name} ({s.slugPath})
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
 
       {/* Owner info — edit mode, non-user space */}
       {props.mode === "edit" && props.initial.ownerType !== "user" && (
@@ -277,25 +278,55 @@ export function PromptForm(props: Props) {
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="tags">Tags <span className="text-muted-foreground">(comma-separated)</span></Label>
-          <Input id="tags" value={tagInput} onChange={(e) => setTagInput(e.target.value)} placeholder="coding, review, english" />
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="tags">Tags <span className="text-muted-foreground">(comma-separated)</span></Label>
+            <Input id="tags" value={tagInput} onChange={(e) => setTagInput(e.target.value)} placeholder="coding, review, english" />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="visibility">Visibility</Label>
+            <select
+              id="visibility"
+              value={visibility}
+              onChange={(e) => setVisibility(e.target.value as Visibility)}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="private">Private — only me</option>
+              <option value="group">Group — org / team</option>
+              <option value="public">Public — everyone</option>
+            </select>
+          </div>
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="visibility">Visibility</Label>
-          <select
-            id="visibility"
-            value={visibility}
-            onChange={(e) => setVisibility(e.target.value as Visibility)}
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <option value="private">Private — only me</option>
-            <option value="group">Group — my org members</option>
-            <option value="public">Public — everyone</option>
-          </select>
-        </div>
+        {/* Space picker — only in create mode when Group is selected */}
+        {props.mode === "create" && visibility === "group" && (
+          <div className="space-y-1.5">
+            <Label htmlFor="space">Assign to space</Label>
+            {mySpaces.isLoading ? (
+              <p className="text-xs text-muted-foreground">Loading spaces…</p>
+            ) : !mySpaces.data?.length ? (
+              <p className="text-xs text-destructive">
+                You don&apos;t belong to any org or team yet.{" "}
+                <a href="/settings/orgs" className="underline">Create one first.</a>
+              </p>
+            ) : (
+              <select
+                id="space"
+                value={selectedSpaceKey}
+                onChange={(e) => { setSelectedSpaceKey(e.target.value); setSlugTouched(false); }}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {mySpaces.data.map((s) => (
+                  <option key={`${s.type}:${s.id}`} value={`${s.type}:${s.id}`}>
+                    {s.name} — {s.slugPath}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
       </div>
 
       {props.mode === "edit" && (
@@ -306,7 +337,7 @@ export function PromptForm(props: Props) {
       )}
 
       <div className="flex gap-3 pt-2">
-        <Button type="submit" disabled={isPending || slugStatus === "taken"}>
+        <Button type="submit" disabled={isPending || slugStatus === "taken" || groupUnresolved}>
           {isPending ? "Saving…" : props.mode === "create" ? "Create prompt" : "Save new version"}
         </Button>
         <Button type="button" variant="ghost" onClick={() => router.back()}>
