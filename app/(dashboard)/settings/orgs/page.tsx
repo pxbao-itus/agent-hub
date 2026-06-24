@@ -1,4 +1,7 @@
+import type { Metadata } from "next";
 import { auth } from "@/auth";
+
+export const metadata: Metadata = { title: "Organizations" };
 import { db } from "@/server/db";
 import { orgs, memberships } from "@/server/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -6,6 +9,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CreateOrgForm } from "./create-org-form";
+import { EmptyState } from "@/components/ui/empty-state";
 
 export default async function OrgsPage() {
   const session = await auth();
@@ -30,7 +34,7 @@ export default async function OrgsPage() {
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">You are not a member of any organization yet.</p>
+        <EmptyState message="You are not a member of any organization yet." />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {rows.map(({ org }) => (

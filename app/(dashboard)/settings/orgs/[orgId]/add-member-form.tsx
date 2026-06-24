@@ -6,6 +6,7 @@ import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { toast } from "@/hooks/use-toast";
 
 type Props = {
   groupType: "org" | "department" | "team";
@@ -17,7 +18,11 @@ export function AddMemberForm({ groupType, groupId, label }: Props) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const add = trpc.org.membership.add.useMutation({
-    onSuccess: () => { setEmail(""); router.refresh(); },
+    onSuccess: () => {
+      toast({ title: "Member added", variant: "success" });
+      setEmail(""); router.refresh();
+    },
+    onError: (e) => toast({ title: "Failed to add member", description: e.message, variant: "destructive" }),
   });
 
   return (

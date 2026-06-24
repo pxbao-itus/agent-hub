@@ -1,4 +1,7 @@
+import type { Metadata } from "next";
 import { auth, signIn } from "@/auth";
+
+export const metadata: Metadata = { title: "Sign in" };
 import { redirect } from "next/navigation";
 import { SignInForm } from "./sign-in-form";
 

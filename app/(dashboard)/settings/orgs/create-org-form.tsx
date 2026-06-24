@@ -8,6 +8,7 @@ import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { toast } from "@/hooks/use-toast";
 
 const schema = z.object({
   name: z.string().min(1, "Name is required").max(100),
@@ -19,7 +20,12 @@ type FormValues = z.infer<typeof schema>;
 export function CreateOrgForm() {
   const router = useRouter();
   const createOrg = trpc.org.create.useMutation({
-    onSuccess: () => { router.refresh(); reset(); },
+    onSuccess: () => {
+      toast({ title: "Organization created", variant: "success" });
+      router.refresh();
+      reset();
+    },
+    onError: (e) => toast({ title: "Failed to create", description: e.message, variant: "destructive" }),
   });
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors, isSubmitting } } = useForm<FormValues>({

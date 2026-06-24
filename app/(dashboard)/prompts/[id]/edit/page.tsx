@@ -1,4 +1,6 @@
 import { notFound } from "next/navigation";
+import { cache } from "react";
+import type { Metadata } from "next";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { prompts, promptVersions } from "@/server/db/schema";
@@ -6,16 +8,26 @@ import { eq, desc } from "drizzle-orm";
 import { canMutatePrompt } from "@/server/auth/access";
 import { PromptForm } from "../../_components/prompt-form";
 
+const getPromptForEdit = cache(async (id: string) =>
+  db.query.prompts.findFirst({
+    where: eq(prompts.id, id),
+    with: { versions: { orderBy: desc(promptVersions.versionNo), limit: 1 } },
+  }),
+);
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const prompt = await getPromptForEdit(id);
+  return { title: prompt ? `Edit · ${prompt.title}` : "Edit prompt" };
+}
+
 export default async function EditPromptPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await auth();
   const userId = session!.user!.id!;
   const isSuperAdmin = session!.user!.systemRole === "superadmin";
 
-  const prompt = await db.query.prompts.findFirst({
-    where: eq(prompts.id, id),
-    with: { versions: { orderBy: desc(promptVersions.versionNo), limit: 1 } },
-  });
+  const prompt = await getPromptForEdit(id);
   if (!prompt) notFound();
 
   const canEdit = await canMutatePrompt(

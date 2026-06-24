@@ -6,6 +6,7 @@ import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { toast } from "@/hooks/use-toast";
 
 function clientSlugify(s: string): string {
   return s.toLowerCase().replace(/[^\w\s-]/g, "").replace(/[\s_]+/g, "-").replace(/^-+|-+$/g, "");
@@ -28,7 +29,11 @@ export function CreateTeamForm({
   }, [name, slugTouched]);
 
   const create = trpc.org.department.team.create.useMutation({
-    onSuccess: () => { setName(""); setSlug(""); setSlugTouched(false); router.refresh(); },
+    onSuccess: () => {
+      toast({ title: "Team created", variant: "success" });
+      setName(""); setSlug(""); setSlugTouched(false); router.refresh();
+    },
+    onError: (e) => toast({ title: "Failed to create team", description: e.message, variant: "destructive" }),
   });
 
   return (

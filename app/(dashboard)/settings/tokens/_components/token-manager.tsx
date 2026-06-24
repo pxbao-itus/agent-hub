@@ -7,6 +7,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from "@/hooks/use-toast";
 import { SetupGuide } from "./setup-guide";
 
 type TokenRow = {
@@ -30,17 +41,26 @@ export function TokenManager({
   const [revealed, setRevealed] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState<TokenRow | null>(null);
 
   const create = trpc.token.create.useMutation({
     onSuccess: (data) => {
       setName("");
       setRevealed(data.rawToken);
-      setGuideOpen(false); // guide shown inline after reveal
+      setGuideOpen(false);
       utils.token.list.invalidate();
+      toast({ title: "Token created", description: "Copy it now — it won't be shown again.", variant: "success" });
     },
+    onError: (e) => toast({ title: "Failed to create token", description: e.message, variant: "destructive" }),
   });
+
   const revoke = trpc.token.revoke.useMutation({
-    onSuccess: () => utils.token.list.invalidate(),
+    onSuccess: () => {
+      utils.token.list.invalidate();
+      setRevokeTarget(null);
+      toast({ title: "Token revoked" });
+    },
+    onError: (e) => toast({ title: "Failed to revoke token", description: e.message, variant: "destructive" }),
   });
 
   const { data: tokens = initial } = trpc.token.list.useQuery(undefined, {
@@ -58,14 +78,13 @@ export function TokenManager({
     <div className="space-y-8">
       {/* ── Revealed token + inline setup guide ─────────────────────────── */}
       {revealed && (
-        <div className="rounded-lg border border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/30 divide-y divide-yellow-500/20">
-          {/* Token copy */}
+        <div className="rounded-lg border border-warning/50 bg-warning/5 divide-y divide-warning/20">
           <div className="p-4 space-y-2">
-            <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+            <p className="text-sm font-medium">
               Copy this token now — it will not be shown again.
             </p>
             <div className="flex items-center gap-2">
-              <code className="flex-1 rounded bg-white/80 dark:bg-black/40 px-3 py-2 font-mono text-xs break-all border">
+              <code className="flex-1 rounded bg-background px-3 py-2 font-mono text-xs break-all border">
                 {revealed}
               </code>
               <Button size="sm" variant="outline" onClick={copyToken}>
@@ -74,22 +93,14 @@ export function TokenManager({
             </div>
           </div>
 
-          {/* Setup guide inline */}
           <div className="p-4 space-y-2">
-            <p className="text-xs font-medium text-yellow-800 dark:text-yellow-200">
-              Connect an agent
-            </p>
+            <p className="text-xs font-medium text-muted-foreground">Connect an agent</p>
             <SetupGuide endpoint={endpoint} token={revealed} />
           </div>
 
           <div className="px-4 py-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-xs"
-              onClick={() => setRevealed(null)}
-            >
-              I've saved it, dismiss
+            <Button size="sm" variant="ghost" className="text-xs" onClick={() => setRevealed(null)}>
+              I&apos;ve saved it, dismiss
             </Button>
           </div>
         </div>
@@ -97,16 +108,11 @@ export function TokenManager({
 
       {/* ── Create form ──────────────────────────────────────────────────── */}
       <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          create.mutate({ name });
-        }}
+        onSubmit={(e) => { e.preventDefault(); create.mutate({ name }); }}
         className="flex max-w-sm gap-2"
       >
         <div className="flex-1 space-y-1">
-          <Label htmlFor="token-name" className="text-xs">
-            New token name
-          </Label>
+          <Label htmlFor="token-name" className="text-xs">New token name</Label>
           <Input
             id="token-name"
             value={name}
@@ -133,12 +139,7 @@ export function TokenManager({
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium">{t.name}</span>
                     {t.expiresAt && new Date(t.expiresAt) < new Date() && (
-                      <Badge
-                        variant="outline"
-                        className="text-destructive border-destructive text-[10px]"
-                      >
-                        expired
-                      </Badge>
+                      <Badge variant="destructive">expired</Badge>
                     )}
                   </div>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
@@ -155,10 +156,7 @@ export function TokenManager({
                   variant="ghost"
                   size="sm"
                   className="text-destructive hover:text-destructive"
-                  disabled={revoke.isPending}
-                  onClick={() => {
-                    if (confirm("Revoke this token?")) revoke.mutate({ id: t.id });
-                  }}
+                  onClick={() => setRevokeTarget(t)}
                 >
                   Revoke
                 </Button>
@@ -167,6 +165,28 @@ export function TokenManager({
           ))
         )}
       </div>
+
+      {/* ── Revoke confirm dialog ─────────────────────────────────────────── */}
+      <AlertDialog open={!!revokeTarget} onOpenChange={(o) => !o && setRevokeTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revoke &quot;{revokeTarget?.name}&quot;?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Any agents using this token will lose access immediately. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => revokeTarget && revoke.mutate({ id: revokeTarget.id })}
+              disabled={revoke.isPending}
+            >
+              {revoke.isPending ? "Revoking…" : "Revoke"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── Persistent setup guide (collapsible) ─────────────────────────── */}
       {!revealed && (

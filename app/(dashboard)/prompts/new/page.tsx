@@ -1,4 +1,7 @@
+import type { Metadata } from "next";
 import { PromptForm } from "../_components/prompt-form";
+
+export const metadata: Metadata = { title: "New prompt" };
 
 export default function NewPromptPage() {
   return (

@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { cache } from "react";
+import type { Metadata } from "next";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { orgs, departments, memberships, users } from "@/server/db/schema";
@@ -9,13 +11,23 @@ import { Breadcrumb } from "../_components/breadcrumb";
 import { AddMemberForm } from "./add-member-form";
 import { CreateDeptForm } from "./create-dept-form";
 
+const getOrg = cache(async (orgId: string) =>
+  db.query.orgs.findFirst({ where: eq(orgs.id, orgId) }),
+);
+
+export async function generateMetadata({ params }: { params: Promise<{ orgId: string }> }): Promise<Metadata> {
+  const { orgId } = await params;
+  const org = await getOrg(orgId);
+  return { title: org?.name ?? "Organization" };
+}
+
 export default async function OrgDetailPage({ params }: { params: Promise<{ orgId: string }> }) {
   const { orgId } = await params;
   const session = await auth();
   const userId = session!.user!.id!;
   const isSuperAdmin = session!.user!.systemRole === "superadmin";
 
-  const org = await db.query.orgs.findFirst({ where: eq(orgs.id, orgId) });
+  const org = await getOrg(orgId);
   if (!org) notFound();
 
   const membership = await db.query.memberships.findFirst({

@@ -1,4 +1,7 @@
+import type { Metadata } from "next";
 import { auth } from "@/auth";
+
+export const metadata: Metadata = { title: "Sign up" };
 import { redirect } from "next/navigation";
 import { SignUpForm } from "./sign-up-form";
 

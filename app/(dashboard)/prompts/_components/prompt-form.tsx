@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "@/hooks/use-toast";
 import { parseVariables } from "@/server/lib/template";
 
 type Visibility = "private" | "group" | "public";
@@ -124,10 +126,18 @@ export function PromptForm(props: Props) {
   const detectedVars = parseVariables(body);
 
   const create = trpc.prompt.create.useMutation({
-    onSuccess: (p) => router.push(`/prompts/${p.id}`),
+    onSuccess: (p) => {
+      toast({ title: "Prompt created", variant: "success" });
+      router.push(`/prompts/${p.id}`);
+    },
+    onError: (e) => toast({ title: "Failed to create", description: e.message, variant: "destructive" }),
   });
   const update = trpc.prompt.update.useMutation({
-    onSuccess: (p) => router.push(`/prompts/${p.id}`),
+    onSuccess: (p) => {
+      toast({ title: "Prompt saved", variant: "success" });
+      router.push(`/prompts/${p.id}`);
+    },
+    onError: (e) => toast({ title: "Failed to save", description: e.message, variant: "destructive" }),
   });
 
   const isPending = create.isPending || update.isPending;
@@ -190,7 +200,7 @@ export function PromptForm(props: Props) {
     invalid: <span className="text-xs text-destructive">Lowercase letters, numbers and hyphens only</span>,
     debouncing: <span className="text-xs text-muted-foreground">…</span>,
     checking: <span className="text-xs text-muted-foreground">Checking…</span>,
-    available: <span className="text-xs text-emerald-600 dark:text-emerald-400">✓ Available</span>,
+    available: <span className="text-xs text-success">✓ Available</span>,
     taken: <span className="text-xs text-destructive">✗ Already taken — choose a different slug</span>,
   }[slugStatus];
 
@@ -287,16 +297,16 @@ export function PromptForm(props: Props) {
 
           <div className="space-y-2">
             <Label htmlFor="visibility">Visibility</Label>
-            <select
-              id="visibility"
-              value={visibility}
-              onChange={(e) => setVisibility(e.target.value as Visibility)}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <option value="private">Private — only me</option>
-              <option value="group">Group — org / team</option>
-              <option value="public">Public — everyone</option>
-            </select>
+            <Select value={visibility} onValueChange={(v) => setVisibility(v as Visibility)}>
+              <SelectTrigger id="visibility">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="private">Private — only me</SelectItem>
+                <SelectItem value="group">Group — org / team</SelectItem>
+                <SelectItem value="public">Public — everyone</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -312,18 +322,21 @@ export function PromptForm(props: Props) {
                 <a href="/settings/orgs" className="underline">Create one first.</a>
               </p>
             ) : (
-              <select
-                id="space"
+              <Select
                 value={selectedSpaceKey}
-                onChange={(e) => { setSelectedSpaceKey(e.target.value); setSlugTouched(false); }}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onValueChange={(v) => { setSelectedSpaceKey(v); setSlugTouched(false); }}
               >
-                {mySpaces.data.map((s) => (
-                  <option key={`${s.type}:${s.id}`} value={`${s.type}:${s.id}`}>
-                    {s.name} — {s.slugPath}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="space">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {mySpaces.data.map((s) => (
+                    <SelectItem key={`${s.type}:${s.id}`} value={`${s.type}:${s.id}`}>
+                      {s.name} — {s.slugPath}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
           </div>
         )}

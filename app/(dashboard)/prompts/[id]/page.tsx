@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { cache } from "react";
+import type { Metadata } from "next";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { prompts, promptVersions } from "@/server/db/schema";
@@ -10,19 +12,29 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DeletePromptButton } from "./_components/delete-prompt-button";
 
+const getPrompt = cache(async (id: string) =>
+  db.query.prompts.findFirst({
+    where: eq(prompts.id, id),
+    with: {
+      versions: { orderBy: desc(promptVersions.versionNo) },
+      variables: true,
+    },
+  }),
+);
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const prompt = await getPrompt(id);
+  return { title: prompt?.title ?? "Prompt" };
+}
+
 export default async function PromptDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await auth();
   const userId = session!.user!.id!;
   const isSuperAdmin = session!.user!.systemRole === "superadmin";
 
-  const prompt = await db.query.prompts.findFirst({
-    where: eq(prompts.id, id),
-    with: {
-      versions: { orderBy: desc(promptVersions.versionNo) },
-      variables: true,
-    },
-  });
+  const prompt = await getPrompt(id);
   if (!prompt) notFound();
 
   // Access check

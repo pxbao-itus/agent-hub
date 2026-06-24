@@ -5,7 +5,7 @@ import { mcpTokens } from "@/server/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { TokenManager } from "./_components/token-manager";
 
-export const metadata = { title: "MCP Tokens — prompt-hub" };
+export const metadata = { title: "MCP Tokens" };
 
 export default async function TokensPage() {
   const session = await auth();

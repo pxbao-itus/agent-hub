@@ -1,5 +1,8 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
+
+export const metadata: Metadata = { title: "Prompts" };
 import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { prompts, promptVersions } from "@/server/db/schema";
@@ -11,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SearchBar } from "./_components/search-bar";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type Props = {
   searchParams: Promise<{ q?: string; tag?: string; offset?: string }>;
@@ -97,16 +101,14 @@ export default async function PromptsPage({ searchParams }: Props) {
       </Suspense>
 
       {rows.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-12 text-center">
-          <p className="text-muted-foreground">
-            {q || tag ? "No prompts match your search." : "No prompts yet."}
-          </p>
-          {!q && !tag && (
-            <Button asChild className="mt-4" variant="outline">
+        <EmptyState
+          message={q || tag ? "No prompts match your search." : "No prompts yet."}
+          action={!q && !tag ? (
+            <Button asChild variant="outline">
               <Link href="/prompts/new">Create your first prompt</Link>
             </Button>
-          )}
-        </div>
+          ) : undefined}
+        />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {rows.map((prompt) => {
