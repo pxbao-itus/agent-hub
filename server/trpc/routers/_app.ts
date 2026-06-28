@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { router, publicProcedure } from "../trpc";
 import { orgRouter } from "./org";
 import { promptRouter } from "./prompt";
+import { skillRouter } from "./skill";
 import { tokenRouter } from "./token";
 import { userRouter } from "./user";
 
@@ -20,6 +21,7 @@ export const appRouter = router({
 
   org: orgRouter,
   prompt: promptRouter,
+  skill: skillRouter,
   token: tokenRouter,
   user: userRouter,
 });
