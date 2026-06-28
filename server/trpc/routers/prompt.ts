@@ -350,5 +350,89 @@ export const promptRouter = router({
           orderBy: desc(promptVersions.versionNo),
         });
       }),
+
+    get: protectedProcedure
+      .input(z.object({ promptId: z.string().uuid(), versionNo: z.number().int().positive() }))
+      .query(async ({ ctx, input }) => {
+        const { userId, systemRole } = ctx.session;
+
+        // Access check via parent prompt
+        const prompt = await ctx.db.query.prompts.findFirst({
+          where: eq(prompts.id, input.promptId),
+          columns: { id: true, visibility: true, ownerType: true, ownerId: true },
+        });
+        if (!prompt) throw new TRPCError({ code: "NOT_FOUND" });
+
+        if (systemRole !== "superadmin" && prompt.visibility !== "public") {
+          const isOwner = prompt.ownerType === "user" && prompt.ownerId === userId;
+          if (!isOwner) {
+            if (prompt.visibility === "group") {
+              const groups = await getAccessibleGroups(userId, ctx.db);
+              const allowed = groups.some(
+                (g) => g.groupType === prompt.ownerType && g.groupId === prompt.ownerId,
+              );
+              if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
+            } else {
+              throw new TRPCError({ code: "FORBIDDEN" });
+            }
+          }
+        }
+
+        const version = await ctx.db.query.promptVersions.findFirst({
+          where: and(
+            eq(promptVersions.promptId, input.promptId),
+            eq(promptVersions.versionNo, input.versionNo),
+          ),
+        });
+        if (!version) throw new TRPCError({ code: "NOT_FOUND" });
+        return version;
+      }),
   }),
+
+  rollback: protectedProcedure
+    .input(z.object({ promptId: z.string().uuid(), toVersionNo: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const { userId, systemRole } = ctx.session;
+
+      const prompt = await ctx.db.query.prompts.findFirst({
+        where: eq(prompts.id, input.promptId),
+      });
+      if (!prompt) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const allowed = await canMutatePrompt({ userId, systemRole }, prompt, ctx.db);
+      if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
+
+      const targetVersion = await ctx.db.query.promptVersions.findFirst({
+        where: and(
+          eq(promptVersions.promptId, input.promptId),
+          eq(promptVersions.versionNo, input.toVersionNo),
+        ),
+      });
+      if (!targetVersion) throw new TRPCError({ code: "NOT_FOUND", message: "Version not found" });
+
+      const [{ maxNo }] = await ctx.db
+        .select({ maxNo: sql<number>`coalesce(max(version_no), 0)` })
+        .from(promptVersions)
+        .where(eq(promptVersions.promptId, input.promptId));
+
+      const [newVersion] = await ctx.db
+        .insert(promptVersions)
+        .values({
+          promptId: input.promptId,
+          versionNo: maxNo + 1,
+          body: targetVersion.body,
+          changelog: `Rolled back to v${input.toVersionNo}`,
+          createdBy: userId,
+        })
+        .returning();
+
+      await syncVariables(ctx.db, input.promptId, targetVersion.body);
+
+      await ctx.db
+        .update(prompts)
+        .set({ currentVersionId: newVersion.id, updatedAt: new Date() })
+        .where(eq(prompts.id, input.promptId));
+
+      return { newVersionNo: newVersion.versionNo };
+    }),
 });

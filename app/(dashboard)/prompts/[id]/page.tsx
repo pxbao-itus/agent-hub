@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DeletePromptButton } from "./_components/delete-prompt-button";
+import { VersionHistory } from "./_components/version-history";
 
 const getPrompt = cache(async (id: string) =>
   db.query.prompts.findFirst({
@@ -129,21 +130,12 @@ export default async function PromptDetailPage({ params }: { params: Promise<{ i
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Version history
           </h2>
-          <div className="divide-y rounded-md border">
-            {prompt.versions.map((v) => (
-              <div key={v.id} className="flex items-center justify-between px-4 py-3">
-                <div>
-                  <span className="text-sm font-medium">v{v.versionNo}</span>
-                  {v.changelog && (
-                    <span className="ml-3 text-sm text-muted-foreground">{v.changelog}</span>
-                  )}
-                </div>
-                <span className="text-xs text-muted-foreground">
-                  {new Date(v.createdAt).toLocaleDateString()}
-                </span>
-              </div>
-            ))}
-          </div>
+          <VersionHistory
+            promptId={id}
+            versions={prompt.versions}
+            currentVersionId={prompt.currentVersionId}
+            canEdit={canEdit}
+          />
         </section>
       )}
     </div>
