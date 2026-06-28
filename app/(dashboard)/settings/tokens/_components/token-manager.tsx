@@ -20,14 +20,26 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { SetupGuide } from "./setup-guide";
 
+type ScopeEntry = { groupType: "org" | "department" | "team"; groupId: string };
+
 type TokenRow = {
   id: string;
   name: string;
   tokenPrefix: string;
+  scope: unknown;
   expiresAt: Date | null;
   lastUsedAt: Date | null;
   createdAt: Date;
 };
+
+function scopeSummary(scope: unknown): string {
+  if (!scope || typeof scope !== "object") return "Full access";
+  const s = scope as { spaces?: ScopeEntry[]; tags?: string[] };
+  const parts: string[] = [];
+  if (s.spaces?.length) parts.push(`${s.spaces.length} space${s.spaces.length !== 1 ? "s" : ""}`);
+  if (s.tags?.length) parts.push(`${s.tags.length} tag${s.tags.length !== 1 ? "s" : ""}`);
+  return parts.length ? parts.join(" · ") : "Full access";
+}
 
 export function TokenManager({
   initial,
@@ -38,14 +50,26 @@ export function TokenManager({
 }) {
   const utils = trpc.useUtils();
   const [name, setName] = useState("");
+  const [tagInput, setTagInput] = useState("");
   const [revealed, setRevealed] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<TokenRow | null>(null);
 
+  const mySpaces = trpc.org.mySpaces.useQuery();
+  const [selectedSpaceKeys, setSelectedSpaceKeys] = useState<string[]>([]);
+
+  function toggleSpace(key: string) {
+    setSelectedSpaceKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    );
+  }
+
   const create = trpc.token.create.useMutation({
     onSuccess: (data) => {
       setName("");
+      setTagInput("");
+      setSelectedSpaceKeys([]);
       setRevealed(data.rawToken);
       setGuideOpen(false);
       utils.token.list.invalidate();
@@ -53,6 +77,17 @@ export function TokenManager({
     },
     onError: (e) => toast({ title: "Failed to create token", description: e.message, variant: "destructive" }),
   });
+
+  function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    const tags = tagInput.split(",").map((t) => t.trim()).filter(Boolean);
+    const spaces: ScopeEntry[] = selectedSpaceKeys.map((k) => {
+      const [groupType, groupId] = k.split(":");
+      return { groupType: groupType as ScopeEntry["groupType"], groupId };
+    });
+    const scope = spaces.length || tags.length ? { spaces, tags } : undefined;
+    create.mutate({ name, scope });
+  }
 
   const revoke = trpc.token.revoke.useMutation({
     onSuccess: () => {
@@ -107,12 +142,9 @@ export function TokenManager({
       )}
 
       {/* ── Create form ──────────────────────────────────────────────────── */}
-      <form
-        onSubmit={(e) => { e.preventDefault(); create.mutate({ name }); }}
-        className="flex max-w-sm gap-2"
-      >
-        <div className="flex-1 space-y-1">
-          <Label htmlFor="token-name" className="text-xs">New token name</Label>
+      <form onSubmit={handleCreate} className="space-y-3 max-w-sm">
+        <div className="space-y-1">
+          <Label htmlFor="token-name" className="text-xs">Token name</Label>
           <Input
             id="token-name"
             value={name}
@@ -122,8 +154,52 @@ export function TokenManager({
             required
           />
         </div>
-        <Button type="submit" size="sm" disabled={create.isPending} className="self-end">
-          {create.isPending ? "Creating…" : "Generate"}
+
+        {/* Optional: restrict to specific spaces */}
+        {mySpaces.data && mySpaces.data.length > 0 && (
+          <div className="space-y-1">
+            <Label className="text-xs">
+              Spaces <span className="text-muted-foreground">(leave empty = all your spaces)</span>
+            </Label>
+            <div className="flex flex-wrap gap-1.5">
+              {mySpaces.data.map((s) => {
+                const key = `${s.type}:${s.id}`;
+                const selected = selectedSpaceKeys.includes(key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => toggleSpace(key)}
+                    className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+                      selected
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-muted bg-background text-muted-foreground hover:border-primary/50"
+                    }`}
+                  >
+                    {s.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Optional: restrict to tags */}
+        <div className="space-y-1">
+          <Label htmlFor="token-tags" className="text-xs">
+            Tags <span className="text-muted-foreground">(comma-separated, leave empty = all tags)</span>
+          </Label>
+          <Input
+            id="token-tags"
+            value={tagInput}
+            onChange={(e) => setTagInput(e.target.value)}
+            placeholder="coding, review"
+            className="h-8 text-sm"
+          />
+        </div>
+
+        <Button type="submit" size="sm" disabled={create.isPending}>
+          {create.isPending ? "Creating…" : "Generate token"}
         </Button>
       </form>
 
@@ -144,6 +220,7 @@ export function TokenManager({
                   </div>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
                     <code>{t.tokenPrefix}…</code>
+                    <span className="text-muted-foreground/70">{scopeSummary(t.scope)}</span>
                     {t.lastUsedAt && (
                       <span>last used {new Date(t.lastUsedAt).toLocaleDateString()}</span>
                     )}

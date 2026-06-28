@@ -18,6 +18,7 @@ export default async function TokensPage() {
       id: true,
       name: true,
       tokenPrefix: true,
+      scope: true,
       expiresAt: true,
       lastUsedAt: true,
       createdAt: true,

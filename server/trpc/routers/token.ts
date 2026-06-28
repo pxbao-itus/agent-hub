@@ -4,6 +4,8 @@ import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import { mcpTokens } from "@/server/db/schema";
 import { generateRawToken, hashToken, tokenPrefix } from "@/server/mcp/token";
+import { tokenScopeSchema, validateScopeAgainstAccess } from "@/server/mcp/scope";
+import { getAccessibleGroups } from "@/server/auth/access";
 
 export const tokenRouter = router({
   create: protectedProcedure
@@ -11,9 +13,18 @@ export const tokenRouter = router({
       z.object({
         name: z.string().min(1).max(100),
         expiresInDays: z.number().min(1).max(365).optional(),
+        scope: tokenScopeSchema.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // Validate scope doesn't exceed user's access
+      if (input.scope?.spaces?.length) {
+        const accessibleGroups = await getAccessibleGroups(ctx.session.userId, ctx.db);
+        if (!validateScopeAgainstAccess(input.scope, accessibleGroups)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Scope includes spaces you cannot access" });
+        }
+      }
+
       const raw = generateRawToken();
       const hash = hashToken(raw);
       const prefix = tokenPrefix(raw);
@@ -30,6 +41,7 @@ export const tokenRouter = router({
           tokenHash: hash,
           tokenPrefix: prefix,
           expiresAt: expiresAt ?? undefined,
+          scope: input.scope ?? null,
         })
         .returning();
 
@@ -45,6 +57,7 @@ export const tokenRouter = router({
         id: true,
         name: true,
         tokenPrefix: true,
+        scope: true,
         expiresAt: true,
         lastUsedAt: true,
         createdAt: true,

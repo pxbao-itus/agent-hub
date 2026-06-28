@@ -8,6 +8,7 @@ import { renderTemplate } from "@/server/lib/template";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
 import { hybridSearch, fetchPromptsByIds } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
+import { type TokenScope, applyScopeToOwners, promptPassesScopeTags } from "./scope";
 
 type Identity = { userId: string; systemRole: "user" | "superadmin" };
 
@@ -16,10 +17,10 @@ type Identity = { userId: string; systemRole: "user" | "superadmin" };
  * Each accessible prompt is registered as its own named slash command
  * so agents can invoke prompts directly without going through list/get.
  */
-export async function createMcpServer(identity: Identity): Promise<McpServer> {
+export async function createMcpServer(identity: Identity, scope: TokenScope = {}): Promise<McpServer> {
   const server = new McpServer({ name: "prompt-hub", version: "0.1.0" });
 
-  const rows = await getPromptsForIdentity(identity);
+  const rows = await getPromptsForIdentity(identity, scope);
 
   // Resolve hierarchical slug paths for all owner entities in one batch
   const ownerSlugPaths = await resolveOwnerSlugPaths(
@@ -142,33 +143,45 @@ function uniqueSlug(title: string, id: string, seen: Set<string>): string {
   return withId;
 }
 
-async function getPromptsForIdentity(identity: Identity) {
+async function getPromptsForIdentity(identity: Identity, scope: TokenScope) {
   const { userId, systemRole } = identity;
+
+  let accessibleGroups = await getAccessibleGroups(userId, db);
+
+  // Apply scope space restriction: intersect accessible groups with scope.spaces
+  const scopedGroups = applyScopeToOwners(scope, accessibleGroups);
 
   let where;
   if (systemRole !== "superadmin") {
-    const groups = await getAccessibleGroups(userId, db);
-    const groupConditions = groups.map((g) =>
+    const groupConditions = scopedGroups.map((g) =>
       and(
         eq(prompts.visibility, "group"),
         eq(prompts.ownerType, g.groupType as "org" | "department" | "team"),
         eq(prompts.ownerId, g.groupId),
       ),
     );
+    // When scope restricts spaces, exclude personal prompts if no personal space in scope
+    const includePersonal = !scope.spaces?.length;
     where = or(
       eq(prompts.visibility, "public"),
-      and(eq(prompts.ownerType, "user"), eq(prompts.ownerId, userId)),
+      ...(includePersonal ? [and(eq(prompts.ownerType, "user"), eq(prompts.ownerId, userId))] : []),
       ...(groupConditions.length > 0 ? groupConditions : [sql`false`]),
     );
   }
 
-  return db.query.prompts.findMany({
+  const rows = await db.query.prompts.findMany({
     where,
     orderBy: desc(prompts.updatedAt),
-    columns: { id: true, title: true, description: true, slug: true, ownerType: true, ownerId: true },
+    columns: { id: true, title: true, description: true, slug: true, ownerType: true, ownerId: true, tags: true },
     with: {
       variables: { columns: { name: true } },
       versions: { orderBy: desc(promptVersions.versionNo), limit: 1 },
     },
   });
+
+  // Apply scope tag restriction (in-memory, tags are arrays)
+  if (scope.tags?.length) {
+    return rows.filter((r) => promptPassesScopeTags(r.tags, scope));
+  }
+  return rows;
 }

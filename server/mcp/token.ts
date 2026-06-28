@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "crypto";
 import { eq } from "drizzle-orm";
 import type { DbClient } from "@/server/db/types";
 import { mcpTokens, users } from "@/server/db/schema";
+import { parseScope, type TokenScope } from "./scope";
 
 const PREFIX = "mcp_";
 const PREFIX_LEN = 8; // characters shown in UI after "mcp_"
@@ -22,7 +23,7 @@ export function tokenPrefix(raw: string): string {
 export async function verifyMcpToken(
   raw: string,
   db: DbClient,
-): Promise<{ userId: string; systemRole: "user" | "superadmin"; tokenId: string } | null> {
+): Promise<{ userId: string; systemRole: "user" | "superadmin"; tokenId: string; scope: TokenScope } | null> {
   if (!raw.startsWith(PREFIX)) return null;
 
   const hash = hashToken(raw);
@@ -41,5 +42,5 @@ export async function verifyMcpToken(
     .set({ lastUsedAt: new Date() })
     .where(eq(mcpTokens.id, row.id));
 
-  return { userId: user.id, systemRole: user.systemRole, tokenId: row.id };
+  return { userId: user.id, systemRole: user.systemRole, tokenId: row.id, scope: parseScope(row.scope) };
 }
