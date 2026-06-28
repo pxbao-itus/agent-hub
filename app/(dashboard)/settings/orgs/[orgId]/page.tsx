@@ -14,9 +14,12 @@ import { DeptCardGrid } from "./dept-card-grid";
 import { getAccessibleGroups } from "@/server/auth/access";
 import { fetchSubtreePrompts } from "@/server/lib/group-prompts";
 import { GroupPromptList } from "../_components/group-prompt-list";
+import { PromptsPagination } from "../_components/prompts-pagination";
 import { DeleteOrgDialog } from "./delete-org-dialog";
 import { GroupAvatar } from "@/components/ui/group-avatar";
 import { AvatarUrlDialog } from "../_components/avatar-url-dialog";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 
 const getOrg = cache(async (orgId: string) =>
   db.query.orgs.findFirst({ where: eq(orgs.id, orgId) }),
@@ -28,8 +31,16 @@ export async function generateMetadata({ params }: { params: Promise<{ orgId: st
   return { title: org?.name ?? "Organization" };
 }
 
-export default async function OrgDetailPage({ params }: { params: Promise<{ orgId: string }> }) {
+export default async function OrgDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ orgId: string }>;
+  searchParams: Promise<{ po?: string }>;
+}) {
   const { orgId } = await params;
+  const { po } = await searchParams;
+  const promptsOffset = Math.max(0, parseInt(po ?? "0", 10) || 0);
   const session = await auth();
   const userId = session!.user!.id!;
   const isSuperAdmin = session!.user!.systemRole === "superadmin";
@@ -88,6 +99,7 @@ export default async function OrgDetailPage({ params }: { params: Promise<{ orgI
       viewerIsAdmin: isAdmin,
       accessibleGroups,
       db,
+      offset: promptsOffset,
     }),
   ]);
 
@@ -156,13 +168,21 @@ export default async function OrgDetailPage({ params }: { params: Promise<{ orgI
 
       {/* Prompts */}
       <section className="space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold">Prompts</h2>
-          <p className="text-xs text-muted-foreground">
-            {subtreePrompts.length} prompt{subtreePrompts.length !== 1 ? "s" : ""} across this org
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Prompts</h2>
+            <p className="text-xs text-muted-foreground">
+              {subtreePrompts.total} prompt{subtreePrompts.total !== 1 ? "s" : ""} across this org
+            </p>
+          </div>
+          {isAdmin && (
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/prompts/new?ownerType=org&ownerId=${orgId}`}>New prompt</Link>
+            </Button>
+          )}
         </div>
-        <GroupPromptList items={subtreePrompts} showOwnerLabel />
+        <GroupPromptList items={subtreePrompts.items} showOwnerLabel />
+        <PromptsPagination total={subtreePrompts.total} offset={promptsOffset} baseUrl={`/settings/orgs/${orgId}`} />
       </section>
 
       {/* Danger zone — superadmin only */}

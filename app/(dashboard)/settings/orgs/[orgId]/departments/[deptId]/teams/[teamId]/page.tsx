@@ -9,15 +9,22 @@ import { AddMemberDialog } from "../../../../add-member-dialog";
 import { getAccessibleGroups, effectiveGroupRole } from "@/server/auth/access";
 import { fetchSubtreePrompts } from "@/server/lib/group-prompts";
 import { GroupPromptList } from "../../../../../_components/group-prompt-list";
+import { PromptsPagination } from "../../../../../_components/prompts-pagination";
 import { GroupAvatar } from "@/components/ui/group-avatar";
 import { AvatarUrlDialog } from "../../../../../_components/avatar-url-dialog";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 
 export default async function TeamDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ orgId: string; deptId: string; teamId: string }>;
+  searchParams: Promise<{ po?: string }>;
 }) {
   const { orgId, deptId, teamId } = await params;
+  const { po } = await searchParams;
+  const promptsOffset = Math.max(0, parseInt(po ?? "0", 10) || 0);
   const session = await auth();
   const userId = session!.user!.id!;
   const isSuperAdmin = session!.user!.systemRole === "superadmin";
@@ -54,6 +61,7 @@ export default async function TeamDetailPage({
     viewerIsAdmin: isAdmin,
     accessibleGroups,
     db,
+    offset: promptsOffset,
   }),
 ]);
 
@@ -97,13 +105,25 @@ export default async function TeamDetailPage({
 
       {/* Prompts */}
       <section className="space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold">Prompts</h2>
-          <p className="text-xs text-muted-foreground">
-            {teamPrompts.length} prompt{teamPrompts.length !== 1 ? "s" : ""} in this team
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Prompts</h2>
+            <p className="text-xs text-muted-foreground">
+              {teamPrompts.total} prompt{teamPrompts.total !== 1 ? "s" : ""} in this team
+            </p>
+          </div>
+          {isAdmin && (
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/prompts/new?ownerType=team&ownerId=${teamId}`}>New prompt</Link>
+            </Button>
+          )}
         </div>
-        <GroupPromptList items={teamPrompts} showOwnerLabel={false} />
+        <GroupPromptList items={teamPrompts.items} showOwnerLabel={false} />
+        <PromptsPagination
+          total={teamPrompts.total}
+          offset={promptsOffset}
+          baseUrl={`/settings/orgs/${orgId}/departments/${deptId}/teams/${teamId}`}
+        />
       </section>
     </div>
   );

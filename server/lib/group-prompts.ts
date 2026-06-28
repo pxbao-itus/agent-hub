@@ -1,4 +1,4 @@
-import { eq, and, or, inArray, desc } from "drizzle-orm";
+import { eq, and, or, inArray, desc, count as sqlCount } from "drizzle-orm";
 import type { DbClient } from "@/server/db/types";
 import { prompts, promptVersions, orgs, departments, teams } from "@/server/db/schema";
 import type { GroupRef } from "@/server/auth/access";
@@ -16,24 +16,32 @@ export type GroupPromptItem = {
 
 type Owner = { type: "org" | "department" | "team"; id: string; name: string };
 
+const PAGE_SIZE = 30;
+
 type FetchOptions = {
   root: { type: "org" | "department" | "team"; id: string };
   viewerIsAdmin: boolean;
   accessibleGroups: GroupRef[];
   db: DbClient;
+  limit?: number;
+  offset?: number;
 };
+
+export type FetchSubtreeResult = { items: GroupPromptItem[]; total: number };
 
 export async function fetchSubtreePrompts({
   root,
   viewerIsAdmin,
   accessibleGroups,
   db,
-}: FetchOptions): Promise<GroupPromptItem[]> {
+  limit = PAGE_SIZE,
+  offset = 0,
+}: FetchOptions): Promise<FetchSubtreeResult> {
   const owners: Owner[] = [];
 
   if (root.type === "org") {
     const org = await db.query.orgs.findFirst({ where: eq(orgs.id, root.id) });
-    if (!org) return [];
+    if (!org) return { items: [], total: 0 };
     owners.push({ type: "org", id: root.id, name: org.name });
 
     const deptRows = await db
@@ -51,7 +59,7 @@ export async function fetchSubtreePrompts({
     }
   } else if (root.type === "department") {
     const dept = await db.query.departments.findFirst({ where: eq(departments.id, root.id) });
-    if (!dept) return [];
+    if (!dept) return { items: [], total: 0 };
     owners.push({ type: "department", id: root.id, name: dept.name });
 
     const teamRows = await db
@@ -61,7 +69,7 @@ export async function fetchSubtreePrompts({
     for (const t of teamRows) owners.push({ type: "team", id: t.id, name: t.name });
   } else {
     const team = await db.query.teams.findFirst({ where: eq(teams.id, root.id) });
-    if (!team) return [];
+    if (!team) return { items: [], total: 0 };
     owners.push({ type: "team", id: root.id, name: team.name });
   }
 
@@ -74,7 +82,7 @@ export async function fetchSubtreePrompts({
     visibleOwners = owners.filter((o) => accessibleSet.has(`${o.type}:${o.id}`));
   }
 
-  if (visibleOwners.length === 0) return [];
+  if (visibleOwners.length === 0) return { items: [], total: 0 };
 
   const orgIds = visibleOwners.filter((o) => o.type === "org").map((o) => o.id);
   const deptIds = visibleOwners.filter((o) => o.type === "department").map((o) => o.id);
@@ -98,21 +106,27 @@ export async function fetchSubtreePrompts({
 
   const whereClause = and(or(...ownerClauses), visibilityClause);
 
-  const rows = await db.query.prompts.findMany({
-    where: whereClause,
-    orderBy: desc(prompts.updatedAt),
-    with: {
-      versions: {
-        limit: 1,
-        orderBy: desc(promptVersions.versionNo),
-        columns: { body: true },
+  const [countResult, rows] = await Promise.all([
+    db.select({ total: sqlCount() }).from(prompts).where(whereClause),
+    db.query.prompts.findMany({
+      where: whereClause,
+      orderBy: desc(prompts.updatedAt),
+      limit,
+      offset,
+      with: {
+        versions: {
+          limit: 1,
+          orderBy: desc(promptVersions.versionNo),
+          columns: { body: true },
+        },
       },
-    },
-  });
+    }),
+  ]);
 
+  const total = countResult[0]?.total ?? 0;
   const nameMap = new Map(visibleOwners.map((o) => [`${o.type}:${o.id}`, o.name]));
 
-  return rows.map((row) => {
+  const items = rows.map((row) => {
     const body = row.versions[0]?.body ?? "";
     return {
       id: row.id,
@@ -125,4 +139,6 @@ export async function fetchSubtreePrompts({
       preview: body.slice(0, 120) + (body.length > 120 ? "…" : ""),
     };
   });
+
+  return { items, total };
 }

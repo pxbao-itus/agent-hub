@@ -17,6 +17,7 @@ type OwnerType = "user" | "org" | "department" | "team";
 
 type Props = {
   mode: "create";
+  preselectSpace?: { ownerType: "org" | "department" | "team"; ownerId: string };
 } | {
   mode: "edit";
   promptId: string;
@@ -58,25 +59,29 @@ export function PromptForm(props: Props) {
   const [tagInput, setTagInput] = useState(
     props.mode === "edit" ? props.initial.tags.join(", ") : "",
   );
+  const preselect = props.mode === "create" ? props.preselectSpace : undefined;
   const [visibility, setVisibility] = useState<Visibility>(
-    props.mode === "edit" ? props.initial.visibility : "private",
+    props.mode === "edit" ? props.initial.visibility : preselect ? "group" : "private",
   );
   const [changelog, setChangelog] = useState("");
   // Only relevant in create mode + group visibility.
   // "" = not yet selected; "org:<id>" / "department:<id>" / "team:<id>"
-  const [selectedSpaceKey, setSelectedSpaceKey] = useState<string>("");
+  const [selectedSpaceKey, setSelectedSpaceKey] = useState<string>(
+    preselect ? `${preselect.ownerType}:${preselect.ownerId}` : "",
+  );
 
   // Pre-load spaces in create mode so they're ready when user picks "Group"
-  const mySpaces = trpc.org.mySpaces.useQuery(undefined, { enabled: props.mode === "create" });
+  const mySpaces = trpc.org.mySpaces.useQuery(undefined, { enabled: props.mode === "create" && !preselect });
 
-  // Auto-select first available space when user switches to group visibility
+  // Auto-select first available space when user switches to group visibility (no preselect)
   useEffect(() => {
     if (props.mode !== "create") return;
+    if (preselect) return; // locked to preselect
     if (visibility !== "group") return;
     if (selectedSpaceKey) return; // already chosen
     const first = mySpaces.data?.[0];
     if (first) setSelectedSpaceKey(`${first.type}:${first.id}`);
-  }, [visibility, mySpaces.data, props.mode, selectedSpaceKey]);
+  }, [visibility, mySpaces.data, props.mode, selectedSpaceKey, preselect]);
 
   // Whether the current owner is a personal (user) space — drives visibility options
   const isPersonalSpace =
@@ -329,7 +334,12 @@ export function PromptForm(props: Props) {
         {props.mode === "create" && visibility === "group" && (
           <div className="space-y-1.5">
             <Label htmlFor="space">Assign to space</Label>
-            {mySpaces.isLoading ? (
+            {preselect ? (
+              // Locked to preselected space (from "New prompt" button in group page)
+              <p className="text-sm text-muted-foreground rounded-md border px-3 py-2 bg-muted/40">
+                {preselect.ownerType.charAt(0).toUpperCase() + preselect.ownerType.slice(1)}: {preselect.ownerId}
+              </p>
+            ) : mySpaces.isLoading ? (
               <p className="text-xs text-muted-foreground">Loading spaces…</p>
             ) : !mySpaces.data?.length ? (
               <p className="text-xs text-destructive">

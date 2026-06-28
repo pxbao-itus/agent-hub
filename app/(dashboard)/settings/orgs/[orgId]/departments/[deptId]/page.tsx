@@ -11,15 +11,22 @@ import { TeamCardGrid } from "./team-card-grid";
 import { getAccessibleGroups, effectiveGroupRole } from "@/server/auth/access";
 import { fetchSubtreePrompts } from "@/server/lib/group-prompts";
 import { GroupPromptList } from "../../../_components/group-prompt-list";
+import { PromptsPagination } from "../../../_components/prompts-pagination";
 import { GroupAvatar } from "@/components/ui/group-avatar";
 import { AvatarUrlDialog } from "../../../_components/avatar-url-dialog";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 
 export default async function DeptDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ orgId: string; deptId: string }>;
+  searchParams: Promise<{ po?: string }>;
 }) {
   const { orgId, deptId } = await params;
+  const { po } = await searchParams;
+  const promptsOffset = Math.max(0, parseInt(po ?? "0", 10) || 0);
   const session = await auth();
   const userId = session!.user!.id!;
   const isSuperAdmin = session!.user!.systemRole === "superadmin";
@@ -89,6 +96,7 @@ export default async function DeptDetailPage({
       viewerIsAdmin: isAdmin,
       accessibleGroups,
       db,
+      offset: promptsOffset,
     }),
   ]);
 
@@ -157,13 +165,25 @@ export default async function DeptDetailPage({
 
       {/* Prompts */}
       <section className="space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold">Prompts</h2>
-          <p className="text-xs text-muted-foreground">
-            {subtreePrompts.length} prompt{subtreePrompts.length !== 1 ? "s" : ""} in this department
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Prompts</h2>
+            <p className="text-xs text-muted-foreground">
+              {subtreePrompts.total} prompt{subtreePrompts.total !== 1 ? "s" : ""} in this department
+            </p>
+          </div>
+          {isDeptAdmin && (
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/prompts/new?ownerType=department&ownerId=${deptId}`}>New prompt</Link>
+            </Button>
+          )}
         </div>
-        <GroupPromptList items={subtreePrompts} showOwnerLabel />
+        <GroupPromptList items={subtreePrompts.items} showOwnerLabel />
+        <PromptsPagination
+          total={subtreePrompts.total}
+          offset={promptsOffset}
+          baseUrl={`/settings/orgs/${orgId}/departments/${deptId}`}
+        />
       </section>
     </div>
   );

@@ -2,8 +2,8 @@ import { z } from "zod";
 import { eq, and, or, desc, sql, inArray, not } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../trpc";
-import { prompts, promptVersions, promptVariables, memberships } from "@/server/db/schema";
-import { getAccessibleGroups, canMutatePrompt } from "@/server/auth/access";
+import { prompts, promptVersions, promptVariables } from "@/server/db/schema";
+import { getAccessibleGroups, canMutatePrompt, effectiveGroupRole } from "@/server/auth/access";
 import { hybridSearch, fetchPromptsByIds } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import { parseVariables } from "@/server/lib/template";
@@ -124,14 +124,8 @@ export const promptRouter = router({
       const ownerId = ownerType === "user" ? userId : (input.ownerId ?? userId);
 
       if (ownerType !== "user" && systemRole !== "superadmin") {
-        const membership = await ctx.db.query.memberships.findFirst({
-          where: and(
-            eq(memberships.userId, userId),
-            eq(memberships.groupType, ownerType as "org" | "department" | "team"),
-            eq(memberships.groupId, ownerId),
-          ),
-        });
-        if (!membership) throw new TRPCError({ code: "FORBIDDEN" });
+        const role = await effectiveGroupRole(userId, ownerType as "org" | "department" | "team", ownerId, ctx.db);
+        if (role !== "editor" && role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       }
 
       assertGroupVisibility(ownerType, input.visibility);
