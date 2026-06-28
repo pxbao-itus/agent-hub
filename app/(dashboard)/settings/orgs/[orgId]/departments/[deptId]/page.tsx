@@ -8,7 +8,7 @@ import { Breadcrumb } from "../../../_components/breadcrumb";
 import { AddMemberDialog } from "../../add-member-dialog";
 import { CreateTeamDialog } from "../../create-team-dialog";
 import { TeamCardGrid } from "./team-card-grid";
-import { getAccessibleGroups } from "@/server/auth/access";
+import { getAccessibleGroups, effectiveGroupRole } from "@/server/auth/access";
 import { fetchSubtreePrompts } from "@/server/lib/group-prompts";
 import { GroupPromptList } from "../../../_components/group-prompt-list";
 import { GroupAvatar } from "@/components/ui/group-avatar";
@@ -35,7 +35,7 @@ export default async function DeptDetailPage({
   const accessibleSet = new Set(accessibleGroups.map((g) => `${g.groupType}:${g.groupId}`));
   if (!isSuperAdmin && !accessibleSet.has(`department:${deptId}`)) notFound();
 
-  // isAdmin requires direct org-level admin membership (or superadmin)
+  // isOrgAdmin: can edit/delete the dept itself and manage dept members (org-admin or superadmin)
   const orgMembership = await db.query.memberships.findFirst({
     where: and(
       eq(memberships.userId, userId),
@@ -43,7 +43,14 @@ export default async function DeptDetailPage({
       eq(memberships.groupId, orgId),
     ),
   });
-  const isAdmin = isSuperAdmin || orgMembership?.role === "admin";
+  const isOrgAdmin = isSuperAdmin || orgMembership?.role === "admin";
+
+  // isDeptAdmin: can create/edit/delete teams + manage team members (dept-admin, org-admin, superadmin)
+  const deptRole = isSuperAdmin ? "admin" : await effectiveGroupRole(userId, "department", deptId, db);
+  const isDeptAdmin = deptRole === "admin";
+
+  // isAdmin: backward-compat flag for avatar dialog, AddMemberDialog (dept-level)
+  const isAdmin = isDeptAdmin;
   const deptSlugPath = [org.slug, dept.slug].filter(Boolean).join(".");
 
   const accessibleTeamIds = accessibleGroups

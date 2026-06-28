@@ -6,7 +6,7 @@ import { notFound } from "next/navigation";
 import { MemberList } from "@/components/ui/member-list";
 import { Breadcrumb } from "../../../../../_components/breadcrumb";
 import { AddMemberDialog } from "../../../../add-member-dialog";
-import { getAccessibleGroups } from "@/server/auth/access";
+import { getAccessibleGroups, effectiveGroupRole } from "@/server/auth/access";
 import { fetchSubtreePrompts } from "@/server/lib/group-prompts";
 import { GroupPromptList } from "../../../../../_components/group-prompt-list";
 import { GroupAvatar } from "@/components/ui/group-avatar";
@@ -34,15 +34,9 @@ export default async function TeamDetailPage({
   const accessibleSet = new Set(accessibleGroups.map((g) => `${g.groupType}:${g.groupId}`));
   if (!isSuperAdmin && !accessibleSet.has(`team:${teamId}`)) notFound();
 
-  // isAdmin requires direct org-level admin membership (or superadmin)
-  const orgMembership = await db.query.memberships.findFirst({
-    where: and(
-      eq(memberships.userId, userId),
-      eq(memberships.groupType, "org"),
-      eq(memberships.groupId, orgId),
-    ),
-  });
-  const isAdmin = isSuperAdmin || orgMembership?.role === "admin";
+  // isAdmin: effective admin on team (team-admin, dept-admin, org-admin, superadmin)
+  const teamRole = isSuperAdmin ? "admin" : await effectiveGroupRole(userId, "team", teamId, db);
+  const isAdmin = teamRole === "admin";
 
   const [teamMembers, teamPrompts] = await Promise.all([db
     .select({

@@ -5,6 +5,7 @@ import { orgs, departments, teams, memberships, users, prompts } from "@/server/
 import { TRPCError } from "@trpc/server";
 import type { DbClient } from "@/server/db/types";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
+import { effectiveGroupRole } from "@/server/auth/access";
 
 const slugSchema = z
   .string()
@@ -58,6 +59,18 @@ export async function resolveOwningOrgId(
 
 function requireSuperAdmin(systemRole: "user" | "superadmin"): void {
   if (systemRole !== "superadmin") throw new TRPCError({ code: "FORBIDDEN" });
+}
+
+async function requireGroupAdmin(
+  db: DbClient,
+  userId: string,
+  groupType: "org" | "department" | "team",
+  groupId: string,
+  systemRole: "user" | "superadmin",
+): Promise<void> {
+  if (systemRole === "superadmin") return;
+  const role = await effectiveGroupRole(userId, groupType, groupId, db);
+  if (role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
 }
 
 async function ensureNotLastOrgAdmin(db: DbClient, membershipId: string): Promise<void> {
@@ -357,11 +370,9 @@ export const orgRouter = router({
           }),
         )
         .mutation(async ({ ctx, input }) => {
-          const dept = await ctx.db.query.departments.findFirst({
-            where: eq(departments.id, input.departmentId),
-          });
-          if (!dept) throw new TRPCError({ code: "NOT_FOUND" });
-          await requireOrgRole(ctx.db, ctx.session.userId, dept.orgId, "admin", ctx.session.systemRole);
+          if (!(await ctx.db.query.departments.findFirst({ where: eq(departments.id, input.departmentId) })))
+            throw new TRPCError({ code: "NOT_FOUND" });
+          await requireGroupAdmin(ctx.db, ctx.session.userId, "department", input.departmentId, ctx.session.systemRole);
           const [team] = await ctx.db
             .insert(teams)
             .values({ departmentId: input.departmentId, name: input.name, slug: input.slug })
@@ -391,13 +402,9 @@ export const orgRouter = router({
           }),
         )
         .mutation(async ({ ctx, input }) => {
-          const team = await ctx.db.query.teams.findFirst({ where: eq(teams.id, input.teamId) });
-          if (!team) throw new TRPCError({ code: "NOT_FOUND" });
-          const dept = await ctx.db.query.departments.findFirst({
-            where: eq(departments.id, team.departmentId),
-          });
-          if (!dept) throw new TRPCError({ code: "NOT_FOUND" });
-          await requireOrgRole(ctx.db, ctx.session.userId, dept.orgId, "admin", ctx.session.systemRole);
+          if (!(await ctx.db.query.teams.findFirst({ where: eq(teams.id, input.teamId) })))
+            throw new TRPCError({ code: "NOT_FOUND" });
+          await requireGroupAdmin(ctx.db, ctx.session.userId, "team", input.teamId, ctx.session.systemRole);
           const [updated] = await ctx.db
             .update(teams)
             .set({
@@ -412,13 +419,9 @@ export const orgRouter = router({
       delete: protectedProcedure
         .input(z.object({ teamId: z.string().uuid() }))
         .mutation(async ({ ctx, input }) => {
-          const team = await ctx.db.query.teams.findFirst({ where: eq(teams.id, input.teamId) });
-          if (!team) throw new TRPCError({ code: "NOT_FOUND" });
-          const dept = await ctx.db.query.departments.findFirst({
-            where: eq(departments.id, team.departmentId),
-          });
-          if (!dept) throw new TRPCError({ code: "NOT_FOUND" });
-          await requireOrgRole(ctx.db, ctx.session.userId, dept.orgId, "admin", ctx.session.systemRole);
+          if (!(await ctx.db.query.teams.findFirst({ where: eq(teams.id, input.teamId) })))
+            throw new TRPCError({ code: "NOT_FOUND" });
+          await requireGroupAdmin(ctx.db, ctx.session.userId, "team", input.teamId, ctx.session.systemRole);
 
           await ctx.db.transaction(async (tx) => {
             await tx.delete(prompts).where(
@@ -449,8 +452,7 @@ export const orgRouter = router({
           .refine((d) => d.userId || d.email, { message: "userId or email is required" }),
       )
       .mutation(async ({ ctx, input }) => {
-        const orgId = await resolveOwningOrgId(ctx.db, input.groupType, input.groupId);
-        await requireOrgRole(ctx.db, ctx.session.userId, orgId, "admin", ctx.session.systemRole);
+        await requireGroupAdmin(ctx.db, ctx.session.userId, input.groupType, input.groupId, ctx.session.systemRole);
 
         const target = input.userId
           ? await ctx.db.query.users.findFirst({ where: eq(users.id, input.userId) })
@@ -486,8 +488,7 @@ export const orgRouter = router({
         });
         if (!m) throw new TRPCError({ code: "NOT_FOUND" });
 
-        const orgId = await resolveOwningOrgId(ctx.db, m.groupType, m.groupId);
-        await requireOrgRole(ctx.db, ctx.session.userId, orgId, "admin", ctx.session.systemRole);
+        await requireGroupAdmin(ctx.db, ctx.session.userId, m.groupType, m.groupId, ctx.session.systemRole);
 
         // Guard: cannot demote the last org-level admin
         if (m.role === "admin" && input.role !== "admin") {
@@ -510,8 +511,7 @@ export const orgRouter = router({
         });
         if (!m) throw new TRPCError({ code: "NOT_FOUND" });
 
-        const orgId = await resolveOwningOrgId(ctx.db, m.groupType, m.groupId);
-        await requireOrgRole(ctx.db, ctx.session.userId, orgId, "admin", ctx.session.systemRole);
+        await requireGroupAdmin(ctx.db, ctx.session.userId, m.groupType, m.groupId, ctx.session.systemRole);
 
         // Guard: cannot remove the last org-level admin
         await ensureNotLastOrgAdmin(ctx.db, input.membershipId);
