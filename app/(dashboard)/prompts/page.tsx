@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SearchBar } from "./_components/search-bar";
 import { EmptyState } from "@/components/ui/empty-state";
+import { BookText, Search } from "lucide-react";
 
 type Props = {
   searchParams: Promise<{ q?: string; tag?: string; offset?: string }>;
@@ -102,7 +103,10 @@ export default async function PromptsPage({ searchParams }: Props) {
 
       {rows.length === 0 ? (
         <EmptyState
+          icon={q || tag ? Search : BookText}
+          variant={q || tag ? "no-results" : "empty"}
           message={q || tag ? "No prompts match your search." : "No prompts yet."}
+          description={!q && !tag ? "Create your first prompt to get started." : undefined}
           action={!q && !tag ? (
             <Button asChild variant="outline">
               <Link href="/prompts/new">Create your first prompt</Link>
@@ -116,7 +120,7 @@ export default async function PromptsPage({ searchParams }: Props) {
             const preview = currentBody.slice(0, 120) + (currentBody.length > 120 ? "…" : "");
             return (
               <Link key={prompt.id} href={`/prompts/${prompt.id}`}>
-                <Card className="h-full cursor-pointer transition-colors hover:bg-muted/50">
+                <Card className="h-full cursor-pointer transition-all hover:bg-muted/50 hover:shadow-sm">
                   <CardHeader className="pb-2">
                     <div className="flex items-start justify-between gap-2">
                       <CardTitle className="text-sm leading-snug">{prompt.title}</CardTitle>

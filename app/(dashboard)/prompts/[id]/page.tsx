@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DeletePromptButton } from "./_components/delete-prompt-button";
 import { VersionHistory } from "./_components/version-history";
+import { CodeBlock } from "@/components/ui/code-block";
 
 const getPrompt = cache(async (id: string) =>
   db.query.prompts.findFirst({
@@ -100,9 +101,7 @@ export default async function PromptDetailPage({ params }: { params: Promise<{ i
             </h2>
             <span className="text-xs text-muted-foreground">v{currentVersion.versionNo}</span>
           </div>
-          <pre className="overflow-x-auto rounded-lg border bg-muted/40 p-4 font-mono text-sm whitespace-pre-wrap">
-            {currentVersion.body}
-          </pre>
+          <CodeBlock>{currentVersion.body}</CodeBlock>
         </section>
       )}
 

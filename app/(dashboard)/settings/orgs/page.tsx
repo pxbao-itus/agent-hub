@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { CreateOrgDialog } from "./create-org-dialog";
 import { getAccessibleGroups } from "@/server/auth/access";
+import { Building2 } from "lucide-react";
 
 export const metadata: Metadata = { title: "Organizations" };
 
@@ -79,13 +80,14 @@ export default async function OrgsPage() {
 
       {rows.length === 0 ? (
         <EmptyState
+          icon={Building2}
           message="You are not a member of any organization yet."
           action={isSuperAdmin ? <CreateOrgDialog /> : undefined}
         />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {rows.map((org) => (
-            <Card key={org.id} className="transition-colors hover:bg-muted/30">
+            <Card key={org.id} className="transition-all hover:bg-muted/30 hover:shadow-sm">
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
