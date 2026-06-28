@@ -14,6 +14,7 @@ import { DeptCardGrid } from "./dept-card-grid";
 import { getAccessibleGroups } from "@/server/auth/access";
 import { fetchSubtreePrompts } from "@/server/lib/group-prompts";
 import { GroupPromptList } from "../_components/group-prompt-list";
+import { DeleteOrgDialog } from "./delete-org-dialog";
 
 const getOrg = cache(async (orgId: string) =>
   db.query.orgs.findFirst({ where: eq(orgs.id, orgId) }),
@@ -152,6 +153,19 @@ export default async function OrgDetailPage({ params }: { params: Promise<{ orgI
         </div>
         <GroupPromptList items={subtreePrompts} showOwnerLabel />
       </section>
+
+      {/* Danger zone — superadmin only */}
+      {isSuperAdmin && (
+        <section className="space-y-4 rounded-lg border border-destructive/40 p-4">
+          <div>
+            <h2 className="text-lg font-semibold text-destructive">Danger zone</h2>
+            <p className="text-xs text-muted-foreground">
+              Permanently delete this organization and all its data.
+            </p>
+          </div>
+          <DeleteOrgDialog orgId={orgId} orgName={org.name} />
+        </section>
+      )}
     </div>
   );
 }

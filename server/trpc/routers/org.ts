@@ -167,6 +167,65 @@ export const orgRouter = router({
     }));
   }),
 
+  delete: protectedProcedure
+    .input(z.object({ orgId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      requireSuperAdmin(ctx.session.systemRole);
+
+      const org = await ctx.db.query.orgs.findFirst({ where: eq(orgs.id, input.orgId) });
+      if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+
+      await ctx.db.transaction(async (tx) => {
+        const deptRows = await tx
+          .select({ id: departments.id })
+          .from(departments)
+          .where(eq(departments.orgId, input.orgId));
+        const deptIds = deptRows.map((d) => d.id);
+
+        const teamRows =
+          deptIds.length > 0
+            ? await tx
+                .select({ id: teams.id })
+                .from(teams)
+                .where(inArray(teams.departmentId, deptIds))
+            : [];
+        const teamIds = teamRows.map((t) => t.id);
+
+        // Delete prompts (polymorphic — no FK)
+        await tx.delete(prompts).where(
+          and(eq(prompts.ownerType, "org"), eq(prompts.ownerId, input.orgId)),
+        );
+        if (deptIds.length > 0) {
+          await tx.delete(prompts).where(
+            and(eq(prompts.ownerType, "department"), inArray(prompts.ownerId, deptIds)),
+          );
+        }
+        if (teamIds.length > 0) {
+          await tx.delete(prompts).where(
+            and(eq(prompts.ownerType, "team"), inArray(prompts.ownerId, teamIds)),
+          );
+        }
+
+        // Delete memberships (polymorphic — no FK)
+        await tx.delete(memberships).where(
+          and(eq(memberships.groupType, "org"), eq(memberships.groupId, input.orgId)),
+        );
+        if (deptIds.length > 0) {
+          await tx.delete(memberships).where(
+            and(eq(memberships.groupType, "department"), inArray(memberships.groupId, deptIds)),
+          );
+        }
+        if (teamIds.length > 0) {
+          await tx.delete(memberships).where(
+            and(eq(memberships.groupType, "team"), inArray(memberships.groupId, teamIds)),
+          );
+        }
+
+        // Delete org — departments + teams cascade via FK
+        await tx.delete(orgs).where(eq(orgs.id, input.orgId));
+      });
+    }),
+
   // ── Department sub-router ─────────────────────────────────────────────────
 
   department: router({
