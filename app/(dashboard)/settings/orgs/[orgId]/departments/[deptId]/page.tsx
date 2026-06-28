@@ -11,6 +11,8 @@ import { TeamCardGrid } from "./team-card-grid";
 import { getAccessibleGroups } from "@/server/auth/access";
 import { fetchSubtreePrompts } from "@/server/lib/group-prompts";
 import { GroupPromptList } from "../../../_components/group-prompt-list";
+import { GroupAvatar } from "@/components/ui/group-avatar";
+import { AvatarUrlDialog } from "../../../_components/avatar-url-dialog";
 
 export default async function DeptDetailPage({
   params,
@@ -54,6 +56,7 @@ export default async function DeptDetailPage({
         id: teams.id,
         name: teams.name,
         slug: teams.slug,
+        image: teams.image,
         memberCount: count(memberships.id),
       })
       .from(teams)
@@ -97,8 +100,18 @@ export default async function DeptDetailPage({
             { label: dept.name },
           ]}
         />
-        <h1 className="text-2xl font-bold">{dept.name}</h1>
-        {dept.slug && <p className="text-sm text-muted-foreground font-mono">/{dept.slug}</p>}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <GroupAvatar image={dept.image} name={dept.name} groupType="department" size="lg" />
+            <div>
+              <h1 className="text-2xl font-bold">{dept.name}</h1>
+              {dept.slug && <p className="text-sm text-muted-foreground font-mono">/{dept.slug}</p>}
+            </div>
+          </div>
+          {isAdmin && (
+            <AvatarUrlDialog groupType="department" groupId={deptId} currentImage={dept.image} />
+          )}
+        </div>
       </div>
 
       {/* Department-level members */}

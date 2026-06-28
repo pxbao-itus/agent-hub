@@ -4,8 +4,8 @@ import { db } from "@/server/db";
 import { orgs, memberships, departments } from "@/server/db/schema";
 import { eq, and, count, inArray } from "drizzle-orm";
 import Link from "next/link";
-import { Building2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { GroupAvatar } from "@/components/ui/group-avatar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -19,12 +19,12 @@ export default async function OrgsPage() {
   const userId = session!.user!.id!;
   const isSuperAdmin = session!.user!.systemRole === "superadmin";
 
-  type OrgRow = { id: string; name: string; slug: string; role: string | null; deptCount: number };
+  type OrgRow = { id: string; name: string; slug: string; image: string | null; role: string | null; deptCount: number };
   let rows: OrgRow[];
 
   if (isSuperAdmin) {
     const result = await db
-      .select({ id: orgs.id, name: orgs.name, slug: orgs.slug, deptCount: count(departments.id) })
+      .select({ id: orgs.id, name: orgs.name, slug: orgs.slug, image: orgs.image, deptCount: count(departments.id) })
       .from(orgs)
       .leftJoin(departments, eq(departments.orgId, orgs.id))
       .groupBy(orgs.id);
@@ -43,6 +43,7 @@ export default async function OrgsPage() {
           id: orgs.id,
           name: orgs.name,
           slug: orgs.slug,
+          image: orgs.image,
           role: memberships.role,
           deptCount: count(departments.id),
         })
@@ -88,7 +89,7 @@ export default async function OrgsPage() {
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <GroupAvatar image={org.image} name={org.name} groupType="org" size="sm" />
                     <CardTitle className="truncate text-base">{org.name}</CardTitle>
                   </div>
                   {org.role && (

@@ -13,10 +13,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "@/hooks/use-toast";
-import { Building2, MoreHorizontal } from "lucide-react";
+import { MoreHorizontal } from "lucide-react";
+import { GroupAvatar } from "@/components/ui/group-avatar";
 import { CreateDeptDialog } from "./create-dept-dialog";
 
-export type DeptCard = { id: string; name: string; slug: string | null; memberCount: number };
+export type DeptCard = { id: string; name: string; slug: string | null; memberCount: number; image?: string | null };
 
 type Props = {
   depts: DeptCard[];
@@ -75,7 +76,7 @@ export function DeptCardGrid({ depts, orgId, orgSlug, isAdmin }: Props) {
             <CardHeader className="pb-2">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
-                  <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <GroupAvatar image={dept.image} name={dept.name} groupType="department" size="sm" />
                   <CardTitle className="truncate text-sm">{dept.name}</CardTitle>
                 </div>
                 {isAdmin && (

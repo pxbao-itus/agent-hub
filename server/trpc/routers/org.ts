@@ -226,6 +226,33 @@ export const orgRouter = router({
       });
     }),
 
+  setGroupImage: protectedProcedure
+    .input(
+      z.object({
+        groupType: z.enum(["org", "department", "team"]),
+        groupId: z.string().uuid(),
+        image: z.string().url().nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { userId, systemRole } = ctx.session;
+      const orgId = await resolveOwningOrgId(ctx.db, input.groupType, input.groupId);
+      await requireOrgRole(ctx.db, userId, orgId, "admin", systemRole);
+
+      if (input.image !== null) {
+        const { validateAvatarUrl } = await import("@/server/lib/avatar");
+        await validateAvatarUrl(input.image);
+      }
+
+      if (input.groupType === "org") {
+        await ctx.db.update(orgs).set({ image: input.image }).where(eq(orgs.id, input.groupId));
+      } else if (input.groupType === "department") {
+        await ctx.db.update(departments).set({ image: input.image }).where(eq(departments.id, input.groupId));
+      } else {
+        await ctx.db.update(teams).set({ image: input.image }).where(eq(teams.id, input.groupId));
+      }
+    }),
+
   // ── Department sub-router ─────────────────────────────────────────────────
 
   department: router({

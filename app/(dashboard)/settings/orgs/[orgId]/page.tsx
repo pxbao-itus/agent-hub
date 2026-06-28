@@ -15,6 +15,8 @@ import { getAccessibleGroups } from "@/server/auth/access";
 import { fetchSubtreePrompts } from "@/server/lib/group-prompts";
 import { GroupPromptList } from "../_components/group-prompt-list";
 import { DeleteOrgDialog } from "./delete-org-dialog";
+import { GroupAvatar } from "@/components/ui/group-avatar";
+import { AvatarUrlDialog } from "../_components/avatar-url-dialog";
 
 const getOrg = cache(async (orgId: string) =>
   db.query.orgs.findFirst({ where: eq(orgs.id, orgId) }),
@@ -60,6 +62,7 @@ export default async function OrgDetailPage({ params }: { params: Promise<{ orgI
         id: departments.id,
         name: departments.name,
         slug: departments.slug,
+        image: departments.image,
         memberCount: count(memberships.id),
       })
       .from(departments)
@@ -103,15 +106,23 @@ export default async function OrgDetailPage({ params }: { params: Promise<{ orgI
           ]}
         />
         <div className="flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold">{org.name}</h1>
-            <p className="text-sm text-muted-foreground font-mono">/{org.slug}</p>
+          <div className="flex items-center gap-4">
+            <GroupAvatar image={org.image} name={org.name} groupType="org" size="lg" />
+            <div>
+              <h1 className="text-2xl font-bold">{org.name}</h1>
+              <p className="text-sm text-muted-foreground font-mono">/{org.slug}</p>
+            </div>
           </div>
-          {orgMembership && (
-            <Badge variant={orgMembership.role === "admin" ? "default" : "outline"}>
-              {orgMembership.role}
-            </Badge>
-          )}
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <AvatarUrlDialog groupType="org" groupId={orgId} currentImage={org.image} />
+            )}
+            {orgMembership && (
+              <Badge variant={orgMembership.role === "admin" ? "default" : "outline"}>
+                {orgMembership.role}
+              </Badge>
+            )}
+          </div>
         </div>
       </div>
 

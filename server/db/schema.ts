@@ -107,6 +107,7 @@ export const orgs = pgTable("orgs", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
+  image: text("image"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -120,6 +121,7 @@ export const departments = pgTable(
       .references(() => orgs.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     slug: text("slug"),
+    image: text("image"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -138,6 +140,7 @@ export const teams = pgTable(
       .references(() => departments.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     slug: text("slug"),
+    image: text("image"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

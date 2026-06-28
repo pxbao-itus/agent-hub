@@ -9,6 +9,8 @@ import { AddMemberDialog } from "../../../../add-member-dialog";
 import { getAccessibleGroups } from "@/server/auth/access";
 import { fetchSubtreePrompts } from "@/server/lib/group-prompts";
 import { GroupPromptList } from "../../../../../_components/group-prompt-list";
+import { GroupAvatar } from "@/components/ui/group-avatar";
+import { AvatarUrlDialog } from "../../../../../_components/avatar-url-dialog";
 
 export default async function TeamDetailPage({
   params,
@@ -72,8 +74,18 @@ export default async function TeamDetailPage({
             { label: team.name },
           ]}
         />
-        <h1 className="text-2xl font-bold">{team.name}</h1>
-        {team.slug && <p className="text-sm text-muted-foreground font-mono">/{team.slug}</p>}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <GroupAvatar image={team.image} name={team.name} groupType="team" size="lg" />
+            <div>
+              <h1 className="text-2xl font-bold">{team.name}</h1>
+              {team.slug && <p className="text-sm text-muted-foreground font-mono">/{team.slug}</p>}
+            </div>
+          </div>
+          {isAdmin && (
+            <AvatarUrlDialog groupType="team" groupId={teamId} currentImage={team.image} />
+          )}
+        </div>
       </div>
 
       <section className="space-y-4">
