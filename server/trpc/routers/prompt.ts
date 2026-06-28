@@ -11,6 +11,15 @@ import type { DbClient } from "@/server/db/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+function assertGroupVisibility(ownerType: string, visibility: string | undefined) {
+  if (ownerType !== "user" && visibility === "private") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Group prompts cannot be private",
+    });
+  }
+}
+
 /** Sync prompt_variables after body changes. Preserves existing var metadata. */
 async function syncVariables(db: DbClient, promptId: string, body: string) {
   const names = parseVariables(body);
@@ -124,6 +133,8 @@ export const promptRouter = router({
         });
         if (!membership) throw new TRPCError({ code: "FORBIDDEN" });
       }
+
+      assertGroupVisibility(ownerType, input.visibility);
 
       // 1. Insert prompt (currentVersionId null until we have the version id)
       const [prompt] = await ctx.db
@@ -281,6 +292,8 @@ export const promptRouter = router({
 
       const allowed = await canMutatePrompt({ userId, systemRole }, prompt, ctx.db);
       if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
+
+      assertGroupVisibility(prompt.ownerType, input.visibility);
 
       // Update metadata
       const metaUpdates = Object.fromEntries(

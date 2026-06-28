@@ -78,6 +78,19 @@ export function PromptForm(props: Props) {
     if (first) setSelectedSpaceKey(`${first.type}:${first.id}`);
   }, [visibility, mySpaces.data, props.mode, selectedSpaceKey]);
 
+  // Whether the current owner is a personal (user) space — drives visibility options
+  const isPersonalSpace =
+    props.mode === "edit"
+      ? props.initial.ownerType === "user"
+      : visibility !== "group";
+
+  // When switching to a group space, reset private visibility to group
+  useEffect(() => {
+    if (!isPersonalSpace && visibility === "private") {
+      setVisibility("group");
+    }
+  }, [isPersonalSpace, visibility]);
+
   // Derive current owner from visibility + space selection
   const ownerType: OwnerType =
     props.mode === "edit"
@@ -302,7 +315,9 @@ export function PromptForm(props: Props) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="private">Private — only me</SelectItem>
+                {isPersonalSpace && (
+                  <SelectItem value="private">Private — only me</SelectItem>
+                )}
                 <SelectItem value="group">Group — org / team</SelectItem>
                 <SelectItem value="public">Public — everyone</SelectItem>
               </SelectContent>
