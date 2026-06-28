@@ -19,7 +19,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <aside className="hidden md:flex w-56 shrink-0 flex-col border-r bg-card">
         <div className="flex h-14 items-center border-b px-5">
           <Link href="/" className="text-base font-bold tracking-tight">
-            prompt-hub
+            Agent Hub
           </Link>
         </div>
 

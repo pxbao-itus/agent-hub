@@ -1,14 +1,15 @@
-# prompt-hub
+# Agent Hub
 
-> Open-source platform to **store, share, and use prompts** — with first-class **AI agent integration over MCP**.
+> Open-source platform to **store, share, and use reusable agent capabilities** — prompts, skills, and kits — with first-class **AI agent integration over MCP**.
 
-Centralized prompt management for individuals and teams: versioning, access control across **Organization → Department → Team → User**, and seamless AI agent integration via MCP — no more copy-pasting.
+Centralized management of agent building blocks for individuals and teams: versioning, access control across **Organization → Department → Team → User**, and seamless AI agent integration via MCP — no more copy-pasting.
 
 > ⚠️ **Status: early / work-in-progress.** Not ready for production.
 
 ## Features (MVP target)
 
-- 📦 **Prompt management** with tags, descriptions, and template variables `{{var}}`.
+- 📦 **Prompts** with tags, descriptions, and template variables `{{var}}`.
+- 🛠️ **Skills** — reusable instruction sets (SKILL.md) with bundled files, delivered to agents via MCP.
 - 🕑 **Versioning** — every save creates an immutable version.
 - 🏢 **Org-based access control** — owner can be a user, team, department, or org; permissions inherit upward.
 - 🔌 **MCP server** — plug into Claude Code, Cursor, or any MCP-compatible agent using a scoped token.
@@ -26,8 +27,8 @@ One principle: minimal moving parts — all TypeScript + one Postgres, self-host
 Requirements: Docker 24+, Docker Compose v2.
 
 ```bash
-git clone https://github.com/your-org/prompt-hub.git
-cd prompt-hub
+git clone https://github.com/your-org/agent-hub.git
+cd agent-hub
 
 cp .env.example .env
 # Edit .env:
@@ -81,7 +82,7 @@ Other DB commands: `pnpm db:generate` (generate migration from schema), `pnpm db
 ```json
 {
   "mcpServers": {
-    "prompt-hub": {
+    "agent-hub": {
       "type": "http",
       "url": "http://localhost:3000/api/mcp",
       "headers": { "Authorization": "Bearer mcp_<your-token>" }
@@ -90,7 +91,7 @@ Other DB commands: `pnpm db:generate` (generate migration from schema), `pnpm db
 }
 ```
 
-Once connected, type `/` in Claude Code to see your prompts as slash commands.
+Once connected, type `/` in Claude Code to see your prompts as slash commands, and use the `get_skill` / `list_skills` tools to pull skills on demand.
 
 ## License
 

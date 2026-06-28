@@ -19,7 +19,7 @@ type Identity = { userId: string; systemRole: "user" | "superadmin" };
  * so agents can invoke prompts directly without going through list/get.
  */
 export async function createMcpServer(identity: Identity, scope: TokenScope = {}): Promise<McpServer> {
-  const server = new McpServer({ name: "prompt-hub", version: "0.1.0" });
+  const server = new McpServer({ name: "agent-hub", version: "0.1.0" });
 
   const rows = await getArtifactsForIdentity(identity, scope, "prompt");
 

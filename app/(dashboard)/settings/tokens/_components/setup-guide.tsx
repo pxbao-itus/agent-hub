@@ -28,7 +28,7 @@ export function SetupGuide({ endpoint, token }: Props) {
   const jsonConfig = JSON.stringify(
     {
       mcpServers: {
-        "prompt-hub": {
+        "agent-hub": {
           type: "http",
           url: endpoint,
           headers: { Authorization: `Bearer ${t}` },
@@ -41,14 +41,14 @@ export function SetupGuide({ endpoint, token }: Props) {
 
   // Correct syntax: URL is positional arg after name, -H comes after URL
   const cliAdd =
-    `claude mcp add prompt-hub ${endpoint}` +
+    `claude mcp add agent-hub ${endpoint}` +
     ` \\\n  --transport http` +
     ` \\\n  -H "Authorization: Bearer ${t}"`;
 
   const cursorConfig = JSON.stringify(
     {
       mcpServers: {
-        "prompt-hub": {
+        "agent-hub": {
           url: endpoint,
           headers: { Authorization: `Bearer ${t}` },
         },

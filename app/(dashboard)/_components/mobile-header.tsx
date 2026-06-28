@@ -14,7 +14,7 @@ export function MobileHeader({ displayName, isSuperAdmin }: { displayName: strin
       {/* Topbar */}
       <header className="flex h-14 items-center justify-between border-b bg-card px-4 md:hidden">
         <Link href="/" className="text-base font-bold tracking-tight">
-          prompt-hub
+          Agent Hub
         </Link>
         <Button variant="ghost" size="icon" onClick={() => setOpen(true)}>
           <Menu className="h-5 w-5" />
@@ -38,7 +38,7 @@ export function MobileHeader({ displayName, isSuperAdmin }: { displayName: strin
       >
         <div className="flex h-14 items-center justify-between border-b px-5">
           <Link href="/" className="text-base font-bold tracking-tight">
-            prompt-hub
+            Agent Hub
           </Link>
           <Button variant="ghost" size="icon" onClick={() => setOpen(false)}>
             <X className="h-5 w-5" />

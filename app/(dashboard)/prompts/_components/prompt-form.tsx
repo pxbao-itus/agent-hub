@@ -264,7 +264,7 @@ export function PromptForm(props: Props) {
         </div>
         <div className="flex items-center gap-1 overflow-x-auto">
           <span className="text-xs text-muted-foreground select-none shrink-0 font-mono whitespace-nowrap">
-            /mcp__prompt-hub__{slugPrefix}
+            /mcp__agent-hub__{slugPrefix}
           </span>
           <Input
             id="slug"
