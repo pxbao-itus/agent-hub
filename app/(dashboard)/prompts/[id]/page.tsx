@@ -4,8 +4,8 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
-import { prompts, promptVersions } from "@/server/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { artifacts, artifactVersions } from "@/server/db/schema";
+import { eq, and, desc } from "drizzle-orm";
 import { getAccessibleGroups, canMutatePrompt } from "@/server/auth/access";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,10 +15,10 @@ import { VersionHistory } from "./_components/version-history";
 import { CodeBlock } from "@/components/ui/code-block";
 
 const getPrompt = cache(async (id: string) =>
-  db.query.prompts.findFirst({
-    where: eq(prompts.id, id),
+  db.query.artifacts.findFirst({
+    where: and(eq(artifacts.id, id), eq(artifacts.kind, "prompt")),
     with: {
-      versions: { orderBy: desc(promptVersions.versionNo) },
+      versions: { orderBy: desc(artifactVersions.versionNo) },
       variables: true,
     },
   }),

@@ -1,6 +1,6 @@
 import { eq, and, or, inArray, desc, count as sqlCount } from "drizzle-orm";
 import type { DbClient } from "@/server/db/types";
-import { prompts, promptVersions, orgs, departments, teams } from "@/server/db/schema";
+import { artifacts, artifactVersions, orgs, departments, teams } from "@/server/db/schema";
 import type { GroupRef } from "@/server/auth/access";
 
 export type GroupPromptItem = {
@@ -90,33 +90,33 @@ export async function fetchSubtreePrompts({
 
   const ownerClauses = [
     orgIds.length > 0
-      ? and(eq(prompts.ownerType, "org"), inArray(prompts.ownerId, orgIds))
+      ? and(eq(artifacts.ownerType, "org"), inArray(artifacts.ownerId, orgIds))
       : undefined,
     deptIds.length > 0
-      ? and(eq(prompts.ownerType, "department"), inArray(prompts.ownerId, deptIds))
+      ? and(eq(artifacts.ownerType, "department"), inArray(artifacts.ownerId, deptIds))
       : undefined,
     teamIds.length > 0
-      ? and(eq(prompts.ownerType, "team"), inArray(prompts.ownerId, teamIds))
+      ? and(eq(artifacts.ownerType, "team"), inArray(artifacts.ownerId, teamIds))
       : undefined,
   ].filter((c): c is NonNullable<typeof c> => !!c);
 
   const visibilityClause = viewerIsAdmin
     ? undefined
-    : or(eq(prompts.visibility, "group"), eq(prompts.visibility, "public"));
+    : or(eq(artifacts.visibility, "group"), eq(artifacts.visibility, "public"));
 
   const whereClause = and(or(...ownerClauses), visibilityClause);
 
   const [countResult, rows] = await Promise.all([
-    db.select({ total: sqlCount() }).from(prompts).where(whereClause),
-    db.query.prompts.findMany({
+    db.select({ total: sqlCount() }).from(artifacts).where(whereClause),
+    db.query.artifacts.findMany({
       where: whereClause,
-      orderBy: desc(prompts.updatedAt),
+      orderBy: desc(artifacts.updatedAt),
       limit,
       offset,
       with: {
         versions: {
           limit: 1,
-          orderBy: desc(promptVersions.versionNo),
+          orderBy: desc(artifactVersions.versionNo),
           columns: { body: true },
         },
       },

@@ -3,15 +3,15 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
-import { prompts, promptVersions } from "@/server/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { artifacts, artifactVersions } from "@/server/db/schema";
+import { eq, and, desc } from "drizzle-orm";
 import { canMutatePrompt } from "@/server/auth/access";
 import { PromptForm } from "../../_components/prompt-form";
 
 const getPromptForEdit = cache(async (id: string) =>
-  db.query.prompts.findFirst({
-    where: eq(prompts.id, id),
-    with: { versions: { orderBy: desc(promptVersions.versionNo), limit: 1 } },
+  db.query.artifacts.findFirst({
+    where: and(eq(artifacts.id, id), eq(artifacts.kind, "prompt")),
+    with: { versions: { orderBy: desc(artifactVersions.versionNo), limit: 1 } },
   }),
 );
 

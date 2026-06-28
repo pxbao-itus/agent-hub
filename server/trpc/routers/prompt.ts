@@ -2,7 +2,7 @@ import { z } from "zod";
 import { eq, and, or, desc, sql, inArray, not } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../trpc";
-import { prompts, promptVersions, promptVariables } from "@/server/db/schema";
+import { artifacts, artifactVersions, artifactVariables } from "@/server/db/schema";
 import { getAccessibleGroups, canMutatePrompt, effectiveGroupRole } from "@/server/auth/access";
 import { hybridSearch, fetchPromptsByIds } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
@@ -23,22 +23,22 @@ function assertGroupVisibility(ownerType: string, visibility: string | undefined
 /** Sync prompt_variables after body changes. Preserves existing var metadata. */
 async function syncVariables(db: DbClient, promptId: string, body: string) {
   const names = parseVariables(body);
-  const existing = await db.query.promptVariables.findMany({
-    where: eq(promptVariables.promptId, promptId),
+  const existing = await db.query.artifactVariables.findMany({
+    where: eq(artifactVariables.artifactId, promptId),
   });
   const existingNames = new Set(existing.map((v) => v.name));
 
   // Remove vars that no longer appear in body
   const toDelete = existing.filter((v) => !names.includes(v.name)).map((v) => v.id);
   if (toDelete.length > 0) {
-    await db.delete(promptVariables).where(inArray(promptVariables.id, toDelete));
+    await db.delete(artifactVariables).where(inArray(artifactVariables.id, toDelete));
   }
 
   // Insert new vars
   const toAdd = names.filter((n) => !existingNames.has(n));
   if (toAdd.length > 0) {
-    await db.insert(promptVariables).values(
-      toAdd.map((name) => ({ promptId, name })),
+    await db.insert(artifactVariables).values(
+      toAdd.map((name) => ({ artifactId: promptId, name })),
     );
   }
 }
@@ -55,15 +55,15 @@ async function accessCondition(
 
   const groupConditions = groups.map((g) =>
     and(
-      eq(prompts.visibility, "group"),
-      eq(prompts.ownerType, g.groupType as "org" | "department" | "team"),
-      eq(prompts.ownerId, g.groupId),
+      eq(artifacts.visibility, "group"),
+      eq(artifacts.ownerType, g.groupType as "org" | "department" | "team"),
+      eq(artifacts.ownerId, g.groupId),
     ),
   );
 
   return or(
-    eq(prompts.visibility, "public"),
-    and(eq(prompts.ownerType, "user"), eq(prompts.ownerId, userId)),
+    eq(artifacts.visibility, "public"),
+    and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, userId)),
     ...(groupConditions.length > 0 ? groupConditions : [sql`false`]),
   );
 }
@@ -90,12 +90,12 @@ export const promptRouter = router({
     .query(async ({ ctx, input }) => {
       const ownerId =
         input.ownerType === "user" ? ctx.session.userId : (input.ownerId ?? ctx.session.userId);
-      const existing = await ctx.db.query.prompts.findFirst({
+      const existing = await ctx.db.query.artifacts.findFirst({
         where: and(
-          eq(prompts.ownerType, input.ownerType),
-          eq(prompts.ownerId, ownerId),
-          eq(prompts.slug, input.slug),
-          input.excludeId ? not(eq(prompts.id, input.excludeId)) : undefined,
+          eq(artifacts.ownerType, input.ownerType),
+          eq(artifacts.ownerId, ownerId),
+          eq(artifacts.slug, input.slug),
+          input.excludeId ? not(eq(artifacts.id, input.excludeId)) : undefined,
         ),
         columns: { id: true },
       });
@@ -132,8 +132,9 @@ export const promptRouter = router({
 
       // 1. Insert prompt (currentVersionId null until we have the version id)
       const [prompt] = await ctx.db
-        .insert(prompts)
+        .insert(artifacts)
         .values({
+          kind: "prompt",
           ownerType,
           ownerId,
           title: input.title,
@@ -147,9 +148,9 @@ export const promptRouter = router({
 
       // 2. Insert first version
       const [version] = await ctx.db
-        .insert(promptVersions)
+        .insert(artifactVersions)
         .values({
-          promptId: prompt.id,
+          artifactId: prompt.id,
           versionNo: 1,
           body: input.body,
           changelog: input.changelog ?? "Initial version",
@@ -159,9 +160,9 @@ export const promptRouter = router({
 
       // 3. Point prompt to version
       const [updated] = await ctx.db
-        .update(prompts)
+        .update(artifacts)
         .set({ currentVersionId: version.id })
-        .where(eq(prompts.id, prompt.id))
+        .where(eq(artifacts.id, prompt.id))
         .returning();
 
       // 4. Sync variables
@@ -184,12 +185,14 @@ export const promptRouter = router({
     .query(async ({ ctx, input }) => {
       const { userId, systemRole } = ctx.session;
 
-      const condition = input.mine
-        ? and(eq(prompts.ownerType, "user"), eq(prompts.ownerId, userId))
+      // Forward-compat: the prompt router only lists prompt-kind artifacts.
+      const baseCondition = input.mine
+        ? and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, userId))
         : await accessCondition(userId, ctx.db, systemRole);
+      const condition = and(eq(artifacts.kind, "prompt"), baseCondition);
 
       const tagFilter = input.tag
-        ? sql`${input.tag} = ANY(${prompts.tags})`
+        ? sql`${input.tag} = ANY(${artifacts.tags})`
         : undefined;
 
       // Use hybrid search when a query is provided and mode is hybrid
@@ -208,22 +211,22 @@ export const promptRouter = router({
       }
 
       const ftsFilter = input.query
-        ? sql`to_tsvector('english', ${prompts.title} || ' ' || coalesce(${prompts.description}, '')) @@ plainto_tsquery('english', ${input.query})`
+        ? sql`to_tsvector('english', ${artifacts.title} || ' ' || coalesce(${artifacts.description}, '')) @@ plainto_tsquery('english', ${input.query})`
         : undefined;
 
       const where = and(condition, ftsFilter, tagFilter);
 
       const [rows, [{ count }]] = await Promise.all([
-        ctx.db.query.prompts.findMany({
+        ctx.db.query.artifacts.findMany({
           where,
-          orderBy: desc(prompts.updatedAt),
+          orderBy: desc(artifacts.updatedAt),
           limit: input.limit,
           offset: input.offset,
-          with: { versions: { limit: 1, orderBy: desc(promptVersions.createdAt) } },
+          with: { versions: { limit: 1, orderBy: desc(artifactVersions.createdAt) } },
         }),
         ctx.db
           .select({ count: sql<number>`count(*)::int` })
-          .from(prompts)
+          .from(artifacts)
           .where(where),
       ]);
 
@@ -235,10 +238,10 @@ export const promptRouter = router({
     .query(async ({ ctx, input }) => {
       const { userId, systemRole } = ctx.session;
 
-      const prompt = await ctx.db.query.prompts.findFirst({
-        where: eq(prompts.id, input.id),
+      const prompt = await ctx.db.query.artifacts.findFirst({
+        where: and(eq(artifacts.id, input.id), eq(artifacts.kind, "prompt")),
         with: {
-          versions: { orderBy: desc(promptVersions.versionNo) },
+          versions: { orderBy: desc(artifactVersions.versionNo) },
           variables: true,
         },
       });
@@ -279,8 +282,8 @@ export const promptRouter = router({
       const { userId, systemRole } = ctx.session;
       const { id, body, changelog, ...meta } = input;
 
-      const prompt = await ctx.db.query.prompts.findFirst({
-        where: eq(prompts.id, id),
+      const prompt = await ctx.db.query.artifacts.findFirst({
+        where: eq(artifacts.id, id),
       });
       if (!prompt) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -298,13 +301,13 @@ export const promptRouter = router({
         // New version
         const [{ maxNo }] = await ctx.db
           .select({ maxNo: sql<number>`coalesce(max(version_no), 0)` })
-          .from(promptVersions)
-          .where(eq(promptVersions.promptId, id));
+          .from(artifactVersions)
+          .where(eq(artifactVersions.artifactId, id));
 
         const [version] = await ctx.db
-          .insert(promptVersions)
+          .insert(artifactVersions)
           .values({
-            promptId: id,
+            artifactId: id,
             versionNo: maxNo + 1,
             body,
             changelog: changelog ?? `Version ${maxNo + 1}`,
@@ -317,9 +320,9 @@ export const promptRouter = router({
       }
 
       const [updated] = await ctx.db
-        .update(prompts)
+        .update(artifacts)
         .set({ ...metaUpdates, updatedAt: new Date() })
-        .where(eq(prompts.id, id))
+        .where(eq(artifacts.id, id))
         .returning();
 
       return updated;
@@ -330,24 +333,24 @@ export const promptRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { userId, systemRole } = ctx.session;
 
-      const prompt = await ctx.db.query.prompts.findFirst({
-        where: eq(prompts.id, input.id),
+      const prompt = await ctx.db.query.artifacts.findFirst({
+        where: eq(artifacts.id, input.id),
       });
       if (!prompt) throw new TRPCError({ code: "NOT_FOUND" });
 
       const allowed = await canMutatePrompt({ userId, systemRole }, prompt, ctx.db);
       if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
 
-      await ctx.db.delete(prompts).where(eq(prompts.id, input.id));
+      await ctx.db.delete(artifacts).where(eq(artifacts.id, input.id));
     }),
 
   versions: router({
     list: protectedProcedure
       .input(z.object({ promptId: z.string().uuid() }))
       .query(async ({ ctx, input }) => {
-        return ctx.db.query.promptVersions.findMany({
-          where: eq(promptVersions.promptId, input.promptId),
-          orderBy: desc(promptVersions.versionNo),
+        return ctx.db.query.artifactVersions.findMany({
+          where: eq(artifactVersions.artifactId, input.promptId),
+          orderBy: desc(artifactVersions.versionNo),
         });
       }),
 
@@ -357,8 +360,8 @@ export const promptRouter = router({
         const { userId, systemRole } = ctx.session;
 
         // Access check via parent prompt
-        const prompt = await ctx.db.query.prompts.findFirst({
-          where: eq(prompts.id, input.promptId),
+        const prompt = await ctx.db.query.artifacts.findFirst({
+          where: eq(artifacts.id, input.promptId),
           columns: { id: true, visibility: true, ownerType: true, ownerId: true },
         });
         if (!prompt) throw new TRPCError({ code: "NOT_FOUND" });
@@ -378,10 +381,10 @@ export const promptRouter = router({
           }
         }
 
-        const version = await ctx.db.query.promptVersions.findFirst({
+        const version = await ctx.db.query.artifactVersions.findFirst({
           where: and(
-            eq(promptVersions.promptId, input.promptId),
-            eq(promptVersions.versionNo, input.versionNo),
+            eq(artifactVersions.artifactId, input.promptId),
+            eq(artifactVersions.versionNo, input.versionNo),
           ),
         });
         if (!version) throw new TRPCError({ code: "NOT_FOUND" });
@@ -394,31 +397,31 @@ export const promptRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { userId, systemRole } = ctx.session;
 
-      const prompt = await ctx.db.query.prompts.findFirst({
-        where: eq(prompts.id, input.promptId),
+      const prompt = await ctx.db.query.artifacts.findFirst({
+        where: eq(artifacts.id, input.promptId),
       });
       if (!prompt) throw new TRPCError({ code: "NOT_FOUND" });
 
       const allowed = await canMutatePrompt({ userId, systemRole }, prompt, ctx.db);
       if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
 
-      const targetVersion = await ctx.db.query.promptVersions.findFirst({
+      const targetVersion = await ctx.db.query.artifactVersions.findFirst({
         where: and(
-          eq(promptVersions.promptId, input.promptId),
-          eq(promptVersions.versionNo, input.toVersionNo),
+          eq(artifactVersions.artifactId, input.promptId),
+          eq(artifactVersions.versionNo, input.toVersionNo),
         ),
       });
       if (!targetVersion) throw new TRPCError({ code: "NOT_FOUND", message: "Version not found" });
 
       const [{ maxNo }] = await ctx.db
         .select({ maxNo: sql<number>`coalesce(max(version_no), 0)` })
-        .from(promptVersions)
-        .where(eq(promptVersions.promptId, input.promptId));
+        .from(artifactVersions)
+        .where(eq(artifactVersions.artifactId, input.promptId));
 
       const [newVersion] = await ctx.db
-        .insert(promptVersions)
+        .insert(artifactVersions)
         .values({
-          promptId: input.promptId,
+          artifactId: input.promptId,
           versionNo: maxNo + 1,
           body: targetVersion.body,
           changelog: `Rolled back to v${input.toVersionNo}`,
@@ -429,9 +432,9 @@ export const promptRouter = router({
       await syncVariables(ctx.db, input.promptId, targetVersion.body);
 
       await ctx.db
-        .update(prompts)
+        .update(artifacts)
         .set({ currentVersionId: newVersion.id, updatedAt: new Date() })
-        .where(eq(prompts.id, input.promptId));
+        .where(eq(artifacts.id, input.promptId));
 
       return { newVersionNo: newVersion.versionNo };
     }),

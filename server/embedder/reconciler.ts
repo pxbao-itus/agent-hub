@@ -1,6 +1,6 @@
 import { eq, and, isNull, inArray } from "drizzle-orm";
 import { db } from "@/server/db";
-import { prompts, promptVersions, promptEmbeddings } from "@/server/db/schema";
+import { artifacts, artifactVersions, artifactEmbeddings } from "@/server/db/schema";
 import { getEmbedder } from "./index";
 
 const BATCH = 10;
@@ -12,48 +12,48 @@ async function tick() {
   const embedder = getEmbedder();
   if (embedder.embedderId === "null") return;
 
-  // Find prompt versions that have no embedding for the current model.
-  // LEFT JOIN: rows where promptEmbeddings.id IS NULL have no embedding yet.
+  // Find artifact versions that have no embedding for the current model.
+  // LEFT JOIN: rows where artifactEmbeddings.id IS NULL have no embedding yet.
   const pending = await db
     .select({
-      versionId: promptVersions.id,
-      body: promptVersions.body,
-      promptId: promptVersions.promptId,
+      versionId: artifactVersions.id,
+      body: artifactVersions.body,
+      artifactId: artifactVersions.artifactId,
     })
-    .from(promptVersions)
+    .from(artifactVersions)
     .leftJoin(
-      promptEmbeddings,
+      artifactEmbeddings,
       and(
-        eq(promptEmbeddings.promptVersionId, promptVersions.id),
-        eq(promptEmbeddings.embedderId, embedder.embedderId),
+        eq(artifactEmbeddings.artifactVersionId, artifactVersions.id),
+        eq(artifactEmbeddings.embedderId, embedder.embedderId),
       ),
     )
-    .where(isNull(promptEmbeddings.id))
+    .where(isNull(artifactEmbeddings.id))
     .limit(BATCH);
 
   if (!pending.length) return;
 
-  // Fetch prompt metadata (title + description) to enrich the embedding text.
-  const promptIds = [...new Set(pending.map((r) => r.promptId))];
-  const promptMeta = await db
-    .select({ id: prompts.id, title: prompts.title, description: prompts.description })
-    .from(prompts)
-    .where(inArray(prompts.id, promptIds));
-  const metaMap = new Map(promptMeta.map((p) => [p.id, p]));
+  // Fetch artifact metadata (title + description) to enrich the embedding text.
+  const artifactIds = [...new Set(pending.map((r) => r.artifactId))];
+  const artifactMeta = await db
+    .select({ id: artifacts.id, title: artifacts.title, description: artifacts.description })
+    .from(artifacts)
+    .where(inArray(artifacts.id, artifactIds));
+  const metaMap = new Map(artifactMeta.map((p) => [p.id, p]));
 
   const texts = pending.map((v) => {
-    const meta = metaMap.get(v.promptId);
+    const meta = metaMap.get(v.artifactId);
     return [meta?.title, meta?.description, v.body].filter(Boolean).join("\n\n");
   });
 
   const vectors = await embedder.embed(texts);
 
-  // Unique constraint (prompt_version_id, embedder_id) makes this idempotent.
+  // Unique constraint (artifact_version_id, embedder_id) makes this idempotent.
   await db
-    .insert(promptEmbeddings)
+    .insert(artifactEmbeddings)
     .values(
       pending.map((v, i) => ({
-        promptVersionId: v.versionId,
+        artifactVersionId: v.versionId,
         embedderId: embedder.embedderId,
         dimensions: embedder.dimensions,
         embedding: vectors[i],

@@ -179,10 +179,23 @@ export const memberships = pgTable(
 /* Prompts                                                                     */
 /* -------------------------------------------------------------------------- */
 
-export const prompts = pgTable(
-  "prompts",
+/** Discriminates the kind of artifact. prompt (default) ⊂ skill ⊂ kit. */
+export const artifactKindEnum = ["prompt", "skill", "kit"] as const;
+export type ArtifactKind = (typeof artifactKindEnum)[number];
+
+/**
+ * An artifact is a reusable agent capability. Three kinds share this table:
+ * - prompt: a single template (body = the prompt text, with {{vars}}).
+ * - skill: instructions (body = SKILL.md) + bundled files (artifact_files).
+ * - kit: a curated bundle referencing other artifacts (artifact_members).
+ * Versioning, variables, embeddings, permissions and search are shared across kinds.
+ */
+export const artifacts = pgTable(
+  "artifacts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    /** prompt | skill | kit. Stored as text + CHECK at migration level. */
+    kind: text("kind").notNull().default("prompt").$type<ArtifactKind>(),
     /** Polymorphic owner: user / org / department / team. `ownerId` has no FK. */
     ownerType: ownerTypeEnum("owner_type").notNull(),
     ownerId: uuid("owner_id").notNull(),
@@ -194,7 +207,7 @@ export const prompts = pgTable(
     visibility: visibilityEnum("visibility").notNull().default("private"),
     /** Points to the current version. Rollback = update this pointer. */
     currentVersionId: uuid("current_version_id").references(
-      (): import("drizzle-orm/pg-core").AnyPgColumn => promptVersions.id,
+      (): import("drizzle-orm/pg-core").AnyPgColumn => artifactVersions.id,
       { onDelete: "set null" }
     ),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
@@ -202,20 +215,20 @@ export const prompts = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    index("prompts_owner_idx").on(t.ownerType, t.ownerId),
-    index("prompts_visibility_idx").on(t.visibility),
+    index("artifacts_owner_idx").on(t.ownerType, t.ownerId),
+    index("artifacts_visibility_idx").on(t.visibility),
   ]
 );
-// Partial unique index enforced at migration level (slug nullable — see 0003_prompts_slug.sql)
+// Partial unique index enforced at migration level (slug nullable — see 0003/0005).
 
 /** Each save creates a new immutable version. */
-export const promptVersions = pgTable(
-  "prompt_versions",
+export const artifactVersions = pgTable(
+  "artifact_versions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    promptId: uuid("prompt_id")
+    artifactId: uuid("artifact_id")
       .notNull()
-      .references(() => prompts.id, { onDelete: "cascade" }),
+      .references(() => artifacts.id, { onDelete: "cascade" }),
     versionNo: integer("version_no").notNull(),
     body: text("body").notNull(),
     changelog: text("changelog"),
@@ -225,24 +238,70 @@ export const promptVersions = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    unique("prompt_versions_prompt_version_uq").on(t.promptId, t.versionNo),
-    index("prompt_versions_prompt_idx").on(t.promptId),
+    unique("artifact_versions_artifact_version_uq").on(t.artifactId, t.versionNo),
+    index("artifact_versions_artifact_idx").on(t.artifactId),
   ]
 );
 
-export const promptVariables = pgTable(
-  "prompt_variables",
+export const artifactVariables = pgTable(
+  "artifact_variables",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    promptId: uuid("prompt_id")
+    artifactId: uuid("artifact_id")
       .notNull()
-      .references(() => prompts.id, { onDelete: "cascade" }),
+      .references(() => artifacts.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     type: text("type").notNull().default("string"),
     defaultValue: text("default_value"),
     required: boolean("required").notNull().default(false),
   },
-  (t) => [unique("prompt_variables_prompt_name_uq").on(t.promptId, t.name)]
+  (t) => [unique("artifact_variables_artifact_name_uq").on(t.artifactId, t.name)]
+);
+
+/**
+ * Files bundled with a skill artifact (scripts, references, templates), versioned
+ * together with the skill via `artifactVersionId`. Empty for prompt/kit kinds.
+ */
+export const artifactFiles = pgTable(
+  "artifact_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    artifactVersionId: uuid("artifact_version_id")
+      .notNull()
+      .references(() => artifactVersions.id, { onDelete: "cascade" }),
+    /** Relative path inside the skill folder, e.g. "scripts/run.py". */
+    path: text("path").notNull(),
+    content: text("content").notNull(),
+    mimeType: text("mime_type"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("artifact_files_version_path_uq").on(t.artifactVersionId, t.path),
+    index("artifact_files_version_idx").on(t.artifactVersionId),
+  ]
+);
+
+/**
+ * Members of a kit artifact: an ordered list of other artifacts (prompts/skills).
+ * References the latest version of each member (live, no copy). Empty for prompt/skill.
+ */
+export const artifactMembers = pgTable(
+  "artifact_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kitArtifactId: uuid("kit_artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    memberArtifactId: uuid("member_artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("artifact_members_kit_member_uq").on(t.kitArtifactId, t.memberArtifactId),
+    index("artifact_members_kit_idx").on(t.kitArtifactId),
+  ]
 );
 
 /**
@@ -252,21 +311,21 @@ export const promptVariables = pgTable(
  * NOTE: pgvector requires a fixed dimension per column + HNSW index. Defaults to 1024 (bge-m3).
  * Switching to a model with different dimensions requires a new column or migration.
  */
-export const promptEmbeddings = pgTable(
-  "prompt_embeddings",
+export const artifactEmbeddings = pgTable(
+  "artifact_embeddings",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    promptVersionId: uuid("prompt_version_id")
+    artifactVersionId: uuid("artifact_version_id")
       .notNull()
-      .references(() => promptVersions.id, { onDelete: "cascade" }),
+      .references(() => artifactVersions.id, { onDelete: "cascade" }),
     embedderId: text("embedder_id").notNull(),
     dimensions: integer("dimensions").notNull(),
     embedding: vector("embedding", { dimensions: 1024 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    index("prompt_embeddings_version_idx").on(t.promptVersionId),
-    index("prompt_embeddings_hnsw_idx")
+    index("artifact_embeddings_version_idx").on(t.artifactVersionId),
+    index("artifact_embeddings_hnsw_idx")
       .using("hnsw", t.embedding.op("vector_cosine_ops")),
   ]
 );
@@ -319,21 +378,42 @@ export const teamsRelations = relations(teams, ({ one }) => ({
   }),
 }));
 
-export const promptsRelations = relations(prompts, ({ many }) => ({
-  versions: many(promptVersions),
-  variables: many(promptVariables),
+export const artifactsRelations = relations(artifacts, ({ many }) => ({
+  versions: many(artifactVersions),
+  variables: many(artifactVariables),
+  members: many(artifactMembers, { relationName: "kit" }),
 }));
 
-export const promptVersionsRelations = relations(promptVersions, ({ one }) => ({
-  prompt: one(prompts, {
-    fields: [promptVersions.promptId],
-    references: [prompts.id],
+export const artifactVersionsRelations = relations(artifactVersions, ({ one, many }) => ({
+  artifact: one(artifacts, {
+    fields: [artifactVersions.artifactId],
+    references: [artifacts.id],
+  }),
+  files: many(artifactFiles),
+}));
+
+export const artifactVariablesRelations = relations(artifactVariables, ({ one }) => ({
+  artifact: one(artifacts, {
+    fields: [artifactVariables.artifactId],
+    references: [artifacts.id],
   }),
 }));
 
-export const promptVariablesRelations = relations(promptVariables, ({ one }) => ({
-  prompt: one(prompts, {
-    fields: [promptVariables.promptId],
-    references: [prompts.id],
+export const artifactFilesRelations = relations(artifactFiles, ({ one }) => ({
+  version: one(artifactVersions, {
+    fields: [artifactFiles.artifactVersionId],
+    references: [artifactVersions.id],
+  }),
+}));
+
+export const artifactMembersRelations = relations(artifactMembers, ({ one }) => ({
+  kit: one(artifacts, {
+    relationName: "kit",
+    fields: [artifactMembers.kitArtifactId],
+    references: [artifacts.id],
+  }),
+  member: one(artifacts, {
+    fields: [artifactMembers.memberArtifactId],
+    references: [artifacts.id],
   }),
 }));

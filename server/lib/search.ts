@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNotNull, type SQL } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import type { DbClient } from "@/server/db/types";
-import { prompts, promptVersions, promptEmbeddings } from "@/server/db/schema";
+import { artifacts, artifactVersions, artifactEmbeddings } from "@/server/db/schema";
 import type { Embedder } from "@/server/embedder";
 
 const FTS_POOL = 50;
@@ -31,12 +31,12 @@ async function runFts(
   tagFilter: SQL | undefined,
   dbClient: DbClient,
 ): Promise<string[]> {
-  const tsvec = sql`to_tsvector('english', ${prompts.title} || ' ' || coalesce(${prompts.description}, ''))`;
+  const tsvec = sql`to_tsvector('english', ${artifacts.title} || ' ' || coalesce(${artifacts.description}, ''))`;
   const tsquery = sql`plainto_tsquery('english', ${query})`;
 
   const rows = await dbClient
-    .select({ id: prompts.id })
-    .from(prompts)
+    .select({ id: artifacts.id })
+    .from(artifacts)
     .where(and(accessCondition, tagFilter, sql`${tsvec} @@ ${tsquery}`))
     .orderBy(sql`ts_rank(${tsvec}, ${tsquery}) DESC`)
     .limit(FTS_POOL);
@@ -56,24 +56,24 @@ async function runVectorSearch(
   const vecLiteral = `[${queryVec.map((n) => n.toFixed(6)).join(",")}]`;
 
   const rows = await dbClient
-    .select({ id: prompts.id })
-    .from(prompts)
+    .select({ id: artifacts.id })
+    .from(artifacts)
     .innerJoin(
-      promptVersions,
+      artifactVersions,
       and(
-        eq(promptVersions.id, prompts.currentVersionId!),
-        isNotNull(prompts.currentVersionId),
+        eq(artifactVersions.id, artifacts.currentVersionId!),
+        isNotNull(artifacts.currentVersionId),
       ),
     )
     .innerJoin(
-      promptEmbeddings,
+      artifactEmbeddings,
       and(
-        eq(promptEmbeddings.promptVersionId, promptVersions.id),
-        eq(promptEmbeddings.embedderId, embedder.embedderId),
+        eq(artifactEmbeddings.artifactVersionId, artifactVersions.id),
+        eq(artifactEmbeddings.embedderId, embedder.embedderId),
       ),
     )
     .where(and(accessCondition, tagFilter))
-    .orderBy(sql`${promptEmbeddings.embedding} <=> ${vecLiteral}::vector`)
+    .orderBy(sql`${artifactEmbeddings.embedding} <=> ${vecLiteral}::vector`)
     .limit(VEC_POOL);
 
   return rows.map((r) => r.id);
@@ -121,8 +121,8 @@ export async function hybridSearch(opts: {
 /** Fetch full prompt rows for the given IDs, preserving the provided order. */
 export async function fetchPromptsByIds(ids: string[], dbClient: DbClient) {
   if (!ids.length) return [];
-  const rows = await dbClient.query.prompts.findMany({
-    where: inArray(prompts.id, ids),
+  const rows = await dbClient.query.artifacts.findMany({
+    where: inArray(artifacts.id, ids),
     with: { versions: { limit: 1, orderBy: sql`version_no DESC` } },
   });
   const map = new Map(rows.map((r) => [r.id, r]));

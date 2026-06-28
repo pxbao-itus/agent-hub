@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { eq, and, or, ilike, count, ne, sql } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
-import { users, memberships, prompts } from "@/server/db/schema";
+import { users, memberships, artifacts } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { hashPassword } from "@/server/auth/password";
 import type { DbClient } from "@/server/db/types";
@@ -182,7 +182,7 @@ export const userRouter = router({
   /**
    * Delete a user. Superadmin only.
    * Guards: cannot delete yourself; cannot delete last superadmin.
-   * Deletes personal prompts (ownerType='user') in a transaction.
+   * Deletes personal artifacts (ownerType='user') in a transaction.
    */
   delete: protectedProcedure
     .input(z.object({ userId: z.string().uuid() }))
@@ -209,14 +209,14 @@ export const userRouter = router({
       }
 
       await ctx.db.transaction(async (tx) => {
-        // Delete personal prompts + cascade (versions/variables/embeddings have FK cascade)
+        // Delete personal artifacts + cascade (versions/variables/embeddings have FK cascade)
         const personalPrompts = await tx
-          .select({ id: prompts.id })
-          .from(prompts)
-          .where(and(eq(prompts.ownerType, "user"), eq(prompts.ownerId, input.userId)));
+          .select({ id: artifacts.id })
+          .from(artifacts)
+          .where(and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, input.userId)));
 
         for (const p of personalPrompts) {
-          await tx.delete(prompts).where(eq(prompts.id, p.id));
+          await tx.delete(artifacts).where(eq(artifacts.id, p.id));
         }
 
         // Delete user (memberships cascade via FK)

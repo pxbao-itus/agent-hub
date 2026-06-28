@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { eq, desc, and, or, sql, inArray } from "drizzle-orm";
 import { db } from "@/server/db";
-import { prompts, promptVersions } from "@/server/db/schema";
+import { artifacts, artifactVersions } from "@/server/db/schema";
 import { getAccessibleGroups } from "@/server/auth/access";
 import { renderTemplate } from "@/server/lib/template";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
@@ -76,7 +76,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
 
   // Reuse the already-loaded accessible prompt IDs as the access filter for search.
   const accessibleIds = rows.map((r) => r.id);
-  const accessCondition = accessibleIds.length ? inArray(prompts.id, accessibleIds) : sql`false`;
+  const accessCondition = accessibleIds.length ? inArray(artifacts.id, accessibleIds) : sql`false`;
 
   server.tool(
     "search_prompts",
@@ -151,31 +151,36 @@ async function getPromptsForIdentity(identity: Identity, scope: TokenScope) {
   // Apply scope space restriction: intersect accessible groups with scope.spaces
   const scopedGroups = applyScopeToOwners(scope, accessibleGroups);
 
-  let where;
+  // Forward-compat: only prompt-kind artifacts are served over MCP for now.
+  // Skill/kit get their own delivery in later phases.
+  const kindFilter = eq(artifacts.kind, "prompt");
+
+  let where = kindFilter;
   if (systemRole !== "superadmin") {
     const groupConditions = scopedGroups.map((g) =>
       and(
-        eq(prompts.visibility, "group"),
-        eq(prompts.ownerType, g.groupType as "org" | "department" | "team"),
-        eq(prompts.ownerId, g.groupId),
+        eq(artifacts.visibility, "group"),
+        eq(artifacts.ownerType, g.groupType as "org" | "department" | "team"),
+        eq(artifacts.ownerId, g.groupId),
       ),
     );
     // When scope restricts spaces, exclude personal prompts if no personal space in scope
     const includePersonal = !scope.spaces?.length;
-    where = or(
-      eq(prompts.visibility, "public"),
-      ...(includePersonal ? [and(eq(prompts.ownerType, "user"), eq(prompts.ownerId, userId))] : []),
+    const accessClause = or(
+      eq(artifacts.visibility, "public"),
+      ...(includePersonal ? [and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, userId))] : []),
       ...(groupConditions.length > 0 ? groupConditions : [sql`false`]),
     );
+    where = and(kindFilter, accessClause)!;
   }
 
-  const rows = await db.query.prompts.findMany({
+  const rows = await db.query.artifacts.findMany({
     where,
-    orderBy: desc(prompts.updatedAt),
+    orderBy: desc(artifacts.updatedAt),
     columns: { id: true, title: true, description: true, slug: true, ownerType: true, ownerId: true, tags: true },
     with: {
       variables: { columns: { name: true } },
-      versions: { orderBy: desc(promptVersions.versionNo), limit: 1 },
+      versions: { orderBy: desc(artifactVersions.versionNo), limit: 1 },
     },
   });
 

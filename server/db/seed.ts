@@ -6,9 +6,9 @@ import {
   teams,
   users,
   memberships,
-  prompts,
-  promptVersions,
-  promptVariables,
+  artifacts,
+  artifactVersions,
+  artifactVariables,
 } from "./schema";
 import { eq } from "drizzle-orm";
 
@@ -49,8 +49,9 @@ async function main() {
   });
 
   const [prompt] = await db
-    .insert(prompts)
+    .insert(artifacts)
     .values({
+      kind: "prompt",
       ownerType: "team",
       ownerId: team.id,
       title: "Code review",
@@ -62,9 +63,9 @@ async function main() {
     .returning();
 
   const [version] = await db
-    .insert(promptVersions)
+    .insert(artifactVersions)
     .values({
-      promptId: prompt.id,
+      artifactId: prompt.id,
       versionNo: 1,
       body: "Review the following {{language}} code and suggest improvements:\n\n{{code}}",
       changelog: "Initial version",
@@ -73,13 +74,13 @@ async function main() {
     .returning();
 
   await db
-    .update(prompts)
+    .update(artifacts)
     .set({ currentVersionId: version.id })
-    .where(eq(prompts.id, prompt.id));
+    .where(eq(artifacts.id, prompt.id));
 
-  await db.insert(promptVariables).values([
-    { promptId: prompt.id, name: "language", type: "string", required: true },
-    { promptId: prompt.id, name: "code", type: "string", required: true },
+  await db.insert(artifactVariables).values([
+    { artifactId: prompt.id, name: "language", type: "string", required: true },
+    { artifactId: prompt.id, name: "code", type: "string", required: true },
   ]);
 
   console.log("Done. Seeded org=%s team=%s prompt=%s", org.slug, team.slug, prompt.title);

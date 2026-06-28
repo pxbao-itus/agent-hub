@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { eq, and, inArray, count } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
-import { orgs, departments, teams, memberships, users, prompts } from "@/server/db/schema";
+import { orgs, departments, teams, memberships, users, artifacts } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import type { DbClient } from "@/server/db/types";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
@@ -204,18 +204,18 @@ export const orgRouter = router({
             : [];
         const teamIds = teamRows.map((t) => t.id);
 
-        // Delete prompts (polymorphic — no FK)
-        await tx.delete(prompts).where(
-          and(eq(prompts.ownerType, "org"), eq(prompts.ownerId, input.orgId)),
+        // Delete artifacts (polymorphic — no FK)
+        await tx.delete(artifacts).where(
+          and(eq(artifacts.ownerType, "org"), eq(artifacts.ownerId, input.orgId)),
         );
         if (deptIds.length > 0) {
-          await tx.delete(prompts).where(
-            and(eq(prompts.ownerType, "department"), inArray(prompts.ownerId, deptIds)),
+          await tx.delete(artifacts).where(
+            and(eq(artifacts.ownerType, "department"), inArray(artifacts.ownerId, deptIds)),
           );
         }
         if (teamIds.length > 0) {
-          await tx.delete(prompts).where(
-            and(eq(prompts.ownerType, "team"), inArray(prompts.ownerId, teamIds)),
+          await tx.delete(artifacts).where(
+            and(eq(artifacts.ownerType, "team"), inArray(artifacts.ownerId, teamIds)),
           );
         }
 
@@ -336,14 +336,14 @@ export const orgRouter = router({
             .where(eq(teams.departmentId, input.departmentId));
           const childTeamIds = childTeams.map((t) => t.id);
 
-          // Delete prompts owned by dept
-          await tx.delete(prompts).where(
-            and(eq(prompts.ownerType, "department"), eq(prompts.ownerId, input.departmentId)),
+          // Delete artifacts owned by dept
+          await tx.delete(artifacts).where(
+            and(eq(artifacts.ownerType, "department"), eq(artifacts.ownerId, input.departmentId)),
           );
-          // Delete prompts owned by child teams
+          // Delete artifacts owned by child teams
           if (childTeamIds.length > 0) {
-            await tx.delete(prompts).where(
-              and(eq(prompts.ownerType, "team"), inArray(prompts.ownerId, childTeamIds)),
+            await tx.delete(artifacts).where(
+              and(eq(artifacts.ownerType, "team"), inArray(artifacts.ownerId, childTeamIds)),
             );
             await tx.delete(memberships).where(
               and(eq(memberships.groupType, "team"), inArray(memberships.groupId, childTeamIds)),
@@ -424,8 +424,8 @@ export const orgRouter = router({
           await requireGroupAdmin(ctx.db, ctx.session.userId, "team", input.teamId, ctx.session.systemRole);
 
           await ctx.db.transaction(async (tx) => {
-            await tx.delete(prompts).where(
-              and(eq(prompts.ownerType, "team"), eq(prompts.ownerId, input.teamId)),
+            await tx.delete(artifacts).where(
+              and(eq(artifacts.ownerType, "team"), eq(artifacts.ownerId, input.teamId)),
             );
             await tx.delete(memberships).where(
               and(eq(memberships.groupType, "team"), eq(memberships.groupId, input.teamId)),

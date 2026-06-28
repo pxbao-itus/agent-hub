@@ -5,7 +5,7 @@ import { Suspense } from "react";
 export const metadata: Metadata = { title: "Prompts" };
 import { auth } from "@/auth";
 import { db } from "@/server/db";
-import { prompts, promptVersions } from "@/server/db/schema";
+import { artifacts, artifactVersions } from "@/server/db/schema";
 import { desc, eq, or, sql, and } from "drizzle-orm";
 import { getAccessibleGroups } from "@/server/auth/access";
 import { hybridSearch, fetchPromptsByIds } from "@/server/lib/search";
@@ -36,19 +36,21 @@ export default async function PromptsPage({ searchParams }: Props) {
     const groups = await getAccessibleGroups(userId, db);
     const groupConditions = groups.map((g) =>
       and(
-        eq(prompts.visibility, "group"),
-        eq(prompts.ownerType, g.groupType as "org" | "department" | "team"),
-        eq(prompts.ownerId, g.groupId),
+        eq(artifacts.visibility, "group"),
+        eq(artifacts.ownerType, g.groupType as "org" | "department" | "team"),
+        eq(artifacts.ownerId, g.groupId),
       ),
     );
     accessWhere = or(
-      eq(prompts.visibility, "public"),
-      and(eq(prompts.ownerType, "user"), eq(prompts.ownerId, userId)),
+      eq(artifacts.visibility, "public"),
+      and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, userId)),
       ...(groupConditions.length > 0 ? groupConditions : [sql`false`]),
     );
   }
 
-  const tagFilter = tag ? sql`${tag} = ANY(${prompts.tags})` : undefined;
+  // Forward-compat: this page lists prompt-kind artifacts only.
+  const promptWhere = and(eq(artifacts.kind, "prompt"), accessWhere);
+  const tagFilter = tag ? sql`${tag} = ANY(${artifacts.tags})` : undefined;
 
   // ── Queries ────────────────────────────────────────────────────────────────
   let rows: Awaited<ReturnType<typeof fetchPromptsByIds>>;
@@ -56,7 +58,7 @@ export default async function PromptsPage({ searchParams }: Props) {
   if (q) {
     const { ids } = await hybridSearch({
       query: q,
-      accessCondition: accessWhere,
+      accessCondition: promptWhere,
       tagFilter,
       embedder: getEmbedder(),
       db,
@@ -65,20 +67,20 @@ export default async function PromptsPage({ searchParams }: Props) {
     });
     rows = await fetchPromptsByIds(ids, db);
   } else {
-    const tagWhere = and(accessWhere, tagFilter);
-    rows = await db.query.prompts.findMany({
+    const tagWhere = and(promptWhere, tagFilter);
+    rows = await db.query.artifacts.findMany({
       where: tagWhere,
-      orderBy: desc(prompts.updatedAt),
+      orderBy: desc(artifacts.updatedAt),
       limit,
       offset,
-      with: { versions: { limit: 1, orderBy: desc(promptVersions.versionNo) } },
+      with: { versions: { limit: 1, orderBy: desc(artifactVersions.versionNo) } },
     });
   }
 
   const [allPrompts] = await Promise.all([
     // Fetch all accessible tags for the filter bar
-    db.query.prompts.findMany({
-      where: accessWhere,
+    db.query.artifacts.findMany({
+      where: promptWhere,
       columns: { tags: true },
     }),
   ]);

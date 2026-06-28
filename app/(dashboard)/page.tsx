@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
-import { prompts, orgs, mcpTokens, memberships, promptVersions } from "@/server/db/schema";
+import { artifacts, orgs, mcpTokens, memberships, artifactVersions } from "@/server/db/schema";
 import { eq, and, or, desc, count, sql, isNull, gt } from "drizzle-orm";
 import { getAccessibleGroups } from "@/server/auth/access";
 import { Button } from "@/components/ui/button";
@@ -22,21 +22,21 @@ export default async function DashboardHome() {
     const groups = await getAccessibleGroups(userId, db);
     const groupConditions = groups.map((g) =>
       and(
-        eq(prompts.visibility, "group"),
-        eq(prompts.ownerType, g.groupType as "org" | "department" | "team"),
-        eq(prompts.ownerId, g.groupId),
+        eq(artifacts.visibility, "group"),
+        eq(artifacts.ownerType, g.groupType as "org" | "department" | "team"),
+        eq(artifacts.ownerId, g.groupId),
       ),
     );
     accessWhere = or(
-      eq(prompts.visibility, "public"),
-      and(eq(prompts.ownerType, "user"), eq(prompts.ownerId, userId)),
+      eq(artifacts.visibility, "public"),
+      and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, userId)),
       ...(groupConditions.length > 0 ? groupConditions : [sql`false`]),
     );
   }
 
   // ── Stats ──────────────────────────────────────────────────────────────────
   const [[{ promptCount }], [{ orgCount }], [{ tokenCount }], recentPrompts] = await Promise.all([
-    db.select({ promptCount: count() }).from(prompts).where(accessWhere),
+    db.select({ promptCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "prompt"), accessWhere)),
     db
       .select({ orgCount: count() })
       .from(memberships)
@@ -48,11 +48,11 @@ export default async function DashboardHome() {
         eq(mcpTokens.userId, userId),
         or(isNull(mcpTokens.expiresAt), gt(mcpTokens.expiresAt, new Date())),
       )),
-    db.query.prompts.findMany({
-      where: accessWhere,
-      orderBy: desc(prompts.updatedAt),
+    db.query.artifacts.findMany({
+      where: and(eq(artifacts.kind, "prompt"), accessWhere),
+      orderBy: desc(artifacts.updatedAt),
       limit: 5,
-      with: { versions: { limit: 1, orderBy: desc(promptVersions.versionNo) } },
+      with: { versions: { limit: 1, orderBy: desc(artifactVersions.versionNo) } },
     }),
   ]);
 
