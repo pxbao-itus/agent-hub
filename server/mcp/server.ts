@@ -9,6 +9,7 @@ import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
 import { hybridSearch, fetchPromptsByIds } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import { type TokenScope, applyScopeToOwners, promptPassesScopeTags } from "./scope";
+import { flattenKitMembers } from "@/server/lib/kit";
 import type { ArtifactKind } from "@/server/db/schema";
 
 type Identity = { userId: string; systemRole: "user" | "superadmin" };
@@ -215,6 +216,131 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
 
       return {
         content: [{ type: "text" as const, text: lines.join("\n") }],
+      };
+    },
+  );
+
+  // ── Kit tools ─────────────────────────────────────────────────────────────
+
+  const kitRows = await getArtifactsForIdentity(identity, scope, "kit");
+  const kitOwnerPaths = await resolveOwnerSlugPaths(
+    kitRows.map((k) => ({ ownerType: k.ownerType, ownerId: k.ownerId })),
+    db,
+  );
+
+  const kitBySlug = new Map<string, typeof kitRows[number]>();
+  for (const k of kitRows) {
+    const spacePath = kitOwnerPaths.get(`${k.ownerType}:${k.ownerId}`) ?? "";
+    const localSlug = k.slug ?? slugify(k.title);
+    const fullSlug = [spacePath, localSlug].filter(Boolean).join(".");
+    kitBySlug.set(fullSlug, k);
+    if (fullSlug !== localSlug) kitBySlug.set(localSlug, k);
+  }
+
+  // Accessible artifact id set for access-filtering during flatten
+  const accessibleArtifactIds = new Set([
+    ...rows.map((r) => r.id),
+    ...skillRows.map((r) => r.id),
+    ...kitRows.map((r) => r.id),
+  ]);
+
+  server.tool(
+    "list_kits",
+    "List all available kits with their slugs and descriptions.",
+    {},
+    async () => {
+      if (!kitRows.length) {
+        return { content: [{ type: "text" as const, text: "No kits available." }] };
+      }
+
+      const lines = kitRows.map((k) => {
+        const spacePath = kitOwnerPaths.get(`${k.ownerType}:${k.ownerId}`) ?? "";
+        const localSlug = k.slug ?? slugify(k.title);
+        const fullSlug = [spacePath, localSlug].filter(Boolean).join(".");
+        const desc = k.description ? `: ${k.description}` : "";
+        return `- ${fullSlug}${desc}`;
+      });
+
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+      };
+    },
+  );
+
+  server.tool(
+    "get_kit",
+    "Get a kit's overview and the list of member slugs (prompts + skills) you should fetch next. Kit members are flattened recursively.",
+    {
+      slug: z.string().describe("The kit slug (e.g. 'acme.starter-kit' or 'starter-kit')"),
+    },
+    async ({ slug }) => {
+      const kit = kitBySlug.get(slug);
+      if (!kit) {
+        const available = [...kitBySlug.keys()].filter((_, i) => i < 10).join(", ");
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Kit '${slug}' not found.${available ? ` Available kits: ${available}` : ""}`,
+          }],
+        };
+      }
+
+      const version = kit.versions[0];
+      const overviewBody = version?.body ?? "";
+
+      const { prompts: flatPrompts, skills: flatSkills } = await flattenKitMembers(
+        kit.id,
+        db,
+        accessibleArtifactIds,
+      );
+
+      // Build slug lookup maps for prompts and skills
+      const promptSlugMap = new Map(rows.map((r) => {
+        const spacePath = ownerSlugPaths.get(`${r.ownerType}:${r.ownerId}`) ?? "";
+        const localSlug = r.slug ?? slugify(r.title);
+        return [r.id, [spacePath, localSlug].filter(Boolean).join(".")];
+      }));
+      const skillSlugMap = new Map(skillRows.map((r) => {
+        const spacePath = skillOwnerPaths.get(`${r.ownerType}:${r.ownerId}`) ?? "";
+        const localSlug = r.slug ?? slugify(r.title);
+        return [r.id, [spacePath, localSlug].filter(Boolean).join(".")];
+      }));
+
+      const parts: string[] = [];
+      parts.push(`# ${kit.title}`);
+      if (kit.description) parts.push(`_${kit.description}_`);
+      parts.push("");
+      if (overviewBody) {
+        parts.push(overviewBody);
+        parts.push("");
+      }
+
+      if (flatPrompts.length > 0) {
+        parts.push("## Prompts — call each as a slash command");
+        for (const p of flatPrompts) {
+          const s = promptSlugMap.get(p.id) ?? (p.slug ?? slugify(p.title));
+          const desc = p.description ? ` — ${p.description}` : "";
+          parts.push(`- \`/${s}\`${desc}`);
+        }
+        parts.push("");
+      }
+
+      if (flatSkills.length > 0) {
+        parts.push("## Skills — call get_skill for each");
+        for (const s of flatSkills) {
+          const sl = skillSlugMap.get(s.id) ?? (s.slug ?? slugify(s.title));
+          const desc = s.description ? ` — ${s.description}` : "";
+          parts.push(`- get_skill('${sl}')${desc}`);
+        }
+        parts.push("");
+      }
+
+      if (flatPrompts.length === 0 && flatSkills.length === 0) {
+        parts.push("_This kit has no accessible members._");
+      }
+
+      return {
+        content: [{ type: "text" as const, text: parts.join("\n") }],
       };
     },
   );

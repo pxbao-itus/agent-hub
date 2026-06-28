@@ -1,0 +1,191 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { cache } from "react";
+import type { Metadata } from "next";
+import { auth } from "@/auth";
+import { db } from "@/server/db";
+import { artifacts, artifactVersions, artifactMembers } from "@/server/db/schema";
+import { eq, and, desc, asc, sql } from "drizzle-orm";
+import { getAccessibleGroups, canMutatePrompt } from "@/server/auth/access";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { CodeBlock } from "@/components/ui/code-block";
+import { DeleteKitButton } from "../_components/delete-kit-button";
+import { KitVersionHistory } from "./_components/kit-version-history";
+import { Package, BookText, Wrench } from "lucide-react";
+
+const getKit = cache(async (id: string) =>
+  db.query.artifacts.findFirst({
+    where: and(eq(artifacts.id, id), eq(artifacts.kind, "kit")),
+    with: {
+      versions: { orderBy: desc(artifactVersions.versionNo) },
+      members: { orderBy: asc(artifactMembers.position) },
+    },
+  }),
+);
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const kit = await getKit(id);
+  return { title: kit?.title ?? "Kit" };
+}
+
+const KIND_ICON: Record<string, React.ElementType> = {
+  prompt: BookText,
+  skill: Wrench,
+  kit: Package,
+};
+
+const KIND_HREF: Record<string, string> = {
+  prompt: "/prompts",
+  skill: "/skills",
+  kit: "/kits",
+};
+
+export default async function KitDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const session = await auth();
+  const userId = session!.user!.id!;
+  const isSuperAdmin = session!.user!.systemRole === "superadmin";
+
+  const kit = await getKit(id);
+  if (!kit) notFound();
+
+  // Access check
+  if (!isSuperAdmin && kit.visibility !== "public") {
+    const isOwner = kit.ownerType === "user" && kit.ownerId === userId;
+    if (!isOwner) {
+      if (kit.visibility === "group") {
+        const groups = await getAccessibleGroups(userId, db);
+        const allowed = groups.some(
+          (g) => g.groupType === kit.ownerType && g.groupId === kit.ownerId,
+        );
+        if (!allowed) notFound();
+      } else {
+        notFound();
+      }
+    }
+  }
+
+  const canEdit = await canMutatePrompt(
+    { userId, systemRole: isSuperAdmin ? "superadmin" : "user" },
+    kit,
+    db,
+  );
+  const currentVersion = kit.versions[0];
+
+  // Resolve member artifact details
+  const memberIds = kit.members.map((m) => m.memberArtifactId);
+  const memberArtifacts =
+    memberIds.length > 0
+      ? await db.query.artifacts.findMany({
+          where: sql`${artifacts.id} = ANY(${memberIds})`,
+          columns: { id: true, kind: true, title: true, slug: true, description: true },
+        })
+      : [];
+  const memberById = new Map(memberArtifacts.map((a) => [a.id, a]));
+
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold">{kit.title}</h1>
+            <Badge variant="outline">kit</Badge>
+            <Badge variant="outline">{kit.visibility}</Badge>
+          </div>
+          {kit.description && (
+            <p className="text-sm text-muted-foreground">{kit.description}</p>
+          )}
+          {kit.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 pt-1">
+              {kit.tags.map((tag) => (
+                <Badge key={tag} variant="secondary">{tag}</Badge>
+              ))}
+            </div>
+          )}
+        </div>
+        {canEdit && (
+          <div className="flex shrink-0 gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/kits/${id}/edit`}>Edit</Link>
+            </Button>
+            <DeleteKitButton kitId={id} />
+          </div>
+        )}
+      </div>
+
+      {/* Overview */}
+      {currentVersion && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Overview
+            </h2>
+            <span className="text-xs text-muted-foreground">v{currentVersion.versionNo}</span>
+          </div>
+          <CodeBlock>{currentVersion.body}</CodeBlock>
+        </section>
+      )}
+
+      {/* Members */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Members ({kit.members.length})
+        </h2>
+        {kit.members.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No members yet.</p>
+        ) : (
+          <div className="divide-y rounded-md border">
+            {kit.members.map((m) => {
+              const artifact = memberById.get(m.memberArtifactId);
+              if (!artifact) return null;
+              const Icon = KIND_ICON[artifact.kind] ?? Package;
+              const href = `${KIND_HREF[artifact.kind] ?? "/"}/${m.memberArtifactId}`;
+              return (
+                <Link
+                  key={m.id}
+                  href={href}
+                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/50 transition-colors"
+                >
+                  <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{artifact.title}</p>
+                    {artifact.description && (
+                      <p className="truncate text-xs text-muted-foreground">{artifact.description}</p>
+                    )}
+                  </div>
+                  <Badge
+                    variant={artifact.kind === "prompt" ? "default" : artifact.kind === "skill" ? "secondary" : "outline"}
+                    className="shrink-0 text-[10px]"
+                  >
+                    {artifact.kind}
+                  </Badge>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Version history (overview body only) */}
+      {kit.versions.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Version history
+          </h2>
+          <KitVersionHistory
+            versions={kit.versions.map((v) => ({
+              id: v.id,
+              versionNo: v.versionNo,
+              changelog: v.changelog,
+              createdAt: v.createdAt,
+            }))}
+            currentVersionId={kit.currentVersionId}
+          />
+        </section>
+      )}
+    </div>
+  );
+}

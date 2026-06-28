@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
-import { LayoutDashboard, BookText, Wrench, Building2, Key, Sun, Moon, Users } from "lucide-react";
+import { LayoutDashboard, BookText, Wrench, Package, Compass, Building2, Key, Sun, Moon, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -11,6 +11,8 @@ const MAIN_NAV = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard, exact: true },
   { label: "Prompts", href: "/prompts", icon: BookText },
   { label: "Skills", href: "/skills", icon: Wrench },
+  { label: "Kits", href: "/kits", icon: Package },
+  { label: "Explore", href: "/explore", icon: Compass },
 ];
 
 const SETTINGS_NAV = [
