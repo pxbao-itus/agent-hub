@@ -13,6 +13,8 @@ export const tokenScopeSchema = z.object({
     )
     .optional(),
   tags: z.array(z.string()).optional(),
+  /** Allow write operations (e.g. update_task_status). Default false — read-only. */
+  write: z.boolean().optional(),
 });
 
 export type TokenScope = z.infer<typeof tokenScopeSchema>;

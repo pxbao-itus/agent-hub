@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
-import { BookText, Wrench, Package, Compass, Search } from "lucide-react";
+import { BookText, Wrench, Package, ClipboardList, Compass, Search } from "lucide-react";
 
 export const metadata: Metadata = { title: "Explore" };
 
@@ -16,12 +16,14 @@ const KIND_ICON: Record<string, React.ElementType> = {
   prompt: BookText,
   skill: Wrench,
   kit: Package,
+  plan: ClipboardList,
 };
 
 const KIND_HREF: Record<string, string> = {
   prompt: "/prompts",
   skill: "/skills",
   kit: "/kits",
+  plan: "/plans",
 };
 
 type Props = {
@@ -33,7 +35,7 @@ export default async function ExplorePage({ searchParams }: Props) {
   const offset = Number(offsetStr ?? 0);
   const limit = 30;
 
-  const validKind = kind === "prompt" || kind === "skill" || kind === "kit" ? kind : undefined;
+  const validKind = kind === "prompt" || kind === "skill" || kind === "kit" || kind === "plan" ? kind : undefined;
 
   // Public artifacts from any owner
   const publicWhere = eq(artifacts.visibility, "public");
@@ -91,7 +93,7 @@ export default async function ExplorePage({ searchParams }: Props) {
 
         {/* Kind tabs */}
         <div className="flex gap-1.5">
-          {(["", "prompt", "skill", "kit"] as const).map((k) => {
+          {(["", "prompt", "skill", "kit", "plan"] as const).map((k) => {
             const label = k === "" ? "All" : k.charAt(0).toUpperCase() + k.slice(1) + "s";
             const href = k
               ? `/explore?kind=${k}${q ? `&q=${encodeURIComponent(q)}` : ""}`

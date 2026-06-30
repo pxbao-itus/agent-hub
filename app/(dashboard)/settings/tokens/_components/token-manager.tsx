@@ -32,13 +32,13 @@ type TokenRow = {
   createdAt: Date;
 };
 
-function scopeSummary(scope: unknown): string {
-  if (!scope || typeof scope !== "object") return "Full access";
-  const s = scope as { spaces?: ScopeEntry[]; tags?: string[] };
+function scopeSummary(scope: unknown): { label: string; write: boolean } {
+  if (!scope || typeof scope !== "object") return { label: "Full access", write: false };
+  const s = scope as { spaces?: ScopeEntry[]; tags?: string[]; write?: boolean };
   const parts: string[] = [];
   if (s.spaces?.length) parts.push(`${s.spaces.length} space${s.spaces.length !== 1 ? "s" : ""}`);
   if (s.tags?.length) parts.push(`${s.tags.length} tag${s.tags.length !== 1 ? "s" : ""}`);
-  return parts.length ? parts.join(" · ") : "Full access";
+  return { label: parts.length ? parts.join(" · ") : "Full access", write: !!s.write };
 }
 
 export function TokenManager({
@@ -51,6 +51,7 @@ export function TokenManager({
   const utils = trpc.useUtils();
   const [name, setName] = useState("");
   const [tagInput, setTagInput] = useState("");
+  const [allowWrite, setAllowWrite] = useState(false);
   const [revealed, setRevealed] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
@@ -70,6 +71,7 @@ export function TokenManager({
       setName("");
       setTagInput("");
       setSelectedSpaceKeys([]);
+      setAllowWrite(false);
       setRevealed(data.rawToken);
       setGuideOpen(false);
       utils.token.list.invalidate();
@@ -85,7 +87,7 @@ export function TokenManager({
       const [groupType, groupId] = k.split(":");
       return { groupType: groupType as ScopeEntry["groupType"], groupId };
     });
-    const scope = spaces.length || tags.length ? { spaces, tags } : undefined;
+    const scope = spaces.length || tags.length || allowWrite ? { spaces, tags, write: allowWrite || undefined } : undefined;
     create.mutate({ name, scope });
   }
 
@@ -198,6 +200,21 @@ export function TokenManager({
           />
         </div>
 
+        {/* Allow writes */}
+        <div className="flex items-center gap-2">
+          <input
+            id="token-write"
+            type="checkbox"
+            checked={allowWrite}
+            onChange={(e) => setAllowWrite(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border"
+          />
+          <Label htmlFor="token-write" className="text-xs cursor-pointer">
+            Allow writes{" "}
+            <span className="text-muted-foreground">(agent can update plan task status)</span>
+          </Label>
+        </div>
+
         <Button type="submit" size="sm" disabled={create.isPending}>
           {create.isPending ? "Creating…" : "Generate token"}
         </Button>
@@ -220,7 +237,10 @@ export function TokenManager({
                   </div>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
                     <code>{t.tokenPrefix}…</code>
-                    <span className="text-muted-foreground/70">{scopeSummary(t.scope)}</span>
+                    <span className="text-muted-foreground/70">{scopeSummary(t.scope).label}</span>
+                    <Badge variant="outline" className="text-[10px] py-0">
+                      {scopeSummary(t.scope).write ? "read+write" : "read"}
+                    </Badge>
                     {t.lastUsedAt && (
                       <span>last used {new Date(t.lastUsedAt).toLocaleDateString()}</span>
                     )}

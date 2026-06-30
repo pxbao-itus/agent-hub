@@ -7,7 +7,7 @@ import { getAccessibleGroups } from "@/server/auth/access";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { BookText, Wrench, Package, Building2, Key, Plus } from "lucide-react";
+import { BookText, Wrench, Package, ClipboardList, Building2, Key, Plus } from "lucide-react";
 
 export const metadata = { title: "Dashboard" };
 
@@ -35,10 +35,11 @@ export default async function DashboardHome() {
   }
 
   // ── Stats ──────────────────────────────────────────────────────────────────
-  const [[{ promptCount }], [{ skillCount }], [{ kitCount }], [{ orgCount }], [{ tokenCount }], recentPrompts] = await Promise.all([
+  const [[{ promptCount }], [{ skillCount }], [{ kitCount }], [{ planCount }], [{ orgCount }], [{ tokenCount }], recentPrompts] = await Promise.all([
     db.select({ promptCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "prompt"), accessWhere)),
     db.select({ skillCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "skill"), accessWhere)),
     db.select({ kitCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "kit"), accessWhere)),
+    db.select({ planCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "plan"), accessWhere)),
     db
       .select({ orgCount: count() })
       .from(memberships)
@@ -68,7 +69,7 @@ export default async function DashboardHome() {
       </div>
 
       {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm text-muted-foreground font-medium">Prompts</CardTitle>
@@ -96,6 +97,16 @@ export default async function DashboardHome() {
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold">{kitCount}</p>
+            <p className="text-xs text-muted-foreground mt-1">accessible to you</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm text-muted-foreground font-medium">Plans</CardTitle>
+            <ClipboardList className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold">{planCount}</p>
             <p className="text-xs text-muted-foreground mt-1">accessible to you</p>
           </CardContent>
         </Card>
@@ -131,6 +142,9 @@ export default async function DashboardHome() {
         </Button>
         <Button asChild size="sm" variant="outline">
           <Link href="/kits/new"><Plus className="h-4 w-4" />New kit</Link>
+        </Button>
+        <Button asChild size="sm" variant="outline">
+          <Link href="/plans/new"><Plus className="h-4 w-4" />New plan</Link>
         </Button>
         <Button asChild size="sm" variant="outline">
           <Link href="/settings/orgs">Manage organizations</Link>

@@ -35,6 +35,10 @@ export const ownerTypeEnum = pgEnum("owner_type", [
   "team",
 ]);
 
+/** Status of a plan task. */
+export const taskStatusEnum = pgEnum("task_status", ["todo", "doing", "done"]);
+export type TaskStatus = "todo" | "doing" | "done";
+
 /** Visibility scope of a prompt. */
 export const visibilityEnum = pgEnum("visibility", [
   "private", // owner only (user)
@@ -179,8 +183,8 @@ export const memberships = pgTable(
 /* Prompts                                                                     */
 /* -------------------------------------------------------------------------- */
 
-/** Discriminates the kind of artifact. prompt (default) ⊂ skill ⊂ kit. */
-export const artifactKindEnum = ["prompt", "skill", "kit"] as const;
+/** Discriminates the kind of artifact. prompt (default) ⊂ skill ⊂ kit ⊂ plan. */
+export const artifactKindEnum = ["prompt", "skill", "kit", "plan"] as const;
 export type ArtifactKind = (typeof artifactKindEnum)[number];
 
 /**
@@ -305,6 +309,26 @@ export const artifactMembers = pgTable(
 );
 
 /**
+ * Tasks belonging to a plan artifact (live, not versioned).
+ * Tick status without creating a new version. Overview body is versioned separately.
+ */
+export const artifactTasks = pgTable(
+  "artifact_tasks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    artifactId: uuid("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    content: text("content").notNull(),
+    status: taskStatusEnum("status").notNull().default("todo"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("artifact_tasks_artifact_idx").on(t.artifactId)]
+);
+
+/**
  * Embeddings for semantic search (v0.2).
  * `embedderId` + `dimensions` are stored alongside the vector so we know which model
  * produced it when switching providers.
@@ -382,6 +406,7 @@ export const artifactsRelations = relations(artifacts, ({ many }) => ({
   versions: many(artifactVersions),
   variables: many(artifactVariables),
   members: many(artifactMembers, { relationName: "kit" }),
+  tasks: many(artifactTasks),
 }));
 
 export const artifactVersionsRelations = relations(artifactVersions, ({ one, many }) => ({
@@ -414,6 +439,13 @@ export const artifactMembersRelations = relations(artifactMembers, ({ one }) => 
   }),
   member: one(artifacts, {
     fields: [artifactMembers.memberArtifactId],
+    references: [artifacts.id],
+  }),
+}));
+
+export const artifactTasksRelations = relations(artifactTasks, ({ one }) => ({
+  artifact: one(artifacts, {
+    fields: [artifactTasks.artifactId],
     references: [artifacts.id],
   }),
 }));

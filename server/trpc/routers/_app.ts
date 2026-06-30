@@ -4,6 +4,7 @@ import { orgRouter } from "./org";
 import { promptRouter } from "./prompt";
 import { skillRouter } from "./skill";
 import { kitRouter } from "./kit";
+import { planRouter } from "./plan";
 import { tokenRouter } from "./token";
 import { userRouter } from "./user";
 
@@ -24,6 +25,7 @@ export const appRouter = router({
   prompt: promptRouter,
   skill: skillRouter,
   kit: kitRouter,
+  plan: planRouter,
   token: tokenRouter,
   user: userRouter,
 });

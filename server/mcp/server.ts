@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { eq, desc, and, or, sql, inArray } from "drizzle-orm";
 import { db } from "@/server/db";
-import { artifacts, artifactVersions } from "@/server/db/schema";
+import { artifacts, artifactVersions, artifactTasks } from "@/server/db/schema";
 import { getAccessibleGroups } from "@/server/auth/access";
 import { renderTemplate } from "@/server/lib/template";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
@@ -344,6 +344,156 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
       };
     },
   );
+
+  // ── Plan tools ────────────────────────────────────────────────────────────
+
+  const planRows = await getArtifactsForIdentity(identity, scope, "plan");
+  const planOwnerPaths = await resolveOwnerSlugPaths(
+    planRows.map((p) => ({ ownerType: p.ownerType, ownerId: p.ownerId })),
+    db,
+  );
+
+  const planBySlug = new Map<string, typeof planRows[number]>();
+  for (const p of planRows) {
+    const spacePath = planOwnerPaths.get(`${p.ownerType}:${p.ownerId}`) ?? "";
+    const localSlug = p.slug ?? slugify(p.title);
+    const fullSlug = [spacePath, localSlug].filter(Boolean).join(".");
+    planBySlug.set(fullSlug, p);
+    if (fullSlug !== localSlug) planBySlug.set(localSlug, p);
+  }
+
+  server.tool(
+    "list_plans",
+    "List all available plans with their slugs, descriptions and progress.",
+    {},
+    async () => {
+      if (!planRows.length) {
+        return { content: [{ type: "text" as const, text: "No plans available." }] };
+      }
+
+      const lines = await Promise.all(
+        planRows.map(async (p) => {
+          const spacePath = planOwnerPaths.get(`${p.ownerType}:${p.ownerId}`) ?? "";
+          const localSlug = p.slug ?? slugify(p.title);
+          const fullSlug = [spacePath, localSlug].filter(Boolean).join(".");
+          const tasks = await db.query.artifactTasks.findMany({
+            where: eq(artifactTasks.artifactId, p.id),
+            columns: { status: true },
+          });
+          const done = tasks.filter((t) => t.status === "done").length;
+          const progress = tasks.length ? ` [${done}/${tasks.length}]` : "";
+          const desc = p.description ? `: ${p.description}` : "";
+          return `- ${fullSlug}${desc}${progress}`;
+        }),
+      );
+
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    },
+  );
+
+  server.tool(
+    "get_plan",
+    "Get a plan's overview and task checklist (with task IDs for update_task_status).",
+    {
+      slug: z.string().describe("The plan slug (e.g. 'acme.sprint-1' or 'sprint-1')"),
+    },
+    async ({ slug }) => {
+      const plan = planBySlug.get(slug);
+      if (!plan) {
+        const available = [...planBySlug.keys()].filter((_, i) => i < 10).join(", ");
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Plan '${slug}' not found.${available ? ` Available plans: ${available}` : ""}`,
+          }],
+        };
+      }
+
+      const version = plan.versions[0];
+      const tasks = await db.query.artifactTasks.findMany({
+        where: eq(artifactTasks.artifactId, plan.id),
+        orderBy: artifactTasks.position,
+      });
+
+      const done = tasks.filter((t) => t.status === "done").length;
+
+      const parts: string[] = [];
+      parts.push(`# ${plan.title}`);
+      if (plan.description) parts.push(`_${plan.description}_`);
+      parts.push("");
+      parts.push(`**Progress: ${done}/${tasks.length} done**`);
+      parts.push("");
+
+      if (version?.body) {
+        parts.push(version.body);
+        parts.push("");
+      }
+
+      if (tasks.length > 0) {
+        parts.push("## Tasks");
+        for (const t of tasks) {
+          const check = t.status === "done" ? "[x]" : t.status === "doing" ? "[~]" : "[ ]";
+          parts.push(`- ${check} (id: ${t.id}) ${t.content}`);
+        }
+      }
+
+      return {
+        content: [{ type: "text" as const, text: parts.join("\n") }],
+      };
+    },
+  );
+
+  // update_task_status is only registered when the token has write=true
+  if (scope.write === true) {
+    // Build accessible plan artifact ids for write gate
+    const accessiblePlanIds = new Set(planRows.map((p) => p.id));
+
+    server.tool(
+      "update_task_status",
+      "Update the status of a plan task. Only available with a write-enabled token.",
+      {
+        taskId: z.string().uuid().describe("The task ID (from get_plan output)"),
+        status: z.enum(["todo", "doing", "done"]).describe("New status"),
+      },
+      async ({ taskId, status }) => {
+        const task = await db.query.artifactTasks.findFirst({
+          where: eq(artifactTasks.id, taskId),
+        });
+        if (!task) {
+          return { content: [{ type: "text" as const, text: `Task '${taskId}' not found.` }] };
+        }
+
+        if (!accessiblePlanIds.has(task.artifactId)) {
+          return {
+            content: [{ type: "text" as const, text: `Access denied: task '${taskId}' is not in an accessible plan.` }],
+          };
+        }
+
+        await db
+          .update(artifactTasks)
+          .set({ status, updatedAt: new Date() })
+          .where(eq(artifactTasks.id, taskId));
+
+        // Return updated checklist
+        const tasks = await db.query.artifactTasks.findMany({
+          where: eq(artifactTasks.artifactId, task.artifactId),
+          orderBy: artifactTasks.position,
+        });
+        const done = tasks.filter((t) => t.status === "done").length;
+        const checklist = tasks.map((t) => {
+          const check = t.status === "done" ? "[x]" : t.status === "doing" ? "[~]" : "[ ]";
+          return `- ${check} (id: ${t.id}) ${t.content}`;
+        });
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Updated. Progress: ${done}/${tasks.length} done\n\n${checklist.join("\n")}`,
+          }],
+        };
+      },
+    );
+  }
 
   return server;
 }
