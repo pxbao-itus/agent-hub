@@ -4,8 +4,8 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
-import { artifacts, artifactVersions, artifactTasks } from "@/server/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { artifacts, artifactVersions, artifactTasks, artifactLinks } from "@/server/db/schema";
+import { eq, and, desc, asc } from "drizzle-orm";
 import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/auth/access";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,7 @@ import { CodeBlock } from "@/components/ui/code-block";
 import { DeletePlanButton } from "../_components/delete-plan-button";
 import { PlanTaskList } from "./_components/plan-task-list";
 import { ShareDialog } from "../../_components/share-dialog";
+import { PlanLinkedDocs } from "./_components/plan-linked-docs";
 
 const getPlan = cache(async (id: string) =>
   db.query.artifacts.findFirst({
@@ -48,6 +49,19 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
 
   const currentVersion = plan.versions[0];
   const tasks = plan.tasks ?? [];
+
+  // Linked docs — filtered to what this user can access
+  const rawLinks = await db.query.artifactLinks.findMany({
+    where: and(eq(artifactLinks.sourceArtifactId, id), eq(artifactLinks.relation, "doc")),
+    orderBy: asc(artifactLinks.position),
+    with: { target: { with: { versions: { limit: 1, orderBy: desc(artifactVersions.versionNo) } } } },
+  });
+  const linkedDocs = [];
+  for (const link of rawLinks) {
+    if (!link.target) continue;
+    const ok = await canAccessArtifact(identity, link.target, db);
+    if (ok) linkedDocs.push(link);
+  }
   const done = tasks.filter((t) => t.status === "done").length;
   const total = tasks.length;
   const pct = total > 0 ? Math.round((done / total) * 100) : null;
@@ -131,6 +145,30 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
           />
         </section>
       )}
+
+      {/* Linked docs */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Linked docs {linkedDocs.length > 0 ? `(${linkedDocs.length})` : ""}
+        </h2>
+        <PlanLinkedDocs
+          sourceId={id}
+          initialLinks={linkedDocs.map((l) => ({
+            id: l.id,
+            position: l.position,
+            target: l.target
+              ? {
+                  id: l.target.id,
+                  title: l.target.title,
+                  description: l.target.description,
+                  slug: l.target.slug,
+                  body: l.target.versions[0]?.body ?? null,
+                }
+              : null,
+          }))}
+          canEdit={canEdit}
+        />
+      </section>
 
       {/* Version history (overview only) */}
       {plan.versions.length > 1 && (

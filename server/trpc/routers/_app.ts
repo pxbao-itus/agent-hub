@@ -5,6 +5,8 @@ import { promptRouter } from "./prompt";
 import { skillRouter } from "./skill";
 import { kitRouter } from "./kit";
 import { planRouter } from "./plan";
+import { docRouter } from "./doc";
+import { linkRouter } from "./link";
 import { shareRouter } from "./share";
 import { tokenRouter } from "./token";
 import { userRouter } from "./user";
@@ -27,6 +29,8 @@ export const appRouter = router({
   skill: skillRouter,
   kit: kitRouter,
   plan: planRouter,
+  doc: docRouter,
+  link: linkRouter,
   share: shareRouter,
   token: tokenRouter,
   user: userRouter,

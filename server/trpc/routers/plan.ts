@@ -13,6 +13,7 @@ import {
   canMutatePrompt,
   effectiveGroupRole,
 } from "@/server/auth/access";
+import { createPlan } from "@/server/services/plan";
 import type { DbClient } from "@/server/db/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -102,50 +103,22 @@ export const planRouter = router({
 
       assertGroupVisibility(ownerType, input.visibility);
 
-      const [plan] = await ctx.db
-        .insert(artifacts)
-        .values({
-          kind: "plan",
+      return createPlan(
+        {
           ownerType,
           ownerId,
           title: input.title,
-          slug: input.slug ?? null,
+          slug: input.slug,
           description: input.description,
+          body: input.body,
+          tasks: input.tasks,
           tags: input.tags,
           visibility: input.visibility,
+          changelog: input.changelog,
           createdBy: userId,
-        })
-        .returning();
-
-      const [version] = await ctx.db
-        .insert(artifactVersions)
-        .values({
-          artifactId: plan.id,
-          versionNo: 1,
-          body: input.body,
-          changelog: input.changelog ?? "Initial version",
-          createdBy: userId,
-        })
-        .returning();
-
-      if (input.tasks.length > 0) {
-        await ctx.db.insert(artifactTasks).values(
-          input.tasks.map((t, i) => ({
-            artifactId: plan.id,
-            content: t.content,
-            status: t.status ?? "todo" as const,
-            position: t.position ?? i,
-          })),
-        );
-      }
-
-      const [updated] = await ctx.db
-        .update(artifacts)
-        .set({ currentVersionId: version.id })
-        .where(eq(artifacts.id, plan.id))
-        .returning();
-
-      return updated;
+        },
+        ctx.db,
+      );
     }),
 
   list: protectedProcedure

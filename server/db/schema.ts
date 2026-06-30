@@ -188,7 +188,7 @@ export const memberships = pgTable(
 /* -------------------------------------------------------------------------- */
 
 /** Discriminates the kind of artifact. prompt (default) ⊂ skill ⊂ kit ⊂ plan. */
-export const artifactKindEnum = ["prompt", "skill", "kit", "plan"] as const;
+export const artifactKindEnum = ["prompt", "skill", "kit", "plan", "doc"] as const;
 export type ArtifactKind = (typeof artifactKindEnum)[number];
 
 /**
@@ -359,6 +359,38 @@ export const artifactShares = pgTable(
 );
 
 /**
+ * Generic directed link between two artifacts (e.g. plan → doc).
+ * `relation` is free-form text (default 'doc'). Unique per (source, target, relation).
+ * Cascade-deletes when either artifact is removed.
+ */
+export const artifactLinks = pgTable(
+  "artifact_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceArtifactId: uuid("source_artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    targetArtifactId: uuid("target_artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    /** Relation type — 'doc' for plan→doc; extensible. */
+    relation: text("relation").notNull().default("doc"),
+    position: integer("position").notNull().default(0),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("artifact_links_source_target_relation_uq").on(
+      t.sourceArtifactId,
+      t.targetArtifactId,
+      t.relation,
+    ),
+    index("artifact_links_source_idx").on(t.sourceArtifactId),
+    index("artifact_links_target_idx").on(t.targetArtifactId),
+  ]
+);
+
+/**
  * Embeddings for semantic search (v0.2).
  * `embedderId` + `dimensions` are stored alongside the vector so we know which model
  * produced it when switching providers.
@@ -438,6 +470,8 @@ export const artifactsRelations = relations(artifacts, ({ many }) => ({
   members: many(artifactMembers, { relationName: "kit" }),
   tasks: many(artifactTasks),
   shares: many(artifactShares),
+  outgoingLinks: many(artifactLinks, { relationName: "source" }),
+  incomingLinks: many(artifactLinks, { relationName: "target" }),
 }));
 
 export const artifactVersionsRelations = relations(artifactVersions, ({ one, many }) => ({
@@ -495,5 +529,18 @@ export const artifactSharesRelations = relations(artifactShares, ({ one }) => ({
     relationName: "shareGrantor",
     fields: [artifactShares.grantedBy],
     references: [users.id],
+  }),
+}));
+
+export const artifactLinksRelations = relations(artifactLinks, ({ one }) => ({
+  source: one(artifacts, {
+    relationName: "source",
+    fields: [artifactLinks.sourceArtifactId],
+    references: [artifacts.id],
+  }),
+  target: one(artifacts, {
+    relationName: "target",
+    fields: [artifactLinks.targetArtifactId],
+    references: [artifacts.id],
   }),
 }));

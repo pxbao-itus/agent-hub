@@ -2,14 +2,15 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { eq, desc, and, or, sql, inArray } from "drizzle-orm";
 import { db } from "@/server/db";
-import { artifacts, artifactVersions, artifactTasks } from "@/server/db/schema";
-import { getAccessibleGroups, getSharedArtifactIds } from "@/server/auth/access";
+import { artifacts, artifactVersions, artifactTasks, artifactLinks } from "@/server/db/schema";
+import { getAccessibleGroups, getSharedArtifactIds, effectiveGroupRole } from "@/server/auth/access";
 import { renderTemplate } from "@/server/lib/template";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
 import { hybridSearch, fetchPromptsByIds } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import { type TokenScope, applyScopeToOwners, promptPassesScopeTags } from "./scope";
 import { flattenKitMembers } from "@/server/lib/kit";
+import { createPlan, addPlanLink } from "@/server/services/plan";
 import type { ArtifactKind } from "@/server/db/schema";
 
 type Identity = { userId: string; systemRole: "user" | "superadmin" };
@@ -345,6 +346,24 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
     },
   );
 
+  // ── Doc setup (needed by plan tools for linked-docs trace) ──────────────
+
+  const docRows = await getArtifactsForIdentity(identity, scope, "doc");
+  const docOwnerPaths = await resolveOwnerSlugPaths(
+    docRows.map((d) => ({ ownerType: d.ownerType, ownerId: d.ownerId })),
+    db,
+  );
+  const accessibleDocIds = new Set(docRows.map((d) => d.id));
+
+  const docBySlug = new Map<string, typeof docRows[number]>();
+  for (const d of docRows) {
+    const spacePath = docOwnerPaths.get(`${d.ownerType}:${d.ownerId}`) ?? "";
+    const localSlug = d.slug ?? slugify(d.title);
+    const fullSlug = [spacePath, localSlug].filter(Boolean).join(".");
+    docBySlug.set(fullSlug, d);
+    if (fullSlug !== localSlug) docBySlug.set(localSlug, d);
+  }
+
   // ── Plan tools ────────────────────────────────────────────────────────────
 
   const planRows = await getArtifactsForIdentity(identity, scope, "plan");
@@ -437,15 +456,84 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         }
       }
 
+      // Linked docs — only those accessible to this token
+      const links = await db.query.artifactLinks.findMany({
+        where: and(eq(artifactLinks.sourceArtifactId, plan.id), eq(artifactLinks.relation, "doc")),
+        orderBy: artifactLinks.position,
+        with: { target: true },
+      });
+      const accessibleDocLinks = links.filter((l) => l.target && accessibleDocIds.has(l.target.id));
+      if (accessibleDocLinks.length > 0) {
+        parts.push("");
+        parts.push("## Linked docs");
+        for (const l of accessibleDocLinks) {
+          const t = l.target!;
+          const spacePath = docOwnerPaths.get(`${t.ownerType}:${t.ownerId}`) ?? "";
+          const localSlug = t.slug ?? slugify(t.title);
+          const fullSlug = [spacePath, localSlug].filter(Boolean).join(".");
+          const desc = t.description ? `: ${t.description}` : "";
+          parts.push(`- ${fullSlug}${desc}  (call get_doc to read)`);
+        }
+      }
+
       return {
         content: [{ type: "text" as const, text: parts.join("\n") }],
       };
     },
   );
 
-  // update_task_status is only registered when the token has write=true
+  // ── Doc tools ─────────────────────────────────────────────────────────────
+
+  server.tool(
+    "list_docs",
+    "List all available docs (business docs, bug descriptions, domain knowledge) with slugs and descriptions.",
+    {},
+    async () => {
+      if (!docRows.length) {
+        return { content: [{ type: "text" as const, text: "No docs available." }] };
+      }
+      const lines = docRows.map((d) => {
+        const spacePath = docOwnerPaths.get(`${d.ownerType}:${d.ownerId}`) ?? "";
+        const localSlug = d.slug ?? slugify(d.title);
+        const fullSlug = [spacePath, localSlug].filter(Boolean).join(".");
+        return `- ${fullSlug}${d.description ? `: ${d.description}` : ""}`;
+      });
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    },
+  );
+
+  server.tool(
+    "get_doc",
+    "Get a doc's full content (business requirements, bug descriptions, domain knowledge).",
+    {
+      slug: z.string().describe("The doc slug (e.g. 'acme.auth-bug' or 'auth-bug')"),
+    },
+    async ({ slug }) => {
+      const doc = docBySlug.get(slug);
+      if (!doc) {
+        const available = [...docBySlug.keys()].filter((_, i) => i < 10).join(", ");
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Doc '${slug}' not found.${available ? ` Available docs: ${available}` : ""}`,
+          }],
+        };
+      }
+
+      const version = doc.versions[0];
+      const parts: string[] = [];
+      parts.push(`# ${doc.title}`);
+      if (doc.description) parts.push(`_${doc.description}_`);
+      if (doc.tags.length > 0) parts.push(`_Tags: ${doc.tags.join(", ")}_`);
+      parts.push("");
+      if (version?.body) parts.push(version.body);
+
+      return { content: [{ type: "text" as const, text: parts.join("\n") }] };
+    },
+  );
+
+  // Write tools are only registered when the token has write=true
   if (scope.write === true) {
-    // Build accessible plan artifact ids for write gate
     const accessiblePlanIds = new Set(planRows.map((p) => p.id));
 
     server.tool(
@@ -462,19 +550,12 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         if (!task) {
           return { content: [{ type: "text" as const, text: `Task '${taskId}' not found.` }] };
         }
-
         if (!accessiblePlanIds.has(task.artifactId)) {
           return {
             content: [{ type: "text" as const, text: `Access denied: task '${taskId}' is not in an accessible plan.` }],
           };
         }
-
-        await db
-          .update(artifactTasks)
-          .set({ status, updatedAt: new Date() })
-          .where(eq(artifactTasks.id, taskId));
-
-        // Return updated checklist
+        await db.update(artifactTasks).set({ status, updatedAt: new Date() }).where(eq(artifactTasks.id, taskId));
         const tasks = await db.query.artifactTasks.findMany({
           where: eq(artifactTasks.artifactId, task.artifactId),
           orderBy: artifactTasks.position,
@@ -484,13 +565,177 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
           const check = t.status === "done" ? "[x]" : t.status === "doing" ? "[~]" : "[ ]";
           return `- ${check} (id: ${t.id}) ${t.content}`;
         });
-
         return {
-          content: [{
-            type: "text" as const,
-            text: `Updated. Progress: ${done}/${tasks.length} done\n\n${checklist.join("\n")}`,
-          }],
+          content: [{ type: "text" as const, text: `Updated. Progress: ${done}/${tasks.length} done\n\n${checklist.join("\n")}` }],
         };
+      },
+    );
+
+    server.tool(
+      "add_plan_task",
+      "Append a new task to an existing plan. Use after create_plan or to add tasks discovered during work.",
+      {
+        planSlug: z.string().describe("The plan slug (e.g. 'sprint-1')"),
+        content: z.string().min(1).max(2000).describe("Task description"),
+      },
+      async ({ planSlug, content }) => {
+        const plan = planBySlug.get(planSlug);
+        if (!plan) {
+          return { content: [{ type: "text" as const, text: `Plan '${planSlug}' not found.` }] };
+        }
+        if (!accessiblePlanIds.has(plan.id)) {
+          return { content: [{ type: "text" as const, text: `Access denied to plan '${planSlug}'.` }] };
+        }
+        const existing = await db.query.artifactTasks.findMany({
+          where: eq(artifactTasks.artifactId, plan.id),
+          columns: { position: true },
+        });
+        const maxPos = existing.reduce((m, t) => Math.max(m, t.position), -1);
+        const [task] = await db.insert(artifactTasks).values({
+          artifactId: plan.id,
+          content,
+          status: "todo",
+          position: maxPos + 1,
+        }).returning();
+        return { content: [{ type: "text" as const, text: `Task added (id: ${task.id}): ${content}` }] };
+      },
+    );
+
+    server.tool(
+      "update_plan_task",
+      "Update the content of an existing plan task.",
+      {
+        taskId: z.string().uuid().describe("The task ID (from get_plan output)"),
+        content: z.string().min(1).max(2000).describe("New task description"),
+      },
+      async ({ taskId, content }) => {
+        const task = await db.query.artifactTasks.findFirst({ where: eq(artifactTasks.id, taskId) });
+        if (!task) return { content: [{ type: "text" as const, text: `Task '${taskId}' not found.` }] };
+        if (!accessiblePlanIds.has(task.artifactId)) {
+          return { content: [{ type: "text" as const, text: `Access denied.` }] };
+        }
+        await db.update(artifactTasks).set({ content, updatedAt: new Date() }).where(eq(artifactTasks.id, taskId));
+        return { content: [{ type: "text" as const, text: `Task updated.` }] };
+      },
+    );
+
+    server.tool(
+      "delete_plan_task",
+      "Remove a task from a plan.",
+      {
+        taskId: z.string().uuid().describe("The task ID (from get_plan output)"),
+      },
+      async ({ taskId }) => {
+        const task = await db.query.artifactTasks.findFirst({ where: eq(artifactTasks.id, taskId) });
+        if (!task) return { content: [{ type: "text" as const, text: `Task '${taskId}' not found.` }] };
+        if (!accessiblePlanIds.has(task.artifactId)) {
+          return { content: [{ type: "text" as const, text: `Access denied.` }] };
+        }
+        await db.delete(artifactTasks).where(eq(artifactTasks.id, taskId));
+        return { content: [{ type: "text" as const, text: `Task deleted.` }] };
+      },
+    );
+
+    server.tool(
+      "create_plan",
+      "Create a new plan in your personal space from a conversation with the user. Returns the plan slug to reference later.",
+      {
+        title: z.string().min(1).max(200).describe("Plan title"),
+        body: z.string().describe("Overview / background markdown (the 'why')"),
+        tasks: z.array(z.string()).default([]).describe("Initial task list (strings, status defaults to todo)"),
+        description: z.string().max(500).optional().describe("Short description"),
+        tags: z.array(z.string()).default([]).describe("Tags for categorisation"),
+        linkedDocSlugs: z.array(z.string()).default([]).describe("Slugs of docs that prompted this plan (auto-linked)"),
+        ownerType: z.enum(["user", "org", "department", "team"]).default("user").describe("Owner space. 'user' = personal (default). For group spaces the token user must have editor/admin role in that group."),
+        ownerId: z.string().uuid().optional().describe("Group ID when ownerType is not 'user'. Omit for personal space."),
+      },
+      async ({ title, body, tasks, description, tags, linkedDocSlugs, ownerType, ownerId }) => {
+        const ownerIdResolved = ownerType === "user" ? identity.userId : (ownerId ?? identity.userId);
+
+        // For group spaces, verify the token user has sufficient role
+        if (ownerType !== "user") {
+          const role = await effectiveGroupRole(
+            identity.userId,
+            ownerType as "org" | "department" | "team",
+            ownerIdResolved,
+            db,
+          );
+          if (role !== "editor" && role !== "admin") {
+            return { content: [{ type: "text" as const, text: `Permission denied: you need editor or admin role in that group space.` }] };
+          }
+        }
+
+        const plan = await createPlan(
+          {
+            ownerType,
+            ownerId: ownerIdResolved,
+            title,
+            body,
+            description,
+            tags,
+            visibility: "private",
+            tasks: tasks.map((c) => ({ content: c })),
+            createdBy: identity.userId,
+          },
+          db,
+        );
+
+        // Auto-link docs
+        const linked: string[] = [];
+        const skipped: string[] = [];
+        for (const docSlug of linkedDocSlugs) {
+          const doc = docBySlug.get(docSlug);
+          if (!doc || !accessibleDocIds.has(doc.id)) {
+            skipped.push(docSlug);
+            continue;
+          }
+          await addPlanLink(plan.id, doc.id, identity.userId, db);
+          linked.push(docSlug);
+        }
+
+        const planSlug = plan.slug ?? slugify(title);
+        let msg = `Plan created: '${planSlug}' (id: ${plan.id})`;
+        if (linked.length > 0) msg += `\nLinked docs: ${linked.join(", ")}`;
+        if (skipped.length > 0) msg += `\nSkipped (not found/accessible): ${skipped.join(", ")}`;
+        if (tasks.length > 0) msg += `\nTasks added: ${tasks.length}`;
+
+        return { content: [{ type: "text" as const, text: msg }] };
+      },
+    );
+
+    server.tool(
+      "create_doc",
+      "Create a new doc (business requirement, bug description, domain knowledge) in your personal space.",
+      {
+        title: z.string().min(1).max(200).describe("Doc title"),
+        body: z.string().min(1).describe("Full markdown content"),
+        description: z.string().max(500).optional().describe("Short one-line summary"),
+        tags: z.array(z.string()).default([]).describe("Tags e.g. ['bug', 'auth']"),
+      },
+      async ({ title, body, description, tags }) => {
+        const [doc] = await db.insert(artifacts).values({
+          kind: "doc",
+          ownerType: "user",
+          ownerId: identity.userId,
+          title,
+          description,
+          tags,
+          visibility: "private",
+          createdBy: identity.userId,
+        }).returning();
+
+        const [version] = await db.insert(artifactVersions).values({
+          artifactId: doc.id,
+          versionNo: 1,
+          body,
+          changelog: "Created via MCP",
+          createdBy: identity.userId,
+        }).returning();
+
+        await db.update(artifacts).set({ currentVersionId: version.id }).where(eq(artifacts.id, doc.id));
+
+        const docSlug = doc.slug ?? slugify(title);
+        return { content: [{ type: "text" as const, text: `Doc created: '${docSlug}' (id: ${doc.id})` }] };
       },
     );
   }

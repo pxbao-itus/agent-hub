@@ -4,7 +4,7 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
-import { artifacts, artifactVersions, artifactMembers } from "@/server/db/schema";
+import { artifacts, artifactVersions, artifactMembers, artifactLinks } from "@/server/db/schema";
 import { eq, and, desc, asc, sql } from "drizzle-orm";
 import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/auth/access";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { CodeBlock } from "@/components/ui/code-block";
 import { DeleteKitButton } from "../_components/delete-kit-button";
 import { KitVersionHistory } from "./_components/kit-version-history";
 import { ShareDialog } from "../../_components/share-dialog";
+import { LinkedDocsSection } from "../../_components/linked-docs-section";
 import { Package, BookText, Wrench } from "lucide-react";
 
 const getKit = cache(async (id: string) =>
@@ -59,6 +60,18 @@ export default async function KitDetailPage({ params }: { params: Promise<{ id: 
   const canEdit = await canMutatePrompt(identity, kit, db);
   const canShare = await canShareArtifact(identity, kit, db);
   const currentVersion = kit.versions[0];
+
+  const rawLinks = await db.query.artifactLinks.findMany({
+    where: and(eq(artifactLinks.sourceArtifactId, id), eq(artifactLinks.relation, "doc")),
+    orderBy: asc(artifactLinks.position),
+    with: { target: { with: { versions: { limit: 1, orderBy: desc(artifactVersions.versionNo) } } } },
+  });
+  const linkedDocs = [];
+  for (const link of rawLinks) {
+    if (!link.target) continue;
+    const ok = await canAccessArtifact(identity, link.target, db);
+    if (ok) linkedDocs.push(link);
+  }
 
   // Resolve member artifact details
   const memberIds = kit.members.map((m) => m.memberArtifactId);
@@ -157,6 +170,30 @@ export default async function KitDetailPage({ params }: { params: Promise<{ id: 
           </div>
         )}
       </section>
+
+      {/* Linked docs */}
+      {(canEdit || linkedDocs.length > 0) && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Linked docs {linkedDocs.length > 0 ? `(${linkedDocs.length})` : ""}
+          </h2>
+          <LinkedDocsSection
+            sourceId={id}
+            initialLinks={linkedDocs.map((l) => ({
+              id: l.id,
+              position: l.position,
+              target: l.target ? {
+                id: l.target.id,
+                title: l.target.title,
+                description: l.target.description,
+                slug: l.target.slug,
+                body: l.target.versions[0]?.body ?? null,
+              } : null,
+            }))}
+            canEdit={canEdit}
+          />
+        </section>
+      )}
 
       {/* Version history (overview body only) */}
       {kit.versions.length > 0 && (

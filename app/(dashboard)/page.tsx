@@ -7,7 +7,7 @@ import { artifactAccessCondition } from "@/server/auth/access";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { BookText, Wrench, Package, ClipboardList, Building2, Key, Plus } from "lucide-react";
+import { BookText, Wrench, Package, ClipboardList, FileText, Building2, Key, Plus } from "lucide-react";
 
 export const metadata = { title: "Dashboard" };
 
@@ -20,11 +20,12 @@ export default async function DashboardHome() {
   const accessWhere = await artifactAccessCondition(userId, isSuperAdmin ? "superadmin" : "user", db);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
-  const [[{ promptCount }], [{ skillCount }], [{ kitCount }], [{ planCount }], [{ orgCount }], [{ tokenCount }], recentPrompts] = await Promise.all([
+  const [[{ promptCount }], [{ skillCount }], [{ kitCount }], [{ planCount }], [{ docCount }], [{ orgCount }], [{ tokenCount }], recentPrompts] = await Promise.all([
     db.select({ promptCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "prompt"), accessWhere)),
     db.select({ skillCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "skill"), accessWhere)),
     db.select({ kitCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "kit"), accessWhere)),
     db.select({ planCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "plan"), accessWhere)),
+    db.select({ docCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "doc"), accessWhere)),
     db
       .select({ orgCount: count() })
       .from(memberships)
@@ -54,7 +55,7 @@ export default async function DashboardHome() {
       </div>
 
       {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm text-muted-foreground font-medium">Prompts</CardTitle>
@@ -97,6 +98,16 @@ export default async function DashboardHome() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm text-muted-foreground font-medium">Docs</CardTitle>
+            <FileText className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold">{docCount}</p>
+            <p className="text-xs text-muted-foreground mt-1">accessible to you</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm text-muted-foreground font-medium">Organizations</CardTitle>
             <Building2 className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
@@ -130,6 +141,9 @@ export default async function DashboardHome() {
         </Button>
         <Button asChild size="sm" variant="outline">
           <Link href="/plans/new"><Plus className="h-4 w-4" />New plan</Link>
+        </Button>
+        <Button asChild size="sm" variant="outline">
+          <Link href="/docs/new"><Plus className="h-4 w-4" />New doc</Link>
         </Button>
         <Button asChild size="sm" variant="outline">
           <Link href="/settings/orgs">Manage organizations</Link>

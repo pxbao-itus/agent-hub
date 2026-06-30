@@ -17,6 +17,7 @@ type OwnerType = "user" | "org" | "department" | "team";
 type Props = {
   mode: "create";
   preselectSpace?: { ownerType: "org" | "department" | "team"; ownerId: string };
+  linkDocId?: string;
 } | {
   mode: "edit";
   planId: string;
@@ -136,8 +137,18 @@ export function PlanForm(props: Props) {
     { enabled: slugCheckEnabled },
   );
 
+  const linkAdd = trpc.link.add.useMutation();
+  const linkDocId = props.mode === "create" ? props.linkDocId : undefined;
+
   const create = trpc.plan.create.useMutation({
-    onSuccess: (p) => {
+    onSuccess: async (p) => {
+      if (linkDocId) {
+        try {
+          await linkAdd.mutateAsync({ sourceId: p.id, targetId: linkDocId });
+        } catch {
+          // plan created — navigate anyway; user can link manually
+        }
+      }
       toast({ title: "Plan created", variant: "success" });
       router.push(`/plans/${p.id}`);
     },
