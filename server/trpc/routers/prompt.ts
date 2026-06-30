@@ -4,7 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../trpc";
 import { artifacts, artifactVersions, artifactVariables } from "@/server/db/schema";
 import { artifactAccessCondition, canAccessArtifact, canMutatePrompt, effectiveGroupRole } from "@/server/auth/access";
-import { hybridSearch, fetchPromptsByIds } from "@/server/lib/search";
+import { hybridSearch, fetchArtifactsByIds } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import { parseVariables } from "@/server/lib/template";
 import type { DbClient } from "@/server/db/types";
@@ -182,7 +182,7 @@ export const promptRouter = router({
           limit: input.limit,
           offset: input.offset,
         });
-        const items = await fetchPromptsByIds(ids, ctx.db);
+        const items = await fetchArtifactsByIds(ids, ctx.db);
         return { items, total: items.length + input.offset };
       }
 

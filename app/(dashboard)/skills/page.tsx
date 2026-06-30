@@ -7,6 +7,8 @@ import { db } from "@/server/db";
 import { artifacts, artifactVersions } from "@/server/db/schema";
 import { desc, eq, sql, and } from "drizzle-orm";
 import { artifactAccessCondition } from "@/server/auth/access";
+import { hybridSearch, fetchArtifactsByIds } from "@/server/lib/search";
+import { getEmbedder } from "@/server/embedder";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,26 +33,29 @@ export default async function SkillsPage({ searchParams }: Props) {
   const skillWhere = and(eq(artifacts.kind, "skill"), accessWhere);
   const tagFilter = tag ? sql`${tag} = ANY(${artifacts.tags})` : undefined;
 
-  const ftsFilter = q
-    ? sql`to_tsvector('english', ${artifacts.title} || ' ' || coalesce(${artifacts.description}, '')) @@ plainto_tsquery('english', ${q})`
-    : undefined;
-
-  const where = and(skillWhere, ftsFilter, tagFilter);
-
-  const [rows, allSkills] = await Promise.all([
-    db.query.artifacts.findMany({
-      where,
+  let rows: Awaited<ReturnType<typeof fetchArtifactsByIds>>;
+  if (q) {
+    const { ids } = await hybridSearch({
+      query: q,
+      accessCondition: skillWhere,
+      tagFilter,
+      embedder: getEmbedder(),
+      db,
+      limit,
+      offset,
+    });
+    rows = await fetchArtifactsByIds(ids, db);
+  } else {
+    rows = await db.query.artifacts.findMany({
+      where: and(skillWhere, tagFilter),
       orderBy: desc(artifacts.updatedAt),
       limit,
       offset,
       with: { versions: { limit: 1, orderBy: desc(artifactVersions.versionNo) } },
-    }),
-    db.query.artifacts.findMany({
-      where: skillWhere,
-      columns: { tags: true },
-    }),
-  ]);
+    });
+  }
 
+  const allSkills = await db.query.artifacts.findMany({ where: skillWhere, columns: { tags: true } });
   const allTags = [...new Set(allSkills.flatMap((s) => s.tags))].sort();
 
   return (

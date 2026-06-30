@@ -14,6 +14,8 @@ import {
   effectiveGroupRole,
 } from "@/server/auth/access";
 import { createPlan } from "@/server/services/plan";
+import { hybridSearch } from "@/server/lib/search";
+import { getEmbedder } from "@/server/embedder";
 import type { DbClient } from "@/server/db/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -129,6 +131,7 @@ export const planRouter = router({
         query: z.string().optional(),
         tag: z.string().optional(),
         mine: z.boolean().default(false),
+        mode: z.enum(["keyword", "hybrid"]).default("hybrid"),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -142,6 +145,32 @@ export const planRouter = router({
       const tagFilter = input.tag
         ? sql`${input.tag} = ANY(${artifacts.tags})`
         : undefined;
+
+      const withTaskProgress = <T extends { tasks?: { status: string }[] }>(r: T) => {
+        const tasks = r.tasks ?? [];
+        const done = tasks.filter((t) => t.status === "done").length;
+        return { ...r, taskProgress: { done, total: tasks.length } };
+      };
+
+      if (input.query && input.mode === "hybrid") {
+        const { ids } = await hybridSearch({
+          query: input.query,
+          accessCondition: condition,
+          tagFilter,
+          embedder: getEmbedder(),
+          db: ctx.db,
+          limit: input.limit,
+          offset: input.offset,
+        });
+        if (!ids.length) return { items: [], total: input.offset };
+        const found = await ctx.db.query.artifacts.findMany({
+          where: inArray(artifacts.id, ids),
+          with: { tasks: { orderBy: artifactTasks.position } },
+        });
+        const byId = new Map(found.map((r) => [r.id, r]));
+        const ordered = ids.map((id) => byId.get(id)).filter(Boolean) as typeof found;
+        return { items: ordered.map(withTaskProgress), total: ordered.length + input.offset };
+      }
 
       const ftsFilter = input.query
         ? sql`to_tsvector('english', ${artifacts.title} || ' ' || coalesce(${artifacts.description}, '')) @@ plainto_tsquery('english', ${input.query})`
@@ -163,11 +192,7 @@ export const planRouter = router({
           .where(where),
       ]);
 
-      const items = rows.map((r) => {
-        const tasks = r.tasks ?? [];
-        const done = tasks.filter((t) => t.status === "done").length;
-        return { ...r, taskProgress: { done, total: tasks.length } };
-      });
+      const items = rows.map(withTaskProgress);
 
       return { items, total: count };
     }),

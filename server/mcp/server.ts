@@ -6,7 +6,7 @@ import { artifacts, artifactVersions, artifactTasks, artifactLinks } from "@/ser
 import { getAccessibleGroups, getSharedArtifactIds, effectiveGroupRole } from "@/server/auth/access";
 import { renderTemplate } from "@/server/lib/template";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
-import { hybridSearch, fetchPromptsByIds } from "@/server/lib/search";
+import { hybridSearch } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import { type TokenScope, applyScopeToOwners, promptPassesScopeTags } from "./scope";
 import { flattenKitMembers } from "@/server/lib/kit";
@@ -73,52 +73,6 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
       }),
     );
   }
-
-  // ── Tool: search_prompts ───────────────────────────────────────────────────
-  // Useful when the agent doesn't know the slug yet and wants to discover prompts.
-
-  // Reuse the already-loaded accessible prompt IDs as the access filter for search.
-  const accessibleIds = rows.map((r) => r.id);
-  const accessCondition = accessibleIds.length ? inArray(artifacts.id, accessibleIds) : sql`false`;
-
-  server.tool(
-    "search_prompts",
-    "Search for prompts by meaning or keywords. Returns matching prompt slugs you can call directly.",
-    {
-      query: z.string().describe("What you're looking for — describe the task or topic"),
-      limit: z.number().int().min(1).max(20).optional().default(5),
-    },
-    async ({ query, limit = 5 }) => {
-      const { ids } = await hybridSearch({
-        query,
-        accessCondition,
-        embedder: getEmbedder(),
-        db,
-        limit,
-        offset: 0,
-      });
-      const results = await fetchPromptsByIds(ids, db);
-
-      if (!results.length) {
-        return { content: [{ type: "text" as const, text: "No prompts found." }] };
-      }
-
-      const lines = results.map((p) => {
-        const spacePath = ownerSlugPaths.get(`${p.ownerType}:${p.ownerId}`) ?? "";
-        const localSlug = p.slug ?? slugify(p.title);
-        const fullSlug = [spacePath, localSlug].filter(Boolean).join(".");
-        const desc = p.description ? `: ${p.description}` : "";
-        return `- ${fullSlug}${desc}`;
-      });
-
-      return {
-        content: [{
-          type: "text" as const,
-          text: lines.join("\n"),
-        }],
-      };
-    },
-  );
 
   // ── Tool: get_skill ───────────────────────────────────────────────────────
   // Fetch a skill's instructions (SKILL.md body) and bundled files by slug.
@@ -380,6 +334,90 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
     planBySlug.set(fullSlug, p);
     if (fullSlug !== localSlug) planBySlug.set(localSlug, p);
   }
+
+  // ── Tool: search_artifacts (semantic + keyword across every kind) ──────────
+  // Unified discovery: one map id → { kind, fullSlug, description } across all
+  // kinds the identity can access (token scope already applied per kind above).
+
+  const searchMeta = new Map<
+    string,
+    { kind: ArtifactKind; fullSlug: string; description: string | null }
+  >();
+  const indexForSearch = (
+    list: { id: string; title: string; slug: string | null; description: string | null; ownerType: string; ownerId: string }[],
+    paths: Map<string, string>,
+    kind: ArtifactKind,
+  ) => {
+    for (const r of list) {
+      const spacePath = paths.get(`${r.ownerType}:${r.ownerId}`) ?? "";
+      const localSlug = r.slug ?? slugify(r.title);
+      const fullSlug = [spacePath, localSlug].filter(Boolean).join(".");
+      searchMeta.set(r.id, { kind, fullSlug, description: r.description });
+    }
+  };
+  indexForSearch(rows, ownerSlugPaths, "prompt");
+  indexForSearch(skillRows, skillOwnerPaths, "skill");
+  indexForSearch(kitRows, kitOwnerPaths, "kit");
+  indexForSearch(docRows, docOwnerPaths, "doc");
+  indexForSearch(planRows, planOwnerPaths, "plan");
+
+  const allAccessibleIds = [...searchMeta.keys()];
+  const searchAccessCondition = allAccessibleIds.length
+    ? inArray(artifacts.id, allAccessibleIds)
+    : sql`false`;
+
+  const usageHint = (kind: ArtifactKind, fullSlug: string): string => {
+    switch (kind) {
+      case "prompt": return `invoke slash command /${fullSlug}`;
+      case "skill": return `get_skill('${fullSlug}')`;
+      case "kit": return `get_kit('${fullSlug}')`;
+      case "plan": return `get_plan('${fullSlug}')`;
+      case "doc": return `get_doc('${fullSlug}')`;
+    }
+  };
+
+  server.tool(
+    "search_artifacts",
+    "Search across everything you can access — prompts, skills, kits, plans, docs — by meaning or keywords. Returns matches with their slug and how to use each one.",
+    {
+      query: z.string().describe("What you're looking for — describe the task or topic"),
+      kinds: z
+        .array(z.enum(["prompt", "skill", "kit", "plan", "doc"]))
+        .optional()
+        .describe("Restrict to these kinds; omit to search all"),
+      limit: z.number().int().min(1).max(20).optional().default(5),
+    },
+    async ({ query, kinds, limit = 5 }) => {
+      const { ids } = await hybridSearch({
+        query,
+        accessCondition: searchAccessCondition,
+        embedder: getEmbedder(),
+        db,
+        limit: 50,
+        offset: 0,
+      });
+
+      const kindSet = kinds?.length ? new Set(kinds) : null;
+      const matches: { kind: ArtifactKind; fullSlug: string; description: string | null }[] = [];
+      for (const id of ids) {
+        const meta = searchMeta.get(id);
+        if (!meta) continue;
+        if (kindSet && !kindSet.has(meta.kind)) continue;
+        matches.push(meta);
+        if (matches.length >= limit) break;
+      }
+
+      if (!matches.length) {
+        return { content: [{ type: "text" as const, text: "No artifacts found." }] };
+      }
+
+      const lines = matches.map((m) => {
+        const desc = m.description ? ` — ${m.description}` : "";
+        return `- [${m.kind}] ${m.fullSlug}${desc} → ${usageHint(m.kind, m.fullSlug)}`;
+      });
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    },
+  );
 
   server.tool(
     "list_plans",

@@ -1,9 +1,11 @@
 import { z } from "zod";
-import { eq, and, or, desc, sql, not } from "drizzle-orm";
+import { eq, and, or, desc, sql, not, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import { artifacts, artifactVersions, artifactFiles } from "@/server/db/schema";
 import { artifactAccessCondition, canAccessArtifact, canMutatePrompt, effectiveGroupRole } from "@/server/auth/access";
+import { hybridSearch } from "@/server/lib/search";
+import { getEmbedder } from "@/server/embedder";
 import type { DbClient } from "@/server/db/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -154,6 +156,7 @@ export const skillRouter = router({
         query: z.string().optional(),
         tag: z.string().optional(),
         mine: z.boolean().default(false),
+        mode: z.enum(["keyword", "hybrid"]).default("hybrid"),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -167,6 +170,26 @@ export const skillRouter = router({
       const tagFilter = input.tag
         ? sql`${input.tag} = ANY(${artifacts.tags})`
         : undefined;
+
+      if (input.query && input.mode === "hybrid") {
+        const { ids } = await hybridSearch({
+          query: input.query,
+          accessCondition: condition,
+          tagFilter,
+          embedder: getEmbedder(),
+          db: ctx.db,
+          limit: input.limit,
+          offset: input.offset,
+        });
+        if (!ids.length) return { items: [], total: input.offset };
+        const found = await ctx.db.query.artifacts.findMany({
+          where: inArray(artifacts.id, ids),
+          with: { versions: { limit: 1, orderBy: desc(artifactVersions.createdAt) } },
+        });
+        const byId = new Map(found.map((r) => [r.id, r]));
+        const items = ids.map((id) => byId.get(id)).filter(Boolean) as typeof found;
+        return { items, total: items.length + input.offset };
+      }
 
       const ftsFilter = input.query
         ? sql`to_tsvector('english', ${artifacts.title} || ' ' || coalesce(${artifacts.description}, '')) @@ plainto_tsquery('english', ${input.query})`

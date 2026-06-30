@@ -34,11 +34,24 @@ export const linkRouter = router({
         },
       });
 
+      // Flatten target to a stable shape (incl. body) so the live query matches
+      // what the server-rendered initialData provides.
       const accessible_links = [];
       for (const link of links) {
         if (!link.target) continue;
         const ok = await canAccessArtifact({ userId, systemRole }, link.target, ctx.db);
-        if (ok) accessible_links.push(link);
+        if (!ok) continue;
+        accessible_links.push({
+          id: link.id,
+          position: link.position,
+          target: {
+            id: link.target.id,
+            title: link.target.title,
+            description: link.target.description,
+            slug: link.target.slug,
+            body: link.target.versions[0]?.body ?? null,
+          },
+        });
       }
 
       return accessible_links;

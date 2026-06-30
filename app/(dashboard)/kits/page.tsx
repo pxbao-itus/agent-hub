@@ -3,8 +3,10 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { artifacts, artifactVersions } from "@/server/db/schema";
-import { desc, eq, sql, and } from "drizzle-orm";
+import { desc, eq, sql, and, inArray } from "drizzle-orm";
 import { artifactAccessCondition } from "@/server/auth/access";
+import { hybridSearch } from "@/server/lib/search";
+import { getEmbedder } from "@/server/embedder";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,29 +32,39 @@ export default async function KitsPage({ searchParams }: Props) {
   const accessWhere = await artifactAccessCondition(userId, isSuperAdmin ? "superadmin" : "user", db);
   const kitWhere = and(eq(artifacts.kind, "kit"), accessWhere);
   const tagFilter = tag ? sql`${tag} = ANY(${artifacts.tags})` : undefined;
-  const ftsFilter = q
-    ? sql`to_tsvector('english', ${artifacts.title} || ' ' || coalesce(${artifacts.description}, '')) @@ plainto_tsquery('english', ${q})`
-    : undefined;
 
-  const where = and(kitWhere, ftsFilter, tagFilter);
+  const kitWith = {
+    versions: { limit: 1, orderBy: desc(artifactVersions.versionNo) },
+    members: true,
+  } as const;
 
-  const [rows, allKits] = await Promise.all([
-    db.query.artifacts.findMany({
-      where,
+  let rows;
+  if (q) {
+    const { ids } = await hybridSearch({
+      query: q,
+      accessCondition: kitWhere,
+      tagFilter,
+      embedder: getEmbedder(),
+      db,
+      limit,
+      offset,
+    });
+    const found = ids.length
+      ? await db.query.artifacts.findMany({ where: inArray(artifacts.id, ids), with: kitWith })
+      : [];
+    const byId = new Map(found.map((r) => [r.id, r]));
+    rows = ids.map((id) => byId.get(id)).filter(Boolean) as typeof found;
+  } else {
+    rows = await db.query.artifacts.findMany({
+      where: and(kitWhere, tagFilter),
       orderBy: desc(artifacts.updatedAt),
       limit,
       offset,
-      with: {
-        versions: { limit: 1, orderBy: desc(artifactVersions.versionNo) },
-        members: true,
-      },
-    }),
-    db.query.artifacts.findMany({
-      where: kitWhere,
-      columns: { tags: true },
-    }),
-  ]);
+      with: kitWith,
+    });
+  }
 
+  const allKits = await db.query.artifacts.findMany({ where: kitWhere, columns: { tags: true } });
   const allTags = [...new Set(allKits.flatMap((k) => k.tags))].sort();
 
   return (

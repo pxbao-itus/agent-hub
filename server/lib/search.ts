@@ -118,8 +118,8 @@ export async function hybridSearch(opts: {
   return { ids: merged.slice(offset, offset + limit), mode: "hybrid" };
 }
 
-/** Fetch full prompt rows for the given IDs, preserving the provided order. */
-export async function fetchPromptsByIds(ids: string[], dbClient: DbClient) {
+/** Fetch full artifact rows for the given IDs, preserving the provided order. */
+export async function fetchArtifactsByIds(ids: string[], dbClient: DbClient) {
   if (!ids.length) return [];
   const rows = await dbClient.query.artifacts.findMany({
     where: inArray(artifacts.id, ids),

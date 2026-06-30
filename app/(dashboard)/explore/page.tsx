@@ -3,6 +3,8 @@ import Link from "next/link";
 import { db } from "@/server/db";
 import { artifacts, artifactVersions } from "@/server/db/schema";
 import { desc, eq, sql, and } from "drizzle-orm";
+import { hybridSearch, fetchArtifactsByIds } from "@/server/lib/search";
+import { getEmbedder } from "@/server/embedder";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,26 +45,33 @@ export default async function ExplorePage({ searchParams }: Props) {
   const publicWhere = eq(artifacts.visibility, "public");
   const kindFilter = validKind ? eq(artifacts.kind, validKind) : undefined;
   const tagFilter = tag ? sql`${tag} = ANY(${artifacts.tags})` : undefined;
-  const ftsFilter = q
-    ? sql`to_tsvector('english', ${artifacts.title} || ' ' || coalesce(${artifacts.description}, '')) @@ plainto_tsquery('english', ${q})`
-    : undefined;
 
-  const where = and(publicWhere, kindFilter, tagFilter, ftsFilter);
-
-  const [rows, allPublic] = await Promise.all([
-    db.query.artifacts.findMany({
-      where,
+  let rows: Awaited<ReturnType<typeof fetchArtifactsByIds>>;
+  if (q) {
+    const { ids } = await hybridSearch({
+      query: q,
+      accessCondition: and(publicWhere, kindFilter),
+      tagFilter,
+      embedder: getEmbedder(),
+      db,
+      limit,
+      offset,
+    });
+    rows = await fetchArtifactsByIds(ids, db);
+  } else {
+    rows = await db.query.artifacts.findMany({
+      where: and(publicWhere, kindFilter, tagFilter),
       orderBy: desc(artifacts.updatedAt),
       limit,
       offset,
       with: { versions: { limit: 1, orderBy: desc(artifactVersions.versionNo) } },
-    }),
-    db.query.artifacts.findMany({
-      where: and(publicWhere, kindFilter),
-      columns: { tags: true },
-    }),
-  ]);
+    });
+  }
 
+  const allPublic = await db.query.artifacts.findMany({
+    where: and(publicWhere, kindFilter),
+    columns: { tags: true },
+  });
   const allTags = [...new Set(allPublic.flatMap((a) => a.tags))].sort();
 
   return (

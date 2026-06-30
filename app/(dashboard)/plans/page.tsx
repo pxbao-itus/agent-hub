@@ -3,8 +3,10 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { artifacts, artifactTasks } from "@/server/db/schema";
-import { desc, eq, sql, and } from "drizzle-orm";
+import { desc, eq, sql, and, inArray } from "drizzle-orm";
 import { artifactAccessCondition } from "@/server/auth/access";
+import { hybridSearch } from "@/server/lib/search";
+import { getEmbedder } from "@/server/embedder";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,23 +32,36 @@ export default async function PlansPage({ searchParams }: Props) {
   const accessWhere = await artifactAccessCondition(userId, isSuperAdmin ? "superadmin" : "user", db);
   const planWhere = and(eq(artifacts.kind, "plan"), accessWhere);
   const tagFilter = tag ? sql`${tag} = ANY(${artifacts.tags})` : undefined;
-  const ftsFilter = q
-    ? sql`to_tsvector('english', ${artifacts.title} || ' ' || coalesce(${artifacts.description}, '')) @@ plainto_tsquery('english', ${q})`
-    : undefined;
 
-  const where = and(planWhere, ftsFilter, tagFilter);
+  const planWith = { tasks: { columns: { status: true } } } as const;
 
-  const [rows, allPlans] = await Promise.all([
-    db.query.artifacts.findMany({
-      where,
+  let rows;
+  if (q) {
+    const { ids } = await hybridSearch({
+      query: q,
+      accessCondition: planWhere,
+      tagFilter,
+      embedder: getEmbedder(),
+      db,
+      limit,
+      offset,
+    });
+    const found = ids.length
+      ? await db.query.artifacts.findMany({ where: inArray(artifacts.id, ids), with: planWith })
+      : [];
+    const byId = new Map(found.map((r) => [r.id, r]));
+    rows = ids.map((id) => byId.get(id)).filter(Boolean) as typeof found;
+  } else {
+    rows = await db.query.artifacts.findMany({
+      where: and(planWhere, tagFilter),
       orderBy: desc(artifacts.updatedAt),
       limit,
       offset,
-      with: { tasks: { columns: { status: true } } },
-    }),
-    db.query.artifacts.findMany({ where: planWhere, columns: { tags: true } }),
-  ]);
+      with: planWith,
+    });
+  }
 
+  const allPlans = await db.query.artifacts.findMany({ where: planWhere, columns: { tags: true } });
   const allTags = [...new Set(allPlans.flatMap((p) => p.tags))].sort();
 
   return (

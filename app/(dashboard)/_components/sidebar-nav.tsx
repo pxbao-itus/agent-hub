@@ -1,9 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { LayoutDashboard, BookText, Wrench, Package, ClipboardList, FileText, Compass, Building2, Key, Sun, Moon, Users } from "lucide-react";
+import { LayoutDashboard, BookText, Wrench, Package, ClipboardList, FileText, Compass, Building2, Key, Sun, Moon, Users, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -30,7 +31,17 @@ export function SidebarNav({
   isSuperAdmin?: boolean;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { theme, setTheme } = useTheme();
+  const [searchQuery, setSearchQuery] = useState("");
+
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    const query = searchQuery.trim();
+    if (!query) return;
+    onNavigate?.();
+    router.push(`/search?q=${encodeURIComponent(query)}`);
+  }
 
   function NavItem({ label, href, icon: Icon, exact }: { label: string; href: string; icon: React.ElementType; exact?: boolean }) {
     const active = exact ? pathname === href : pathname === href || pathname.startsWith(href + "/");
@@ -55,6 +66,18 @@ export function SidebarNav({
 
   return (
     <nav className="flex flex-col gap-6 px-3 py-4">
+      <form onSubmit={handleSearch} className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="search"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search everything…"
+          aria-label="Search artifacts"
+          className="w-full rounded-md border border-input bg-background py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:ring-1 focus:ring-ring"
+        />
+      </form>
+
       <div>
         <p className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           Main

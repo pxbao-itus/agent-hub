@@ -8,7 +8,7 @@ import { db } from "@/server/db";
 import { artifacts, artifactVersions } from "@/server/db/schema";
 import { desc, eq, or, sql, and } from "drizzle-orm";
 import { getAccessibleGroups } from "@/server/auth/access";
-import { hybridSearch, fetchPromptsByIds } from "@/server/lib/search";
+import { hybridSearch, fetchArtifactsByIds } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -53,7 +53,7 @@ export default async function PromptsPage({ searchParams }: Props) {
   const tagFilter = tag ? sql`${tag} = ANY(${artifacts.tags})` : undefined;
 
   // ── Queries ────────────────────────────────────────────────────────────────
-  let rows: Awaited<ReturnType<typeof fetchPromptsByIds>>;
+  let rows: Awaited<ReturnType<typeof fetchArtifactsByIds>>;
 
   if (q) {
     const { ids } = await hybridSearch({
@@ -65,7 +65,7 @@ export default async function PromptsPage({ searchParams }: Props) {
       limit,
       offset,
     });
-    rows = await fetchPromptsByIds(ids, db);
+    rows = await fetchArtifactsByIds(ids, db);
   } else {
     const tagWhere = and(promptWhere, tagFilter);
     rows = await db.query.artifacts.findMany({
