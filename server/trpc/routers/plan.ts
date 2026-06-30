@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, and, or, desc, sql, not, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, not, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import {
@@ -8,7 +8,8 @@ import {
   artifactTasks,
 } from "@/server/db/schema";
 import {
-  getAccessibleGroups,
+  artifactAccessCondition,
+  canAccessArtifact,
   canMutatePrompt,
   effectiveGroupRole,
 } from "@/server/auth/access";
@@ -23,29 +24,6 @@ function assertGroupVisibility(ownerType: string, visibility: string | undefined
       message: "Group plans cannot be private",
     });
   }
-}
-
-async function accessCondition(
-  userId: string,
-  db: DbClient,
-  systemRole: "user" | "superadmin",
-) {
-  if (systemRole === "superadmin") return undefined;
-
-  const groups = await getAccessibleGroups(userId, db);
-  const groupConditions = groups.map((g) =>
-    and(
-      eq(artifacts.visibility, "group"),
-      eq(artifacts.ownerType, g.groupType as "org" | "department" | "team"),
-      eq(artifacts.ownerId, g.groupId),
-    ),
-  );
-
-  return or(
-    eq(artifacts.visibility, "public"),
-    and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, userId)),
-    ...(groupConditions.length > 0 ? groupConditions : [sql`false`]),
-  );
 }
 
 const taskInputSchema = z.object({
@@ -185,7 +163,7 @@ export const planRouter = router({
 
       const baseCondition = input.mine
         ? and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, userId))
-        : await accessCondition(userId, ctx.db, systemRole);
+        : await artifactAccessCondition(userId, systemRole, ctx.db);
       const condition = and(eq(artifacts.kind, "plan"), baseCondition);
 
       const tagFilter = input.tag
@@ -235,19 +213,8 @@ export const planRouter = router({
       });
       if (!plan) throw new TRPCError({ code: "NOT_FOUND" });
 
-      if (systemRole !== "superadmin" && plan.visibility !== "public") {
-        if (plan.ownerType === "user" && plan.ownerId === userId) {
-          // owner
-        } else if (plan.visibility === "group") {
-          const groups = await getAccessibleGroups(userId, ctx.db);
-          const allowed = groups.some(
-            (g) => g.groupType === plan.ownerType && g.groupId === plan.ownerId,
-          );
-          if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
-        } else {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
-      }
+      const accessible = await canAccessArtifact({ userId, systemRole }, plan, ctx.db);
+      if (!accessible) throw new TRPCError({ code: "FORBIDDEN" });
 
       const tasks = plan.tasks ?? [];
       const done = tasks.filter((t) => t.status === "done").length;

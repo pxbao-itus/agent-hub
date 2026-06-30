@@ -3,7 +3,7 @@ import { eq, and, or, desc, sql, not, asc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import { artifacts, artifactVersions, artifactMembers } from "@/server/db/schema";
-import { getAccessibleGroups, canMutatePrompt, effectiveGroupRole } from "@/server/auth/access";
+import { artifactAccessCondition, canAccessArtifact, canMutatePrompt, effectiveGroupRole, getAccessibleGroups } from "@/server/auth/access";
 import { wouldCreateCycle } from "@/server/lib/kit";
 import type { DbClient } from "@/server/db/types";
 
@@ -16,29 +16,6 @@ function assertGroupVisibility(ownerType: string, visibility: string | undefined
       message: "Group kits cannot be private",
     });
   }
-}
-
-async function accessCondition(
-  userId: string,
-  db: DbClient,
-  systemRole: "user" | "superadmin",
-) {
-  if (systemRole === "superadmin") return undefined;
-
-  const groups = await getAccessibleGroups(userId, db);
-  const groupConditions = groups.map((g) =>
-    and(
-      eq(artifacts.visibility, "group"),
-      eq(artifacts.ownerType, g.groupType as "org" | "department" | "team"),
-      eq(artifacts.ownerId, g.groupId),
-    ),
-  );
-
-  return or(
-    eq(artifacts.visibility, "public"),
-    and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, userId)),
-    ...(groupConditions.length > 0 ? groupConditions : [sql`false`]),
-  );
 }
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
@@ -181,7 +158,7 @@ export const kitRouter = router({
 
       const baseCondition = input.mine
         ? and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, userId))
-        : await accessCondition(userId, ctx.db, systemRole);
+        : await artifactAccessCondition(userId, systemRole, ctx.db);
       const condition = and(eq(artifacts.kind, "kit"), baseCondition);
 
       const tagFilter = input.tag ? sql`${input.tag} = ANY(${artifacts.tags})` : undefined;
@@ -221,19 +198,8 @@ export const kitRouter = router({
       });
       if (!kit) throw new TRPCError({ code: "NOT_FOUND" });
 
-      if (systemRole !== "superadmin" && kit.visibility !== "public") {
-        if (kit.ownerType === "user" && kit.ownerId === userId) {
-          // owner — allowed
-        } else if (kit.visibility === "group") {
-          const groups = await getAccessibleGroups(userId, ctx.db);
-          const allowed = groups.some(
-            (g) => g.groupType === kit.ownerType && g.groupId === kit.ownerId,
-          );
-          if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
-        } else {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
-      }
+      const accessible = await canAccessArtifact({ userId, systemRole }, kit, ctx.db);
+      if (!accessible) throw new TRPCError({ code: "FORBIDDEN" });
 
       // Resolve member artifact details
       const memberIds = kit.members.map((m) => m.memberArtifactId);
@@ -363,7 +329,7 @@ export const kitRouter = router({
     .query(async ({ ctx, input }) => {
       const { userId, systemRole } = ctx.session;
 
-      const accessClause = await accessCondition(userId, ctx.db, systemRole);
+      const accessClause = await artifactAccessCondition(userId, systemRole, ctx.db);
       const kindFilter = or(
         eq(artifacts.kind, "prompt"),
         eq(artifacts.kind, "skill"),

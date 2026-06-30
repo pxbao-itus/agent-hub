@@ -5,8 +5,8 @@ export const metadata: Metadata = { title: "Skills" };
 import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { artifacts, artifactVersions } from "@/server/db/schema";
-import { desc, eq, or, sql, and } from "drizzle-orm";
-import { getAccessibleGroups } from "@/server/auth/access";
+import { desc, eq, sql, and } from "drizzle-orm";
+import { artifactAccessCondition } from "@/server/auth/access";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,23 +27,7 @@ export default async function SkillsPage({ searchParams }: Props) {
   const userId = session!.user!.id!;
   const isSuperAdmin = session!.user!.systemRole === "superadmin";
 
-  let accessWhere;
-  if (!isSuperAdmin) {
-    const groups = await getAccessibleGroups(userId, db);
-    const groupConditions = groups.map((g) =>
-      and(
-        eq(artifacts.visibility, "group"),
-        eq(artifacts.ownerType, g.groupType as "org" | "department" | "team"),
-        eq(artifacts.ownerId, g.groupId),
-      ),
-    );
-    accessWhere = or(
-      eq(artifacts.visibility, "public"),
-      and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, userId)),
-      ...(groupConditions.length > 0 ? groupConditions : [sql`false`]),
-    );
-  }
-
+  const accessWhere = await artifactAccessCondition(userId, isSuperAdmin ? "superadmin" : "user", db);
   const skillWhere = and(eq(artifacts.kind, "skill"), accessWhere);
   const tagFilter = tag ? sql`${tag} = ANY(${artifacts.tags})` : undefined;
 

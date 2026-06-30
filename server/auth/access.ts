@@ -1,6 +1,7 @@
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, or, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "@/server/db/types";
-import { memberships, teams, departments } from "@/server/db/schema";
+import { memberships, teams, departments, artifactShares, artifacts } from "@/server/db/schema";
+import type { ShareRole } from "@/server/db/schema";
 
 export type GroupRef = { groupType: "org" | "department" | "team"; groupId: string };
 export type Role = "viewer" | "editor" | "admin";
@@ -157,18 +158,122 @@ export async function effectiveGroupRole(
 }
 
 /**
- * Whether a user may edit/delete a prompt:
+ * Whether a user may edit/delete an artifact:
  *  - superadmin: always
  *  - user-owned: only the owner
  *  - group-owned: effective role of editor or admin on the owning group
+ *  - editor-share: user has editor share on the specific artifact
  */
 export async function canMutatePrompt(
   user: { userId: string; systemRole: "user" | "superadmin" },
-  prompt: { ownerType: "user" | "org" | "department" | "team"; ownerId: string },
+  prompt: { id?: string; ownerType: "user" | "org" | "department" | "team"; ownerId: string },
   db: DbClient,
 ): Promise<boolean> {
   if (user.systemRole === "superadmin") return true;
-  if (prompt.ownerType === "user") return prompt.ownerId === user.userId;
-  const role = await effectiveGroupRole(user.userId, prompt.ownerType, prompt.ownerId, db);
-  return role === "editor" || role === "admin";
+  if (prompt.ownerType === "user" && prompt.ownerId === user.userId) return true;
+  if (prompt.ownerType !== "user") {
+    const role = await effectiveGroupRole(user.userId, prompt.ownerType, prompt.ownerId, db);
+    if (role === "editor" || role === "admin") return true;
+  }
+  // Check editor-share
+  if (prompt.id) {
+    const shared = await getSharedArtifactIds(user.userId, db);
+    if (shared.get(prompt.id) === "editor") return true;
+  }
+  return false;
+}
+
+/**
+ * Fetch the set of artifacts shared with a user, keyed by artifactId.
+ * Returns a Map<artifactId, role>.
+ */
+export async function getSharedArtifactIds(
+  userId: string,
+  db: DbClient,
+): Promise<Map<string, ShareRole>> {
+  const rows = await db
+    .select({ artifactId: artifactShares.artifactId, role: artifactShares.role })
+    .from(artifactShares)
+    .where(eq(artifactShares.userId, userId));
+  return new Map(rows.map((r) => [r.artifactId, r.role]));
+}
+
+/**
+ * Build a Drizzle WHERE clause for listing artifacts accessible to a user.
+ * Includes: public | user-owned | group-member | shared (any role).
+ * Returns undefined for superadmin (no filter).
+ */
+export async function artifactAccessCondition(
+  userId: string,
+  systemRole: "user" | "superadmin",
+  db: DbClient,
+) {
+  if (systemRole === "superadmin") return undefined;
+
+  const [groups, sharedMap] = await Promise.all([
+    getAccessibleGroups(userId, db),
+    getSharedArtifactIds(userId, db),
+  ]);
+
+  const groupConditions = groups.map((g) =>
+    and(
+      eq(artifacts.visibility, "group"),
+      eq(artifacts.ownerType, g.groupType as "org" | "department" | "team"),
+      eq(artifacts.ownerId, g.groupId),
+    ),
+  );
+
+  const sharedIds = [...sharedMap.keys()];
+
+  return or(
+    eq(artifacts.visibility, "public"),
+    and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, userId)),
+    ...(groupConditions.length > 0 ? groupConditions : [sql`false`]),
+    ...(sharedIds.length > 0 ? [inArray(artifacts.id, sharedIds)] : []),
+  );
+}
+
+/**
+ * Whether a user can read a specific artifact:
+ *  - superadmin: always
+ *  - public artifact: always
+ *  - user-owned: only the owner
+ *  - group artifact: member of the owning group
+ *  - shared: any share role (viewer or editor)
+ */
+export async function canAccessArtifact(
+  user: { userId: string; systemRole: "user" | "superadmin" },
+  artifact: { id: string; ownerType: "user" | "org" | "department" | "team"; ownerId: string; visibility: "private" | "group" | "public" },
+  db: DbClient,
+): Promise<boolean> {
+  if (user.systemRole === "superadmin") return true;
+  if (artifact.visibility === "public") return true;
+  if (artifact.ownerType === "user" && artifact.ownerId === user.userId) return true;
+  if (artifact.visibility === "group") {
+    const groups = await getAccessibleGroups(user.userId, db);
+    const inGroup = groups.some(
+      (g) => g.groupType === artifact.ownerType && g.groupId === artifact.ownerId,
+    );
+    if (inGroup) return true;
+  }
+  // Check share
+  const shared = await getSharedArtifactIds(user.userId, db);
+  return shared.has(artifact.id);
+}
+
+/**
+ * Whether a user can share an artifact with others:
+ *  - superadmin: always
+ *  - user-owned: only the owner
+ *  - group-owned: effective role of admin on the owning group
+ */
+export async function canShareArtifact(
+  user: { userId: string; systemRole: "user" | "superadmin" },
+  artifact: { ownerType: "user" | "org" | "department" | "team"; ownerId: string },
+  db: DbClient,
+): Promise<boolean> {
+  if (user.systemRole === "superadmin") return true;
+  if (artifact.ownerType === "user") return artifact.ownerId === user.userId;
+  const role = await effectiveGroupRole(user.userId, artifact.ownerType, artifact.ownerId, db);
+  return role === "admin";
 }

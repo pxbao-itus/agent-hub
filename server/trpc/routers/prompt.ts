@@ -3,7 +3,7 @@ import { eq, and, or, desc, sql, inArray, not } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../trpc";
 import { artifacts, artifactVersions, artifactVariables } from "@/server/db/schema";
-import { getAccessibleGroups, canMutatePrompt, effectiveGroupRole } from "@/server/auth/access";
+import { artifactAccessCondition, canAccessArtifact, canMutatePrompt, effectiveGroupRole } from "@/server/auth/access";
 import { hybridSearch, fetchPromptsByIds } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import { parseVariables } from "@/server/lib/template";
@@ -43,30 +43,6 @@ async function syncVariables(db: DbClient, promptId: string, body: string) {
   }
 }
 
-/** Build access WHERE for a given userId (personal-first: user owns OR public). */
-async function accessCondition(
-  userId: string,
-  db: DbClient,
-  systemRole: "user" | "superadmin",
-) {
-  if (systemRole === "superadmin") return undefined; // no filter — sees all
-
-  const groups = await getAccessibleGroups(userId, db);
-
-  const groupConditions = groups.map((g) =>
-    and(
-      eq(artifacts.visibility, "group"),
-      eq(artifacts.ownerType, g.groupType as "org" | "department" | "team"),
-      eq(artifacts.ownerId, g.groupId),
-    ),
-  );
-
-  return or(
-    eq(artifacts.visibility, "public"),
-    and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, userId)),
-    ...(groupConditions.length > 0 ? groupConditions : [sql`false`]),
-  );
-}
 
 // ── Router ───────────────────────────────────────────────────────────────────
 
@@ -188,7 +164,7 @@ export const promptRouter = router({
       // Forward-compat: the prompt router only lists prompt-kind artifacts.
       const baseCondition = input.mine
         ? and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, userId))
-        : await accessCondition(userId, ctx.db, systemRole);
+        : await artifactAccessCondition(userId, systemRole, ctx.db);
       const condition = and(eq(artifacts.kind, "prompt"), baseCondition);
 
       const tagFilter = input.tag
@@ -247,20 +223,8 @@ export const promptRouter = router({
       });
       if (!prompt) throw new TRPCError({ code: "NOT_FOUND" });
 
-      // Access check
-      if (systemRole !== "superadmin" && prompt.visibility !== "public") {
-        if (prompt.ownerType === "user" && prompt.ownerId === userId) {
-          // owner — allowed
-        } else if (prompt.visibility === "group") {
-          const groups = await getAccessibleGroups(userId, ctx.db);
-          const allowed = groups.some(
-            (g) => g.groupType === prompt.ownerType && g.groupId === prompt.ownerId,
-          );
-          if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
-        } else {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
-      }
+      const accessible = await canAccessArtifact({ userId, systemRole }, prompt, ctx.db);
+      if (!accessible) throw new TRPCError({ code: "FORBIDDEN" });
 
       return prompt;
     }),
@@ -366,20 +330,8 @@ export const promptRouter = router({
         });
         if (!prompt) throw new TRPCError({ code: "NOT_FOUND" });
 
-        if (systemRole !== "superadmin" && prompt.visibility !== "public") {
-          const isOwner = prompt.ownerType === "user" && prompt.ownerId === userId;
-          if (!isOwner) {
-            if (prompt.visibility === "group") {
-              const groups = await getAccessibleGroups(userId, ctx.db);
-              const allowed = groups.some(
-                (g) => g.groupType === prompt.ownerType && g.groupId === prompt.ownerId,
-              );
-              if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
-            } else {
-              throw new TRPCError({ code: "FORBIDDEN" });
-            }
-          }
-        }
+        const accessible = await canAccessArtifact({ userId, systemRole }, prompt, ctx.db);
+        if (!accessible) throw new TRPCError({ code: "FORBIDDEN" });
 
         const version = await ctx.db.query.artifactVersions.findFirst({
           where: and(

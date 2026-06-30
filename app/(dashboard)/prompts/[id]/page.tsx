@@ -6,13 +6,14 @@ import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { artifacts, artifactVersions } from "@/server/db/schema";
 import { eq, and, desc } from "drizzle-orm";
-import { getAccessibleGroups, canMutatePrompt } from "@/server/auth/access";
+import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/auth/access";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DeletePromptButton } from "./_components/delete-prompt-button";
 import { VersionHistory } from "./_components/version-history";
 import { CodeBlock } from "@/components/ui/code-block";
+import { ShareDialog } from "../../_components/share-dialog";
 
 const getPrompt = cache(async (id: string) =>
   db.query.artifacts.findFirst({
@@ -39,27 +40,12 @@ export default async function PromptDetailPage({ params }: { params: Promise<{ i
   const prompt = await getPrompt(id);
   if (!prompt) notFound();
 
-  // Access check
-  if (!isSuperAdmin && prompt.visibility !== "public") {
-    const isOwner = prompt.ownerType === "user" && prompt.ownerId === userId;
-    if (!isOwner) {
-      if (prompt.visibility === "group") {
-        const groups = await getAccessibleGroups(userId, db);
-        const allowed = groups.some(
-          (g) => g.groupType === prompt.ownerType && g.groupId === prompt.ownerId,
-        );
-        if (!allowed) notFound();
-      } else {
-        notFound();
-      }
-    }
-  }
+  const accessible = await canAccessArtifact({ userId, systemRole: isSuperAdmin ? "superadmin" : "user" }, prompt, db);
+  if (!accessible) notFound();
 
-  const canEdit = await canMutatePrompt(
-    { userId, systemRole: isSuperAdmin ? "superadmin" : "user" },
-    prompt,
-    db,
-  );
+  const identity = { userId, systemRole: isSuperAdmin ? "superadmin" : "user" } as const;
+  const canEdit = await canMutatePrompt(identity, prompt, db);
+  const canShare = await canShareArtifact(identity, prompt, db);
   const currentVersion = prompt.versions[0];
 
   return (
@@ -82,14 +68,17 @@ export default async function PromptDetailPage({ params }: { params: Promise<{ i
             </div>
           )}
         </div>
-        {canEdit && (
-          <div className="flex shrink-0 gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/prompts/${id}/edit`}>Edit</Link>
-            </Button>
-            <DeletePromptButton promptId={id} />
-          </div>
-        )}
+        <div className="flex shrink-0 gap-2">
+          {canShare && <ShareDialog artifactId={id} artifactTitle={prompt.title} />}
+          {canEdit && (
+            <>
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/prompts/${id}/edit`}>Edit</Link>
+              </Button>
+              <DeletePromptButton promptId={id} />
+            </>
+          )}
+        </div>
       </div>
 
       {/* Current body */}

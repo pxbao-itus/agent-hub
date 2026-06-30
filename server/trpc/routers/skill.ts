@@ -3,7 +3,7 @@ import { eq, and, or, desc, sql, not } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import { artifacts, artifactVersions, artifactFiles } from "@/server/db/schema";
-import { getAccessibleGroups, canMutatePrompt, effectiveGroupRole } from "@/server/auth/access";
+import { artifactAccessCondition, canAccessArtifact, canMutatePrompt, effectiveGroupRole } from "@/server/auth/access";
 import type { DbClient } from "@/server/db/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -15,30 +15,6 @@ function assertGroupVisibility(ownerType: string, visibility: string | undefined
       message: "Group skills cannot be private",
     });
   }
-}
-
-/** Build access WHERE clause for a userId. */
-async function accessCondition(
-  userId: string,
-  db: DbClient,
-  systemRole: "user" | "superadmin",
-) {
-  if (systemRole === "superadmin") return undefined;
-
-  const groups = await getAccessibleGroups(userId, db);
-  const groupConditions = groups.map((g) =>
-    and(
-      eq(artifacts.visibility, "group"),
-      eq(artifacts.ownerType, g.groupType as "org" | "department" | "team"),
-      eq(artifacts.ownerId, g.groupId),
-    ),
-  );
-
-  return or(
-    eq(artifacts.visibility, "public"),
-    and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, userId)),
-    ...(groupConditions.length > 0 ? groupConditions : [sql`false`]),
-  );
 }
 
 /** Insert files for a given version. */
@@ -185,7 +161,7 @@ export const skillRouter = router({
 
       const baseCondition = input.mine
         ? and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, userId))
-        : await accessCondition(userId, ctx.db, systemRole);
+        : await artifactAccessCondition(userId, systemRole, ctx.db);
       const condition = and(eq(artifacts.kind, "skill"), baseCondition);
 
       const tagFilter = input.tag
@@ -231,19 +207,8 @@ export const skillRouter = router({
       });
       if (!skill) throw new TRPCError({ code: "NOT_FOUND" });
 
-      if (systemRole !== "superadmin" && skill.visibility !== "public") {
-        if (skill.ownerType === "user" && skill.ownerId === userId) {
-          // owner — allowed
-        } else if (skill.visibility === "group") {
-          const groups = await getAccessibleGroups(userId, ctx.db);
-          const allowed = groups.some(
-            (g) => g.groupType === skill.ownerType && g.groupId === skill.ownerId,
-          );
-          if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
-        } else {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
-      }
+      const accessible = await canAccessArtifact({ userId, systemRole }, skill, ctx.db);
+      if (!accessible) throw new TRPCError({ code: "FORBIDDEN" });
 
       return skill;
     }),

@@ -6,12 +6,13 @@ import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { artifacts, artifactVersions, artifactTasks } from "@/server/db/schema";
 import { eq, and, desc } from "drizzle-orm";
-import { getAccessibleGroups, canMutatePrompt } from "@/server/auth/access";
+import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/auth/access";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CodeBlock } from "@/components/ui/code-block";
 import { DeletePlanButton } from "../_components/delete-plan-button";
 import { PlanTaskList } from "./_components/plan-task-list";
+import { ShareDialog } from "../../_components/share-dialog";
 
 const getPlan = cache(async (id: string) =>
   db.query.artifacts.findFirst({
@@ -38,26 +39,12 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
   const plan = await getPlan(id);
   if (!plan) notFound();
 
-  if (!isSuperAdmin && plan.visibility !== "public") {
-    const isOwner = plan.ownerType === "user" && plan.ownerId === userId;
-    if (!isOwner) {
-      if (plan.visibility === "group") {
-        const groups = await getAccessibleGroups(userId, db);
-        const allowed = groups.some(
-          (g) => g.groupType === plan.ownerType && g.groupId === plan.ownerId,
-        );
-        if (!allowed) notFound();
-      } else {
-        notFound();
-      }
-    }
-  }
+  const accessible = await canAccessArtifact({ userId, systemRole: isSuperAdmin ? "superadmin" : "user" }, plan, db);
+  if (!accessible) notFound();
 
-  const canEdit = await canMutatePrompt(
-    { userId, systemRole: isSuperAdmin ? "superadmin" : "user" },
-    plan,
-    db,
-  );
+  const identity = { userId, systemRole: isSuperAdmin ? "superadmin" : "user" } as const;
+  const canEdit = await canMutatePrompt(identity, plan, db);
+  const canShare = await canShareArtifact(identity, plan, db);
 
   const currentVersion = plan.versions[0];
   const tasks = plan.tasks ?? [];
@@ -86,14 +73,17 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
             </div>
           )}
         </div>
-        {canEdit && (
-          <div className="flex shrink-0 gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/plans/${id}/edit`}>Edit</Link>
-            </Button>
-            <DeletePlanButton planId={id} />
-          </div>
-        )}
+        <div className="flex shrink-0 gap-2">
+          {canShare && <ShareDialog artifactId={id} artifactTitle={plan.title} />}
+          {canEdit && (
+            <>
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/plans/${id}/edit`}>Edit</Link>
+              </Button>
+              <DeletePlanButton planId={id} />
+            </>
+          )}
+        </div>
       </div>
 
       {/* Progress */}

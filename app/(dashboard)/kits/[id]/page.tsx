@@ -6,12 +6,13 @@ import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { artifacts, artifactVersions, artifactMembers } from "@/server/db/schema";
 import { eq, and, desc, asc, sql } from "drizzle-orm";
-import { getAccessibleGroups, canMutatePrompt } from "@/server/auth/access";
+import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/auth/access";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CodeBlock } from "@/components/ui/code-block";
 import { DeleteKitButton } from "../_components/delete-kit-button";
 import { KitVersionHistory } from "./_components/kit-version-history";
+import { ShareDialog } from "../../_components/share-dialog";
 import { Package, BookText, Wrench } from "lucide-react";
 
 const getKit = cache(async (id: string) =>
@@ -51,27 +52,12 @@ export default async function KitDetailPage({ params }: { params: Promise<{ id: 
   const kit = await getKit(id);
   if (!kit) notFound();
 
-  // Access check
-  if (!isSuperAdmin && kit.visibility !== "public") {
-    const isOwner = kit.ownerType === "user" && kit.ownerId === userId;
-    if (!isOwner) {
-      if (kit.visibility === "group") {
-        const groups = await getAccessibleGroups(userId, db);
-        const allowed = groups.some(
-          (g) => g.groupType === kit.ownerType && g.groupId === kit.ownerId,
-        );
-        if (!allowed) notFound();
-      } else {
-        notFound();
-      }
-    }
-  }
+  const accessible = await canAccessArtifact({ userId, systemRole: isSuperAdmin ? "superadmin" : "user" }, kit, db);
+  if (!accessible) notFound();
 
-  const canEdit = await canMutatePrompt(
-    { userId, systemRole: isSuperAdmin ? "superadmin" : "user" },
-    kit,
-    db,
-  );
+  const identity = { userId, systemRole: isSuperAdmin ? "superadmin" : "user" } as const;
+  const canEdit = await canMutatePrompt(identity, kit, db);
+  const canShare = await canShareArtifact(identity, kit, db);
   const currentVersion = kit.versions[0];
 
   // Resolve member artifact details
@@ -106,14 +92,17 @@ export default async function KitDetailPage({ params }: { params: Promise<{ id: 
             </div>
           )}
         </div>
-        {canEdit && (
-          <div className="flex shrink-0 gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/kits/${id}/edit`}>Edit</Link>
-            </Button>
-            <DeleteKitButton kitId={id} />
-          </div>
-        )}
+        <div className="flex shrink-0 gap-2">
+          {canShare && <ShareDialog artifactId={id} artifactTitle={kit.title} />}
+          {canEdit && (
+            <>
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/kits/${id}/edit`}>Edit</Link>
+              </Button>
+              <DeleteKitButton kitId={id} />
+            </>
+          )}
+        </div>
       </div>
 
       {/* Overview */}

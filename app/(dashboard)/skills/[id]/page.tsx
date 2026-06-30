@@ -6,12 +6,13 @@ import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { artifacts, artifactVersions } from "@/server/db/schema";
 import { eq, and, desc } from "drizzle-orm";
-import { getAccessibleGroups, canMutatePrompt } from "@/server/auth/access";
+import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/auth/access";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CodeBlock } from "@/components/ui/code-block";
 import { DeleteSkillButton } from "../_components/delete-skill-button";
 import { SkillVersionHistory } from "./_components/skill-version-history";
+import { ShareDialog } from "../../_components/share-dialog";
 import { ChevronDown, ChevronRight, FileText } from "lucide-react";
 
 const getSkill = cache(async (id: string) =>
@@ -41,27 +42,12 @@ export default async function SkillDetailPage({ params }: { params: Promise<{ id
   const skill = await getSkill(id);
   if (!skill) notFound();
 
-  // Access check
-  if (!isSuperAdmin && skill.visibility !== "public") {
-    const isOwner = skill.ownerType === "user" && skill.ownerId === userId;
-    if (!isOwner) {
-      if (skill.visibility === "group") {
-        const groups = await getAccessibleGroups(userId, db);
-        const allowed = groups.some(
-          (g) => g.groupType === skill.ownerType && g.groupId === skill.ownerId,
-        );
-        if (!allowed) notFound();
-      } else {
-        notFound();
-      }
-    }
-  }
+  const accessible = await canAccessArtifact({ userId, systemRole: isSuperAdmin ? "superadmin" : "user" }, skill, db);
+  if (!accessible) notFound();
 
-  const canEdit = await canMutatePrompt(
-    { userId, systemRole: isSuperAdmin ? "superadmin" : "user" },
-    skill,
-    db,
-  );
+  const identity = { userId, systemRole: isSuperAdmin ? "superadmin" : "user" } as const;
+  const canEdit = await canMutatePrompt(identity, skill, db);
+  const canShare = await canShareArtifact(identity, skill, db);
   const currentVersion = skill.versions[0];
   const currentFiles = currentVersion?.files ?? [];
 
@@ -86,14 +72,17 @@ export default async function SkillDetailPage({ params }: { params: Promise<{ id
             </div>
           )}
         </div>
-        {canEdit && (
-          <div className="flex shrink-0 gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/skills/${id}/edit`}>Edit</Link>
-            </Button>
-            <DeleteSkillButton skillId={id} />
-          </div>
-        )}
+        <div className="flex shrink-0 gap-2">
+          {canShare && <ShareDialog artifactId={id} artifactTitle={skill.title} />}
+          {canEdit && (
+            <>
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/skills/${id}/edit`}>Edit</Link>
+              </Button>
+              <DeleteSkillButton skillId={id} />
+            </>
+          )}
+        </div>
       </div>
 
       {/* Instructions */}

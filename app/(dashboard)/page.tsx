@@ -2,8 +2,8 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { artifacts, orgs, mcpTokens, memberships, artifactVersions } from "@/server/db/schema";
-import { eq, and, or, desc, count, sql, isNull, gt } from "drizzle-orm";
-import { getAccessibleGroups } from "@/server/auth/access";
+import { eq, and, desc, count, isNull, gt, or } from "drizzle-orm";
+import { artifactAccessCondition } from "@/server/auth/access";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,22 +17,7 @@ export default async function DashboardHome() {
   const isSuperAdmin = session!.user!.systemRole === "superadmin";
 
   // ── Access condition ───────────────────────────────────────────────────────
-  let accessWhere;
-  if (!isSuperAdmin) {
-    const groups = await getAccessibleGroups(userId, db);
-    const groupConditions = groups.map((g) =>
-      and(
-        eq(artifacts.visibility, "group"),
-        eq(artifacts.ownerType, g.groupType as "org" | "department" | "team"),
-        eq(artifacts.ownerId, g.groupId),
-      ),
-    );
-    accessWhere = or(
-      eq(artifacts.visibility, "public"),
-      and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, userId)),
-      ...(groupConditions.length > 0 ? groupConditions : [sql`false`]),
-    );
-  }
+  const accessWhere = await artifactAccessCondition(userId, isSuperAdmin ? "superadmin" : "user", db);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
   const [[{ promptCount }], [{ skillCount }], [{ kitCount }], [{ planCount }], [{ orgCount }], [{ tokenCount }], recentPrompts] = await Promise.all([

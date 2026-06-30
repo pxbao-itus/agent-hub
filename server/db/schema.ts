@@ -37,6 +37,10 @@ export const ownerTypeEnum = pgEnum("owner_type", [
 
 /** Status of a plan task. */
 export const taskStatusEnum = pgEnum("task_status", ["todo", "doing", "done"]);
+
+/** Share role for per-user artifact sharing. */
+export const shareRoleEnum = pgEnum("share_role", ["viewer", "editor"]);
+export type ShareRole = "viewer" | "editor";
 export type TaskStatus = "todo" | "doing" | "done";
 
 /** Visibility scope of a prompt. */
@@ -329,6 +333,32 @@ export const artifactTasks = pgTable(
 );
 
 /**
+ * Per-user artifact sharing. One row per (artifact, grantee) pair.
+ * Viewer = read; Editor = read + mutate. Only owner/admin can share.
+ */
+export const artifactShares = pgTable(
+  "artifact_shares",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    artifactId: uuid("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: shareRoleEnum("role").notNull(),
+    grantedBy: uuid("granted_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("artifact_shares_artifact_user_uq").on(t.artifactId, t.userId),
+    index("artifact_shares_user_idx").on(t.userId),
+    index("artifact_shares_artifact_idx").on(t.artifactId),
+  ]
+);
+
+/**
  * Embeddings for semantic search (v0.2).
  * `embedderId` + `dimensions` are stored alongside the vector so we know which model
  * produced it when switching providers.
@@ -407,6 +437,7 @@ export const artifactsRelations = relations(artifacts, ({ many }) => ({
   variables: many(artifactVariables),
   members: many(artifactMembers, { relationName: "kit" }),
   tasks: many(artifactTasks),
+  shares: many(artifactShares),
 }));
 
 export const artifactVersionsRelations = relations(artifactVersions, ({ one, many }) => ({
@@ -447,5 +478,22 @@ export const artifactTasksRelations = relations(artifactTasks, ({ one }) => ({
   artifact: one(artifacts, {
     fields: [artifactTasks.artifactId],
     references: [artifacts.id],
+  }),
+}));
+
+export const artifactSharesRelations = relations(artifactShares, ({ one }) => ({
+  artifact: one(artifacts, {
+    fields: [artifactShares.artifactId],
+    references: [artifacts.id],
+  }),
+  user: one(users, {
+    relationName: "shareGrantee",
+    fields: [artifactShares.userId],
+    references: [users.id],
+  }),
+  grantedByUser: one(users, {
+    relationName: "shareGrantor",
+    fields: [artifactShares.grantedBy],
+    references: [users.id],
   }),
 }));

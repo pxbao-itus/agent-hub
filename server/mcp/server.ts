@@ -3,7 +3,7 @@ import { z } from "zod";
 import { eq, desc, and, or, sql, inArray } from "drizzle-orm";
 import { db } from "@/server/db";
 import { artifacts, artifactVersions, artifactTasks } from "@/server/db/schema";
-import { getAccessibleGroups } from "@/server/auth/access";
+import { getAccessibleGroups, getSharedArtifactIds } from "@/server/auth/access";
 import { renderTemplate } from "@/server/lib/template";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
 import { hybridSearch, fetchPromptsByIds } from "@/server/lib/search";
@@ -535,6 +535,9 @@ async function getArtifactsForIdentity(
 
   let where = kindFilter;
   if (systemRole !== "superadmin") {
+    const sharedMap = await getSharedArtifactIds(userId, db);
+    const sharedIds = [...sharedMap.keys()];
+
     const groupConditions = scopedGroups.map((g) =>
       and(
         eq(artifacts.visibility, "group"),
@@ -547,6 +550,7 @@ async function getArtifactsForIdentity(
       eq(artifacts.visibility, "public"),
       ...(includePersonal ? [and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, userId))] : []),
       ...(groupConditions.length > 0 ? groupConditions : [sql`false`]),
+      ...(sharedIds.length > 0 ? [inArray(artifacts.id, sharedIds)] : []),
     );
     where = and(kindFilter, accessClause)!;
   }
