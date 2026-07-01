@@ -16,7 +16,8 @@
     "db:seed:test": "tsx server/db/seed-test.ts",
     "db:reindex": "tsx server/scripts/reindex-embeddings.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:integration": "pnpm db:seed:test && vitest run --config vitest.integration.config.ts"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.1",

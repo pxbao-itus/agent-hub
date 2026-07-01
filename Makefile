@@ -1,4 +1,4 @@
-.PHONY: dev build start test typecheck lint \
+.PHONY: dev build start test test/integration typecheck lint \
         db/up db/down db/migrate db/generate db/push db/studio db/seed db/create-root db/reindex \
         setup install
 
@@ -57,6 +57,10 @@ test:
 
 test/watch:
 	pnpm test:watch
+
+# Reseeds agenthub_test, then runs *.itest.ts against it. Requires TEST_DATABASE_URL.
+test/integration:
+	pnpm test:integration
 
 typecheck:
 	pnpm exec tsc --noEmit

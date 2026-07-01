@@ -1,0 +1,22 @@
+import { defineConfig } from "vitest/config";
+import { resolve } from "path";
+
+/**
+ * Integration tests (*.itest.ts) hit a real Postgres — agenthub_test, via
+ * TEST_DATABASE_URL (see server/test-support/test-db.ts). Kept in a separate
+ * config from vitest.config.ts so the default `pnpm test` stays DB-free and
+ * fast; run these with `pnpm test:integration`, which reseeds first.
+ */
+export default defineConfig({
+  test: {
+    environment: "node",
+    include: ["**/*.itest.ts"],
+    exclude: ["node_modules", ".next"],
+    // DB-backed tests share state (the seeded fixtures) — run sequentially
+    // to avoid one file's assumptions colliding with another's.
+    fileParallelism: false,
+  },
+  resolve: {
+    alias: { "@": resolve(__dirname, ".") },
+  },
+});
