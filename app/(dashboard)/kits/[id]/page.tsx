@@ -5,7 +5,7 @@ import type { Metadata } from "next";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { artifacts, artifactVersions, artifactMembers, artifactLinks } from "@/server/db/schema";
-import { eq, and, desc, asc, sql } from "drizzle-orm";
+import { eq, and, desc, asc, inArray } from "drizzle-orm";
 import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/auth/access";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
 import { slugify } from "@/lib/slug";
@@ -88,7 +88,7 @@ export default async function KitDetailPage({ params }: { params: Promise<{ id: 
   const memberArtifacts =
     memberIds.length > 0
       ? await db.query.artifacts.findMany({
-          where: sql`${artifacts.id} = ANY(${memberIds})`,
+          where: inArray(artifacts.id, memberIds),
           columns: { id: true, kind: true, title: true, slug: true, description: true },
         })
       : [];

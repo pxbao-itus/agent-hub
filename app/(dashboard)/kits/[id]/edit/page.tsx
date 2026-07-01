@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { artifacts, artifactVersions, artifactMembers } from "@/server/db/schema";
-import { eq, and, desc, asc, sql } from "drizzle-orm";
+import { eq, and, desc, asc, inArray } from "drizzle-orm";
 import { canMutatePrompt } from "@/server/auth/access";
 import { KitForm } from "../../_components/kit-form";
 import type { MemberEntry } from "../../_components/member-picker";
@@ -48,7 +48,7 @@ export default async function EditKitPage({ params }: { params: Promise<{ id: st
   const memberArtifacts =
     memberIds.length > 0
       ? await db.query.artifacts.findMany({
-          where: sql`${artifacts.id} = ANY(${memberIds})`,
+          where: inArray(artifacts.id, memberIds),
           columns: { id: true, kind: true, title: true, slug: true, description: true },
         })
       : [];

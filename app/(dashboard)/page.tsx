@@ -71,73 +71,73 @@ export default async function DashboardHome() {
       </div>
 
       {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between px-4 pt-4 pb-2">
             <CardTitle className="text-sm text-muted-foreground font-medium">Prompts</CardTitle>
             <BookText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-4 pb-4 pt-0">
             <p className="text-3xl font-bold">{promptCount}</p>
             <p className="text-xs text-muted-foreground mt-1">accessible to you</p>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between px-4 pt-4 pb-2">
             <CardTitle className="text-sm text-muted-foreground font-medium">Skills</CardTitle>
             <Wrench className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-4 pb-4 pt-0">
             <p className="text-3xl font-bold">{skillCount}</p>
             <p className="text-xs text-muted-foreground mt-1">accessible to you</p>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between px-4 pt-4 pb-2">
             <CardTitle className="text-sm text-muted-foreground font-medium">Kits</CardTitle>
             <Package className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-4 pb-4 pt-0">
             <p className="text-3xl font-bold">{kitCount}</p>
             <p className="text-xs text-muted-foreground mt-1">accessible to you</p>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between px-4 pt-4 pb-2">
             <CardTitle className="text-sm text-muted-foreground font-medium">Plans</CardTitle>
             <ClipboardList className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-4 pb-4 pt-0">
             <p className="text-3xl font-bold">{planCount}</p>
             <p className="text-xs text-muted-foreground mt-1">accessible to you</p>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between px-4 pt-4 pb-2">
             <CardTitle className="text-sm text-muted-foreground font-medium">Docs</CardTitle>
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-4 pb-4 pt-0">
             <p className="text-3xl font-bold">{docCount}</p>
             <p className="text-xs text-muted-foreground mt-1">accessible to you</p>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between px-4 pt-4 pb-2">
             <CardTitle className="text-sm text-muted-foreground font-medium">Organizations</CardTitle>
             <Building2 className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-4 pb-4 pt-0">
             <p className="text-3xl font-bold">{orgCount}</p>
             <p className="text-xs text-muted-foreground mt-1">you&apos;re a member of</p>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between px-4 pt-4 pb-2">
             <CardTitle className="text-sm text-muted-foreground font-medium">MCP Tokens</CardTitle>
             <Key className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-4 pb-4 pt-0">
             <p className="text-3xl font-bold">{tokenCount}</p>
             <p className="text-xs text-muted-foreground mt-1">active tokens</p>
           </CardContent>

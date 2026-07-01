@@ -230,9 +230,7 @@ export const kitRouter = router({
       const memberArtifacts =
         memberIds.length > 0
           ? await ctx.db.query.artifacts.findMany({
-              where: and(
-                sql`${artifacts.id} = ANY(${memberIds})`,
-              ),
+              where: inArray(artifacts.id, memberIds),
               columns: { id: true, kind: true, title: true, slug: true, description: true, ownerType: true, ownerId: true },
             })
           : [];
@@ -392,7 +390,7 @@ async function validateMembers(
 
   // Check all members exist
   const existing = await db.query.artifacts.findMany({
-    where: sql`${artifacts.id} = ANY(${memberIds})`,
+    where: inArray(artifacts.id, memberIds),
     columns: { id: true, visibility: true, ownerType: true, ownerId: true },
   });
   if (existing.length !== memberIds.length) {
