@@ -8,11 +8,14 @@ import { artifacts, artifactVersions, artifactTasks, artifactLinks } from "@/ser
 import { eq, and, desc, asc } from "drizzle-orm";
 import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/auth/access";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
+import { getVersionAuthorName } from "@/server/lib/version-author";
 import { slugify } from "@/lib/slug";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BodyViewer } from "@/components/ui/body-viewer";
 import { McpUsage } from "@/components/ui/mcp-usage";
+import { ArtifactMeta } from "@/components/ui/artifact-meta";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { DeletePlanButton } from "../_components/delete-plan-button";
 import { PlanTaskList } from "./_components/plan-task-list";
 import { ShareDialog } from "../../_components/share-dialog";
@@ -60,6 +63,7 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
   );
   const spacePath = ownerPaths.get(`${plan.ownerType}:${plan.ownerId}`) ?? "";
   const fullSlug = [spacePath, plan.slug ?? slugify(plan.title)].filter(Boolean).join(".");
+  const authorName = await getVersionAuthorName(currentVersion?.createdBy, db);
 
   // Linked docs — filtered to what this user can access
   const rawLinks = await db.query.artifactLinks.findMany({
@@ -79,6 +83,8 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
 
   return (
     <div className="space-y-8">
+      <Breadcrumb items={[{ label: "Plans", href: "/plans" }, { label: plan.title }]} />
+
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
@@ -96,6 +102,9 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
                 <Badge key={tag} variant="secondary">{tag}</Badge>
               ))}
             </div>
+          )}
+          {currentVersion && (
+            <ArtifactMeta updatedAt={plan.updatedAt} authorName={authorName} versionNo={currentVersion.versionNo} />
           )}
         </div>
         <div className="flex shrink-0 gap-2">

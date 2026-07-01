@@ -8,6 +8,7 @@ import { artifacts, artifactVersions, artifactLinks } from "@/server/db/schema";
 import { eq, and, desc, asc } from "drizzle-orm";
 import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/auth/access";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
+import { getVersionAuthorName } from "@/server/lib/version-author";
 import { slugify } from "@/lib/slug";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +17,8 @@ import { DeletePromptButton } from "./_components/delete-prompt-button";
 import { VersionHistory } from "./_components/version-history";
 import { BodyViewer } from "@/components/ui/body-viewer";
 import { McpUsage } from "@/components/ui/mcp-usage";
+import { ArtifactMeta } from "@/components/ui/artifact-meta";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { ShareDialog } from "../../_components/share-dialog";
 import { LinkedDocsSection } from "../../_components/linked-docs-section";
 
@@ -58,6 +61,7 @@ export default async function PromptDetailPage({ params }: { params: Promise<{ i
   );
   const spacePath = ownerPaths.get(`${prompt.ownerType}:${prompt.ownerId}`) ?? "";
   const fullSlug = [spacePath, prompt.slug ?? slugify(prompt.title)].filter(Boolean).join(".");
+  const authorName = await getVersionAuthorName(currentVersion?.createdBy, db);
 
   const rawLinks = await db.query.artifactLinks.findMany({
     where: and(eq(artifactLinks.sourceArtifactId, id), eq(artifactLinks.relation, "doc")),
@@ -73,6 +77,8 @@ export default async function PromptDetailPage({ params }: { params: Promise<{ i
 
   return (
     <div className="space-y-8">
+      <Breadcrumb items={[{ label: "Prompts", href: "/prompts" }, { label: prompt.title }]} />
+
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
@@ -89,6 +95,9 @@ export default async function PromptDetailPage({ params }: { params: Promise<{ i
                 <Badge key={tag} variant="secondary">{tag}</Badge>
               ))}
             </div>
+          )}
+          {currentVersion && (
+            <ArtifactMeta updatedAt={prompt.updatedAt} authorName={authorName} versionNo={currentVersion.versionNo} />
           )}
         </div>
         <div className="flex shrink-0 gap-2">

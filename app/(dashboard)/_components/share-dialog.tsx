@@ -47,10 +47,8 @@ export function ShareDialog({ artifactId, artifactTitle }: Props) {
 
   const utils = trpc.useUtils();
 
-  const { data: shares = [], isLoading } = trpc.share.list.useQuery(
-    { artifactId },
-    { enabled: open },
-  );
+  // Fetched even when the dialog is closed so the trigger button can show the count.
+  const { data: shares = [], isLoading } = trpc.share.list.useQuery({ artifactId });
 
   const add = trpc.share.add.useMutation({
     onSuccess: () => {
@@ -89,7 +87,7 @@ export function ShareDialog({ artifactId, artifactTitle }: Props) {
         <DialogTrigger asChild>
           <Button variant="outline" size="sm" className="gap-1.5">
             <Share2 className="h-3.5 w-3.5" />
-            Share
+            Share{shares.length > 0 ? ` (${shares.length})` : ""}
           </Button>
         </DialogTrigger>
         <DialogContent className="sm:max-w-md">

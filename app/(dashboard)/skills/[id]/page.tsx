@@ -8,12 +8,15 @@ import { artifacts, artifactVersions, artifactLinks } from "@/server/db/schema";
 import { eq, and, desc, asc } from "drizzle-orm";
 import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/auth/access";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
+import { getVersionAuthorName } from "@/server/lib/version-author";
 import { slugify } from "@/lib/slug";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CodeBlock } from "@/components/ui/code-block";
 import { BodyViewer } from "@/components/ui/body-viewer";
 import { McpUsage } from "@/components/ui/mcp-usage";
+import { ArtifactMeta } from "@/components/ui/artifact-meta";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { DeleteSkillButton } from "../_components/delete-skill-button";
 import { SkillVersionHistory } from "./_components/skill-version-history";
 import { ShareDialog } from "../../_components/share-dialog";
@@ -62,6 +65,7 @@ export default async function SkillDetailPage({ params }: { params: Promise<{ id
   );
   const spacePath = ownerPaths.get(`${skill.ownerType}:${skill.ownerId}`) ?? "";
   const fullSlug = [spacePath, skill.slug ?? slugify(skill.title)].filter(Boolean).join(".");
+  const authorName = await getVersionAuthorName(currentVersion?.createdBy, db);
 
   const rawLinks = await db.query.artifactLinks.findMany({
     where: and(eq(artifactLinks.sourceArtifactId, id), eq(artifactLinks.relation, "doc")),
@@ -77,6 +81,8 @@ export default async function SkillDetailPage({ params }: { params: Promise<{ id
 
   return (
     <div className="space-y-8">
+      <Breadcrumb items={[{ label: "Skills", href: "/skills" }, { label: skill.title }]} />
+
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
@@ -94,6 +100,9 @@ export default async function SkillDetailPage({ params }: { params: Promise<{ id
                 <Badge key={tag} variant="secondary">{tag}</Badge>
               ))}
             </div>
+          )}
+          {currentVersion && (
+            <ArtifactMeta updatedAt={skill.updatedAt} authorName={authorName} versionNo={currentVersion.versionNo} />
           )}
         </div>
         <div className="flex shrink-0 gap-2">

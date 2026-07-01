@@ -17,16 +17,20 @@ export function McpUsage({ kind, fullSlug }: { kind: ArtifactKind; fullSlug: str
   const command = usageCommand(kind, fullSlug);
 
   return (
-    <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
-      <span className="shrink-0 text-xs text-muted-foreground">Use via MCP:</span>
-      <code className="flex-1 min-w-0 truncate font-mono text-xs text-foreground">{command}</code>
-      <CopyButton text={command} />
-      <Link
-        href="/settings/tokens"
-        className="shrink-0 text-xs text-muted-foreground underline hover:text-foreground"
-      >
-        Set up access
-      </Link>
+    <div className="flex flex-col gap-2 rounded-md border bg-muted/40 px-3 py-2 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <span className="shrink-0 text-xs text-muted-foreground">Use via MCP:</span>
+        <code className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">{command}</code>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <CopyButton text={command} />
+        <Link
+          href="/settings/tokens"
+          className="text-xs text-muted-foreground underline hover:text-foreground"
+        >
+          Set up access
+        </Link>
+      </div>
     </div>
   );
 }
