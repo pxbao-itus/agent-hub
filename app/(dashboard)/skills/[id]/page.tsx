@@ -10,6 +10,7 @@ import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/a
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CodeBlock } from "@/components/ui/code-block";
+import { BodyViewer } from "@/components/ui/body-viewer";
 import { DeleteSkillButton } from "../_components/delete-skill-button";
 import { SkillVersionHistory } from "./_components/skill-version-history";
 import { ShareDialog } from "../../_components/share-dialog";
@@ -107,7 +108,7 @@ export default async function SkillDetailPage({ params }: { params: Promise<{ id
             </h2>
             <span className="text-xs text-muted-foreground">v{currentVersion.versionNo}</span>
           </div>
-          <CodeBlock>{currentVersion.body}</CodeBlock>
+          <BodyViewer body={currentVersion.body} defaultMode="rendered" />
         </section>
       )}
 

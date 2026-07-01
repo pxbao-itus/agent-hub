@@ -9,7 +9,7 @@ import { eq, and, desc, asc, sql } from "drizzle-orm";
 import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/auth/access";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { CodeBlock } from "@/components/ui/code-block";
+import { BodyViewer } from "@/components/ui/body-viewer";
 import { DeleteKitButton } from "../_components/delete-kit-button";
 import { KitVersionHistory } from "./_components/kit-version-history";
 import { ShareDialog } from "../../_components/share-dialog";
@@ -127,7 +127,7 @@ export default async function KitDetailPage({ params }: { params: Promise<{ id: 
             </h2>
             <span className="text-xs text-muted-foreground">v{currentVersion.versionNo}</span>
           </div>
-          <CodeBlock>{currentVersion.body}</CodeBlock>
+          <BodyViewer body={currentVersion.body} defaultMode="rendered" />
         </section>
       )}
 

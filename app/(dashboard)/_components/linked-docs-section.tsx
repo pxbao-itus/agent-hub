@@ -5,6 +5,7 @@ import Link from "next/link";
 import { trpc } from "@/lib/trpc/client";
 import { Badge } from "@/components/ui/badge";
 import { DocLinksManager } from "./doc-picker";
+import { MarkdownView } from "@/components/ui/markdown";
 import { FileText, ChevronDown, ChevronRight } from "lucide-react";
 
 type DocLink = {
@@ -83,10 +84,8 @@ export function LinkedDocsSection({ sourceId, initialLinks, canEdit }: Props) {
                   <Badge variant="secondary" className="shrink-0 text-[10px]">doc</Badge>
                 </div>
                 {isOpen && link.target.body && (
-                  <div className="border-t bg-muted/20 px-4 py-3">
-                    <pre className="text-xs text-foreground/80 whitespace-pre-wrap font-mono leading-relaxed max-h-64 overflow-y-auto">
-                      {link.target.body}
-                    </pre>
+                  <div className="border-t bg-muted/20 px-4 py-3 max-h-64 overflow-y-auto">
+                    <MarkdownView>{link.target.body}</MarkdownView>
                   </div>
                 )}
               </div>

@@ -6,7 +6,7 @@ import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 
@@ -243,7 +243,7 @@ export function DocForm(props: Props) {
 
       <div className="space-y-2">
         <Label htmlFor="body">Content</Label>
-        <Textarea id="body" value={body} onChange={(e) => setBody(e.target.value)} rows={14} required placeholder="Markdown content — describe the bug, business requirement, or domain concept…" className="font-mono text-sm" />
+        <MarkdownEditor id="body" value={body} onChange={setBody} rows={14} required placeholder="Markdown content — describe the bug, business requirement, or domain concept…" />
       </div>
 
       <div className="space-y-2">

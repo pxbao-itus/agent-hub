@@ -9,7 +9,7 @@ import { eq, and, desc, asc } from "drizzle-orm";
 import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/auth/access";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { CodeBlock } from "@/components/ui/code-block";
+import { BodyViewer } from "@/components/ui/body-viewer";
 import { DeleteDocButton } from "../_components/delete-doc-button";
 import { ShareDialog } from "../../_components/share-dialog";
 import { FileText, ClipboardList, BookText, Wrench, Package } from "lucide-react";
@@ -113,7 +113,7 @@ export default async function DocDetailPage({ params }: { params: Promise<{ id: 
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Content</h2>
             <span className="text-xs text-muted-foreground">v{currentVersion.versionNo}</span>
           </div>
-          <CodeBlock>{currentVersion.body}</CodeBlock>
+          <BodyViewer body={currentVersion.body} defaultMode="rendered" />
         </section>
       )}
 

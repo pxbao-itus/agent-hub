@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DeletePromptButton } from "./_components/delete-prompt-button";
 import { VersionHistory } from "./_components/version-history";
-import { CodeBlock } from "@/components/ui/code-block";
+import { BodyViewer } from "@/components/ui/body-viewer";
 import { ShareDialog } from "../../_components/share-dialog";
 import { LinkedDocsSection } from "../../_components/linked-docs-section";
 
@@ -103,7 +103,7 @@ export default async function PromptDetailPage({ params }: { params: Promise<{ i
             </h2>
             <span className="text-xs text-muted-foreground">v{currentVersion.versionNo}</span>
           </div>
-          <CodeBlock>{currentVersion.body}</CodeBlock>
+          <BodyViewer body={currentVersion.body} defaultMode="raw" />
         </section>
       )}
 
