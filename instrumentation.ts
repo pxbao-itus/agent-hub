@@ -22,5 +22,14 @@ export async function register() {
 
     setEmbedder(new RemoteEmbedder(url, process.env.EMBEDDER_TOKEN));
     startReconciler();
+  } else if (embedderEnv === "stub") {
+    // Deterministic, no network/model — for the qa/ e2e harness and
+    // integration tests only. Never set this in a dev or production .env.
+    const { StubEmbedder } = await import("@/server/embedder/stub");
+    const { setEmbedder } = await import("@/server/embedder");
+    const { startReconciler } = await import("@/server/embedder/reconciler");
+
+    setEmbedder(new StubEmbedder());
+    startReconciler();
   }
 }
