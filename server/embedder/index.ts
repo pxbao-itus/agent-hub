@@ -1,8 +1,9 @@
 /**
  * Pluggable embedding interface.
  *
- * Switch implementation via EMBEDDER env var (null | local).
- * Default: NullEmbedder (no-op). Set EMBEDDER=local to use bge-m3 locally.
+ * Switch implementation via EMBEDDER env var (null | local | remote).
+ * Default: NullEmbedder (no-op). Set EMBEDDER=local to use bge-m3 locally,
+ * or EMBEDDER=remote + EMBEDDER_URL to call a self-hosted TEI server.
  *
  * Call setEmbedder() from instrumentation.ts at startup to register a real
  * implementation before the first request is handled.
