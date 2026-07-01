@@ -1,26 +1,37 @@
 # Agent Hub
 
-> Open-source platform to **store, share, and use reusable agent capabilities** — prompts, skills, and kits — with first-class **AI agent integration over MCP**.
+> Open-source platform to **store, share, and use reusable building blocks for AI agents** — prompts, skills, kits, plans, and docs — with first-class **agent integration over MCP**.
 
-Centralized management of agent building blocks for individuals and teams: versioning, access control across **Organization → Department → Team → User**, and seamless AI agent integration via MCP — no more copy-pasting.
+Instead of copy-pasting prompts and instructions between projects, keep them in one place: versioned, access-controlled across **Organization → Department → Team → User**, searchable by meaning, and pulled straight into your AI agent through the Model Context Protocol (MCP). No copy-paste, always the latest version.
 
-> ⚠️ **Status: early / work-in-progress.** Not ready for production.
+> ⚠️ **Status: early / work-in-progress.** Usable for self-hosting, but APIs and schema may still change. Not yet hardened for production.
 
-## Features (MVP target)
+## Features
 
-- 📦 **Prompts** with tags, descriptions, and template variables `{{var}}`.
-- 🛠️ **Skills** — reusable instruction sets (SKILL.md) with bundled files, delivered to agents via MCP.
-- 🕑 **Versioning** — every save creates an immutable version.
-- 🏢 **Org-based access control** — owner can be a user, team, department, or org; permissions inherit upward.
-- 🔌 **MCP server** — plug into Claude Code, Cursor, or any MCP-compatible agent using a scoped token.
-- 🔎 **Search** — full-text (MVP) → semantic / hybrid search (coming next).
-- 🔐 **Multiple auth providers** — basic auth, Google, GitHub (pluggable via env).
+- 📦 **Prompts** — with tags, descriptions, and template variables `{{var}}`.
+- 🛠️ **Skills** — reusable instruction sets (SKILL.md) with bundled files, delivered to agents on demand.
+- 🎒 **Kits** — bundle multiple prompts and skills into one shareable unit; members are resolved recursively.
+- ✅ **Plans** — structured task lists (todo / doing / done) that agents can read and update.
+- 📄 **Docs** — free-form markdown docs, linkable to the plans they inform.
+- 🕑 **Versioning** — every save creates an immutable version, with diff and rollback.
+- 🔎 **Semantic + hybrid search** — full-text (BM25) fused with vector similarity (bge-m3 + pgvector) via Reciprocal Rank Fusion, across every artifact kind. A global search page and a `Cmd/Ctrl-K` command palette. Degrades gracefully to keyword-only when embeddings are disabled.
+- 🏢 **Org-based access control** — an artifact's owner can be a user, team, department, or org; permissions inherit upward. Plus per-user sharing for one-off grants.
+- 🔌 **MCP server** — plug into Claude Code, Cursor, or any MCP-compatible agent using a scoped token. Prompts appear as slash commands; skills, kits, plans, and docs are fetched via tools.
+- 🔐 **Multiple auth providers** — basic auth (Credentials), Google, and GitHub, all pluggable via env.
+- 🌗 **Markdown rendering** with light/dark themes.
 
 ## Tech stack
 
-Next.js (full-stack) · PostgreSQL + pgvector · Drizzle ORM · Auth.js · MCP TypeScript SDK.
+- **Full-stack**: [Next.js 16](https://nextjs.org) (App Router) + React 19, [tRPC v11](https://trpc.io)
+- **Database**: PostgreSQL + [pgvector](https://github.com/pgvector/pgvector) (relational + full-text + vector, all in one DB)
+- **ORM**: [Drizzle](https://orm.drizzle.team)
+- **Auth**: [Auth.js](https://authjs.dev) (next-auth v5), argon2id password hashing
+- **MCP**: official [Model Context Protocol TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)
+- **Embeddings**: pluggable — local [transformers.js](https://huggingface.co/docs/transformers.js) (bge-m3, multilingual) by default, or a remote HTTP embedding server, switchable via env
+- **UI**: Tailwind CSS v4 + Radix UI primitives, react-markdown, lucide icons
+- **Validation**: Zod
 
-One principle: minimal moving parts — all TypeScript + one Postgres, self-hosted with a single command.
+One principle: minimal moving parts — all TypeScript on top of a single Postgres, self-hosted with one command.
 
 ## Self-host with Docker Compose
 
@@ -32,8 +43,9 @@ cd agent-hub
 
 cp .env.example .env
 # Edit .env:
-#   AUTH_SECRET — run: openssl rand -base64 32
-#   NEXTAUTH_URL — set to your public URL (e.g. https://prompts.example.com)
+#   AUTH_SECRET   — run: openssl rand -base64 32
+#   NEXTAUTH_URL  — set to your public URL (e.g. https://hub.example.com)
+#   ROOT_EMAIL / ROOT_PASSWORD — for the first superadmin (see below)
 
 # Build and start (Postgres + app)
 docker compose up -d --build
@@ -41,8 +53,7 @@ docker compose up -d --build
 # Apply database migrations (first run only)
 docker compose exec app node node_modules/.bin/drizzle-kit migrate
 
-# Create a superadmin account (first run only)
-# Set ROOT_EMAIL + ROOT_PASSWORD in .env first, then:
+# Create a superadmin account (first run only; reads ROOT_EMAIL/ROOT_PASSWORD from .env)
 docker compose exec app npx tsx server/scripts/create-superadmin.ts
 
 # App is now running at http://localhost:3000
@@ -69,13 +80,27 @@ pnpm db:seed                 # (optional) seed sample data
 pnpm dev                     # http://localhost:3000
 ```
 
-Other DB commands: `pnpm db:generate` (generate migration from schema), `pnpm db:push`, `pnpm db:studio`.
+A `Makefile` wraps the common flows: `make setup` (DB up + migrate + dev), `make db/up`, `make db/migrate`, `make db/seed`, `make db/create-root email=you@example.com password=secret`, `make test`, `make typecheck`.
+
+Other DB commands: `pnpm db:generate` (generate a migration from the schema), `pnpm db:push`, `pnpm db:studio`.
+
+## Search & embeddings
+
+Semantic search is **opt-in** via the `EMBEDDER` env var, so a minimal self-host stays lightweight:
+
+| `EMBEDDER` | Behavior |
+| --- | --- |
+| `null` (default) | No embeddings — keyword-only full-text search. |
+| `local` | Runs bge-m3 in-process via transformers.js. Downloads ~1–2 GB of model weights on first run (cache with `HF_HOME`). |
+| `remote` | Calls a self-hosted HTTP embedding server (HuggingFace Text Embeddings Inference, also bge-m3). Set `EMBEDDER_URL` to its base URL. No local model download. |
+
+When embeddings are enabled, a background reconciler backfills vectors for existing artifacts, and search automatically upgrades from keyword-only to hybrid. The model identity is stored alongside each vector, so switching embedders re-indexes cleanly without mixing incompatible vectors.
 
 ## Connecting an AI agent via MCP
 
 1. Sign in and go to **Settings → MCP Tokens**.
-2. Generate a token (it is shown only once — copy it).
-3. Add to your agent config:
+2. Generate a token (it is shown only once — copy it). Tokens can be scoped to specific spaces and tags.
+3. Add it to your agent config:
 
 **Claude Code** (`~/.config/claude/claude_desktop_config.json`):
 
@@ -91,12 +116,17 @@ Other DB commands: `pnpm db:generate` (generate migration from schema), `pnpm db
 }
 ```
 
-Once connected, type `/` in Claude Code to see your prompts as slash commands, and use the `get_skill` / `list_skills` tools to pull skills on demand.
+Once connected:
+
+- Your accessible **prompts** show up as slash commands (type `/` in Claude Code).
+- Use **`search_artifacts`** to find anything by meaning or keyword across all kinds.
+- Pull specific artifacts with **`get_skill`**, **`get_kit`**, **`get_plan`**, **`get_doc`** (and their `list_*` counterparts).
+- Agents can update plan progress with **`update_task_status`**.
 
 ## License
 
-_TBD._
+Intended license: **MIT**. The `LICENSE` file will be added with the first tagged release.
 
 ## Contributing
 
-The project is in early stages. Issues and ideas are welcome.
+The project is in early stages. Issues, ideas, and feedback are welcome.
