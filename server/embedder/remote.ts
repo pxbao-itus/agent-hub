@@ -13,12 +13,23 @@ export class RemoteEmbedder implements Embedder {
   readonly embedderId = "bge-m3-remote";
   readonly dimensions = 1024;
 
-  constructor(private readonly baseUrl: string) {}
+  /**
+   * @param baseUrl base URL of the TEI server (or the reverse-proxy in front of it).
+   * @param token   optional bearer token; when set, sent as `Authorization: Bearer <token>`
+   *                so a token-gating proxy in front of TEI accepts the request.
+   */
+  constructor(
+    private readonly baseUrl: string,
+    private readonly token?: string,
+  ) {}
 
   async embed(texts: string[]): Promise<number[][]> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+
     const res = await fetch(`${this.baseUrl.replace(/\/+$/, "")}/embed`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ inputs: texts }),
     });
 

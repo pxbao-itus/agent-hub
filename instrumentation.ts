@@ -20,7 +20,7 @@ export async function register() {
     const { setEmbedder } = await import("@/server/embedder");
     const { startReconciler } = await import("@/server/embedder/reconciler");
 
-    setEmbedder(new RemoteEmbedder(url));
+    setEmbedder(new RemoteEmbedder(url, process.env.EMBEDDER_TOKEN));
     startReconciler();
   }
 }

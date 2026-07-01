@@ -1,5 +1,5 @@
 .PHONY: dev build start test typecheck lint \
-        db/up db/down db/migrate db/generate db/push db/studio db/seed db/create-root \
+        db/up db/down db/migrate db/generate db/push db/studio db/seed db/create-root db/reindex \
         setup install
 
 # ── Dev ──────────────────────────────────────────────────────────────────────
@@ -43,6 +43,12 @@ db/seed:
 # Usage: make db/create-root email=admin@example.com password=secret
 db/create-root:
 	ROOT_EMAIL=$(email) ROOT_PASSWORD=$(password) pnpm exec tsx server/scripts/create-superadmin.ts
+
+# Inspect or purge stored embeddings by embedder id.
+# Usage: make db/reindex            (list)
+#        make db/reindex purge=bge-m3
+db/reindex:
+	pnpm exec tsx server/scripts/reindex-embeddings.ts $(if $(purge),--purge $(purge),)
 
 # ── Quality ──────────────────────────────────────────────────────────────────
 

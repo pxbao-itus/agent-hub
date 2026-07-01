@@ -94,7 +94,9 @@ Semantic search is **opt-in** via the `EMBEDDER` env var, so a minimal self-host
 | `local` | Runs bge-m3 in-process via transformers.js. Downloads ~1–2 GB of model weights on first run (cache with `HF_HOME`). |
 | `remote` | Calls a self-hosted HTTP embedding server (HuggingFace Text Embeddings Inference, also bge-m3). Set `EMBEDDER_URL` to its base URL. No local model download. |
 
-When embeddings are enabled, a background reconciler backfills vectors for existing artifacts, and search automatically upgrades from keyword-only to hybrid. The model identity is stored alongside each vector, so switching embedders re-indexes cleanly without mixing incompatible vectors.
+When embeddings are enabled, a background reconciler backfills vectors for existing artifacts, and search automatically upgrades from keyword-only to hybrid. The model identity is stored alongside each vector, so switching embedders re-indexes cleanly without mixing incompatible vectors. Inspect or clean up stored vectors with `pnpm db:reindex` (list) and `pnpm db:reindex --purge <embedderId>`.
+
+> The embedding column is a fixed `vector(1024)` with an HNSW index (sized for bge-m3). Switching to a model with a different dimensionality needs a schema migration (new column/index), not just an env change.
 
 ## Connecting an AI agent via MCP
 
