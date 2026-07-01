@@ -182,14 +182,17 @@ export default async function SkillDetailPage({ params }: { params: Promise<{ id
             Version history
           </h2>
           <SkillVersionHistory
+            skillId={id}
             versions={skill.versions.map((v) => ({
               id: v.id,
               versionNo: v.versionNo,
+              body: v.body,
               changelog: v.changelog,
               createdAt: v.createdAt,
               files: v.files.map((f) => ({ id: f.id, path: f.path })),
             }))}
             currentVersionId={skill.currentVersionId}
+            canEdit={canEdit}
           />
         </section>
       )}

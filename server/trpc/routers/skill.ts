@@ -6,6 +6,7 @@ import { artifacts, artifactVersions, artifactFiles } from "@/server/db/schema";
 import { artifactAccessCondition, canAccessArtifact, canMutatePrompt, effectiveGroupRole } from "@/server/auth/access";
 import { hybridSearch } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
+import { rollbackVersion } from "@/server/services/version";
 import type { DbClient } from "@/server/db/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -315,5 +316,44 @@ export const skillRouter = router({
       if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
 
       await ctx.db.delete(artifacts).where(eq(artifacts.id, input.id));
+    }),
+
+  rollback: protectedProcedure
+    .input(z.object({ id: z.string().uuid(), toVersionNo: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const { userId, systemRole } = ctx.session;
+
+      const skill = await ctx.db.query.artifacts.findFirst({
+        where: and(eq(artifacts.id, input.id), eq(artifacts.kind, "skill")),
+      });
+      if (!skill) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const allowed = await canMutatePrompt({ userId, systemRole }, skill, ctx.db);
+      if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
+
+      // Bundled files are versioned per artifactVersionId — copy the target
+      // version's files onto the newly created rollback version.
+      const { newVersionNo } = await rollbackVersion(
+        input.id,
+        input.toVersionNo,
+        userId,
+        ctx.db,
+        async (newVersionId, targetVersionId) => {
+          const files = await ctx.db.query.artifactFiles.findMany({
+            where: eq(artifactFiles.artifactVersionId, targetVersionId),
+          });
+          if (files.length > 0) {
+            await ctx.db.insert(artifactFiles).values(
+              files.map((f) => ({
+                artifactVersionId: newVersionId,
+                path: f.path,
+                content: f.content,
+                mimeType: f.mimeType,
+              })),
+            );
+          }
+        },
+      );
+      return { newVersionNo };
     }),
 });

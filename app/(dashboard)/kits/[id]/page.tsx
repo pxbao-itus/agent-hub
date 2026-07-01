@@ -214,13 +214,16 @@ export default async function KitDetailPage({ params }: { params: Promise<{ id: 
             Version history
           </h2>
           <KitVersionHistory
+            kitId={id}
             versions={kit.versions.map((v) => ({
               id: v.id,
               versionNo: v.versionNo,
+              body: v.body,
               changelog: v.changelog,
               createdAt: v.createdAt,
             }))}
             currentVersionId={kit.currentVersionId}
+            canEdit={canEdit}
           />
         </section>
       )}

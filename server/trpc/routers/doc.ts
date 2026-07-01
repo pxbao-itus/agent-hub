@@ -5,6 +5,7 @@ import { router, protectedProcedure } from "../trpc";
 import { artifacts, artifactVersions } from "@/server/db/schema";
 import { hybridSearch } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
+import { rollbackVersion } from "@/server/services/version";
 import {
   artifactAccessCondition,
   canAccessArtifact,
@@ -270,5 +271,22 @@ export const docRouter = router({
       if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
 
       await ctx.db.delete(artifacts).where(eq(artifacts.id, input.id));
+    }),
+
+  rollback: protectedProcedure
+    .input(z.object({ id: z.string().uuid(), toVersionNo: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const { userId, systemRole } = ctx.session;
+
+      const doc = await ctx.db.query.artifacts.findFirst({
+        where: and(eq(artifacts.id, input.id), eq(artifacts.kind, "doc")),
+      });
+      if (!doc) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const allowed = await canMutatePrompt({ userId, systemRole }, doc, ctx.db);
+      if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
+
+      const { newVersionNo } = await rollbackVersion(input.id, input.toVersionNo, userId, ctx.db);
+      return { newVersionNo };
     }),
 });

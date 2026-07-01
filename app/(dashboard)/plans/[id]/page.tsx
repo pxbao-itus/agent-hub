@@ -17,6 +17,7 @@ import { DeletePlanButton } from "../_components/delete-plan-button";
 import { PlanTaskList } from "./_components/plan-task-list";
 import { ShareDialog } from "../../_components/share-dialog";
 import { PlanLinkedDocs } from "./_components/plan-linked-docs";
+import { PlanVersionHistory } from "./_components/plan-version-history";
 
 const getPlan = cache(async (id: string) =>
   db.query.artifacts.findFirst({
@@ -183,27 +184,23 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
       </section>
 
       {/* Version history (overview only) */}
-      {plan.versions.length > 1 && (
+      {plan.versions.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Version history
           </h2>
-          <div className="divide-y rounded-md border text-sm">
-            {plan.versions.map((v) => (
-              <div key={v.id} className="flex items-center gap-3 px-4 py-2.5">
-                <span className="font-mono text-xs text-muted-foreground w-8">v{v.versionNo}</span>
-                <span className="text-xs text-muted-foreground">
-                  {new Date(v.createdAt).toLocaleDateString()}
-                </span>
-                {v.changelog && (
-                  <span className="text-xs text-foreground truncate">{v.changelog}</span>
-                )}
-                {v.id === plan.currentVersionId && (
-                  <Badge variant="outline" className="ml-auto text-[10px]">current</Badge>
-                )}
-              </div>
-            ))}
-          </div>
+          <PlanVersionHistory
+            planId={id}
+            versions={plan.versions.map((v) => ({
+              id: v.id,
+              versionNo: v.versionNo,
+              body: v.body,
+              changelog: v.changelog,
+              createdAt: v.createdAt,
+            }))}
+            currentVersionId={plan.currentVersionId}
+            canEdit={canEdit}
+          />
         </section>
       )}
     </div>

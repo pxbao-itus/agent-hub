@@ -7,6 +7,7 @@ import { artifactAccessCondition, canAccessArtifact, canMutatePrompt, effectiveG
 import { hybridSearch, fetchArtifactsByIds } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import { parseVariables } from "@/server/lib/template";
+import { rollbackVersion } from "@/server/services/version";
 import type { DbClient } from "@/server/db/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -357,37 +358,19 @@ export const promptRouter = router({
       const allowed = await canMutatePrompt({ userId, systemRole }, prompt, ctx.db);
       if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
 
-      const targetVersion = await ctx.db.query.artifactVersions.findFirst({
-        where: and(
-          eq(artifactVersions.artifactId, input.promptId),
-          eq(artifactVersions.versionNo, input.toVersionNo),
-        ),
+      const { newVersionNo, newVersionId } = await rollbackVersion(
+        input.promptId,
+        input.toVersionNo,
+        userId,
+        ctx.db,
+      );
+
+      const newVersion = await ctx.db.query.artifactVersions.findFirst({
+        where: eq(artifactVersions.id, newVersionId),
+        columns: { body: true },
       });
-      if (!targetVersion) throw new TRPCError({ code: "NOT_FOUND", message: "Version not found" });
+      await syncVariables(ctx.db, input.promptId, newVersion!.body);
 
-      const [{ maxNo }] = await ctx.db
-        .select({ maxNo: sql<number>`coalesce(max(version_no), 0)` })
-        .from(artifactVersions)
-        .where(eq(artifactVersions.artifactId, input.promptId));
-
-      const [newVersion] = await ctx.db
-        .insert(artifactVersions)
-        .values({
-          artifactId: input.promptId,
-          versionNo: maxNo + 1,
-          body: targetVersion.body,
-          changelog: `Rolled back to v${input.toVersionNo}`,
-          createdBy: userId,
-        })
-        .returning();
-
-      await syncVariables(ctx.db, input.promptId, targetVersion.body);
-
-      await ctx.db
-        .update(artifacts)
-        .set({ currentVersionId: newVersion.id, updatedAt: new Date() })
-        .where(eq(artifacts.id, input.promptId));
-
-      return { newVersionNo: newVersion.versionNo };
+      return { newVersionNo };
     }),
 });

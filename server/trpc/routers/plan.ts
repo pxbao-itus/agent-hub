@@ -14,6 +14,7 @@ import {
   effectiveGroupRole,
 } from "@/server/auth/access";
 import { createPlan } from "@/server/services/plan";
+import { rollbackVersion } from "@/server/services/version";
 import { hybridSearch } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import type { DbClient } from "@/server/db/types";
@@ -334,6 +335,23 @@ export const planRouter = router({
       if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
 
       await ctx.db.delete(artifacts).where(eq(artifacts.id, input.id));
+    }),
+
+  rollback: protectedProcedure
+    .input(z.object({ id: z.string().uuid(), toVersionNo: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const { userId, systemRole } = ctx.session;
+
+      const plan = await ctx.db.query.artifacts.findFirst({
+        where: and(eq(artifacts.id, input.id), eq(artifacts.kind, "plan")),
+      });
+      if (!plan) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const allowed = await canMutatePrompt({ userId, systemRole }, plan, ctx.db);
+      if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
+
+      const { newVersionNo } = await rollbackVersion(input.id, input.toVersionNo, userId, ctx.db);
+      return { newVersionNo };
     }),
 
   setTaskStatus: protectedProcedure

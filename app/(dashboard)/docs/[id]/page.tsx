@@ -15,6 +15,7 @@ import { BodyViewer } from "@/components/ui/body-viewer";
 import { McpUsage } from "@/components/ui/mcp-usage";
 import { DeleteDocButton } from "../_components/delete-doc-button";
 import { ShareDialog } from "../../_components/share-dialog";
+import { DocVersionHistory } from "./_components/doc-version-history";
 import { FileText, ClipboardList, BookText, Wrench, Package } from "lucide-react";
 
 const getDoc = cache(async (id: string) =>
@@ -177,23 +178,21 @@ export default async function DocDetailPage({ params }: { params: Promise<{ id: 
       )}
 
       {/* Version history */}
-      {doc.versions.length > 1 && (
+      {doc.versions.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Version history</h2>
-          <div className="divide-y rounded-md border text-sm">
-            {doc.versions.map((v) => (
-              <div key={v.id} className="flex items-center gap-3 px-4 py-2.5">
-                <span className="font-mono text-xs text-muted-foreground w-8">v{v.versionNo}</span>
-                <span className="text-xs text-muted-foreground">
-                  {new Date(v.createdAt).toLocaleDateString()}
-                </span>
-                {v.changelog && <span className="text-xs text-foreground truncate">{v.changelog}</span>}
-                {v.id === doc.currentVersionId && (
-                  <Badge variant="outline" className="ml-auto text-[10px]">current</Badge>
-                )}
-              </div>
-            ))}
-          </div>
+          <DocVersionHistory
+            docId={id}
+            versions={doc.versions.map((v) => ({
+              id: v.id,
+              versionNo: v.versionNo,
+              body: v.body,
+              changelog: v.changelog,
+              createdAt: v.createdAt,
+            }))}
+            currentVersionId={doc.currentVersionId}
+            canEdit={canEdit}
+          />
         </section>
       )}
     </div>
