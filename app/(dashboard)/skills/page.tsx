@@ -1,27 +1,29 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 
 export const metadata: Metadata = { title: "Skills" };
 import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { artifacts, artifactVersions } from "@/server/db/schema";
-import { desc, eq, sql, and } from "drizzle-orm";
+import { desc, asc, eq, sql, and } from "drizzle-orm";
 import { artifactAccessCondition } from "@/server/auth/access";
-import { hybridSearch, fetchArtifactsByIds } from "@/server/lib/search";
+import { hybridSearch, fetchArtifactsByIds, sortArtifactRows } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Wrench, Search } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { PageHeader } from "@/components/ui/page-header";
+import { ListToolbar } from "@/components/ui/list-toolbar";
 
 type Props = {
-  searchParams: Promise<{ q?: string; tag?: string; offset?: string }>;
+  searchParams: Promise<{ q?: string; tag?: string; sort?: string; offset?: string }>;
 };
 
 export default async function SkillsPage({ searchParams }: Props) {
-  const { q, tag, offset: offsetStr } = await searchParams;
+  const { q, tag, sort, offset: offsetStr } = await searchParams;
   const offset = Number(offsetStr ?? 0);
   const limit = 30;
 
@@ -34,8 +36,9 @@ export default async function SkillsPage({ searchParams }: Props) {
   const tagFilter = tag ? sql`${tag} = ANY(${artifacts.tags})` : undefined;
 
   let rows: Awaited<ReturnType<typeof fetchArtifactsByIds>>;
+  let mode: "hybrid" | "keyword" = "keyword";
   if (q) {
-    const { ids } = await hybridSearch({
+    const res = await hybridSearch({
       query: q,
       accessCondition: skillWhere,
       tagFilter,
@@ -44,11 +47,12 @@ export default async function SkillsPage({ searchParams }: Props) {
       limit,
       offset,
     });
-    rows = await fetchArtifactsByIds(ids, db);
+    mode = res.mode;
+    rows = sortArtifactRows(await fetchArtifactsByIds(res.ids, db), sort ?? "relevant");
   } else {
     rows = await db.query.artifacts.findMany({
       where: and(skillWhere, tagFilter),
-      orderBy: desc(artifacts.updatedAt),
+      orderBy: sort === "title" ? asc(artifacts.title) : desc(artifacts.updatedAt),
       limit,
       offset,
       with: { versions: { limit: 1, orderBy: desc(artifactVersions.versionNo) } },
@@ -60,46 +64,42 @@ export default async function SkillsPage({ searchParams }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Skills</h1>
-          <p className="text-sm text-muted-foreground">
-            {rows.length} result{rows.length !== 1 ? "s" : ""}
-            {q ? ` for "${q}"` : ""}
-          </p>
-        </div>
-        <Button asChild>
-          <Link href="/skills/new">New skill</Link>
-        </Button>
-      </div>
-
-      {/* Search */}
-      <form method="GET" className="flex gap-2">
-        <Input
-          name="q"
-          defaultValue={q}
-          placeholder="Search skills…"
-          className="max-w-sm"
-        />
-        {q && (
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/skills">Clear</Link>
+      <PageHeader
+        title="Skills"
+        description={`${rows.length} result${rows.length !== 1 ? "s" : ""}${q ? ` for "${q}"` : ""}`}
+        badge={
+          q ? (
+            <Badge variant="outline" className="ml-2 text-[10px] align-middle">
+              {mode === "hybrid" ? "semantic" : "keyword"}
+            </Badge>
+          ) : undefined
+        }
+        actions={
+          <Button asChild>
+            <Link href="/skills/new">New skill</Link>
           </Button>
-        )}
-      </form>
+        }
+      />
 
-      {/* Tag filters */}
-      {allTags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {allTags.map((t) => (
-            <Link key={t} href={tag === t ? "/skills" : `/skills?tag=${encodeURIComponent(t)}`}>
-              <Badge variant={tag === t ? "default" : "secondary"} className="cursor-pointer text-[10px]">
-                {t}
-              </Badge>
-            </Link>
-          ))}
-        </div>
-      )}
+      <Suspense>
+        <ListToolbar
+          searchPlaceholder="Search skills…"
+          hasQuery={!!q}
+          extra={
+            allTags.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {allTags.map((t) => (
+                  <Link key={t} href={tag === t ? "/skills" : `/skills?tag=${encodeURIComponent(t)}`}>
+                    <Badge variant={tag === t ? "default" : "secondary"} className="cursor-pointer text-[10px]">
+                      {t}
+                    </Badge>
+                  </Link>
+                ))}
+              </div>
+            ) : undefined
+          }
+        />
+      </Suspense>
 
       {rows.length === 0 ? (
         <EmptyState
@@ -156,14 +156,14 @@ export default async function SkillsPage({ searchParams }: Props) {
         <div className="flex justify-center gap-2">
           {offset > 0 && (
             <Button asChild variant="outline" size="sm">
-              <Link href={`?${new URLSearchParams({ ...(q ? { q } : {}), ...(tag ? { tag } : {}), offset: String(Math.max(0, offset - limit)) })}`}>
+              <Link href={`?${new URLSearchParams({ ...(q ? { q } : {}), ...(tag ? { tag } : {}), ...(sort ? { sort } : {}), offset: String(Math.max(0, offset - limit)) })}`}>
                 Previous
               </Link>
             </Button>
           )}
           {rows.length === limit && (
             <Button asChild variant="outline" size="sm">
-              <Link href={`?${new URLSearchParams({ ...(q ? { q } : {}), ...(tag ? { tag } : {}), offset: String(offset + limit) })}`}>
+              <Link href={`?${new URLSearchParams({ ...(q ? { q } : {}), ...(tag ? { tag } : {}), ...(sort ? { sort } : {}), offset: String(offset + limit) })}`}>
                 Next
               </Link>
             </Button>

@@ -10,6 +10,7 @@ import { linkRouter } from "./link";
 import { shareRouter } from "./share";
 import { tokenRouter } from "./token";
 import { userRouter } from "./user";
+import { searchRouter } from "./search";
 
 export const appRouter = router({
   /** Health check: confirms the app is up and the DB is reachable. */
@@ -34,6 +35,7 @@ export const appRouter = router({
   share: shareRouter,
   token: tokenRouter,
   user: userRouter,
+  search: searchRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -6,23 +6,24 @@ export const metadata: Metadata = { title: "Prompts" };
 import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { artifacts, artifactVersions } from "@/server/db/schema";
-import { desc, eq, or, sql, and } from "drizzle-orm";
+import { desc, asc, eq, or, sql, and } from "drizzle-orm";
 import { getAccessibleGroups } from "@/server/auth/access";
-import { hybridSearch, fetchArtifactsByIds } from "@/server/lib/search";
+import { hybridSearch, fetchArtifactsByIds, sortArtifactRows } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { SearchBar } from "./_components/search-bar";
+import { PageHeader } from "@/components/ui/page-header";
+import { ListToolbar } from "@/components/ui/list-toolbar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { BookText, Search } from "lucide-react";
 
 type Props = {
-  searchParams: Promise<{ q?: string; tag?: string; offset?: string }>;
+  searchParams: Promise<{ q?: string; tag?: string; sort?: string; offset?: string }>;
 };
 
 export default async function PromptsPage({ searchParams }: Props) {
-  const { q, tag, offset: offsetStr } = await searchParams;
+  const { q, tag, sort, offset: offsetStr } = await searchParams;
   const offset = Number(offsetStr ?? 0);
   const limit = 30;
 
@@ -54,9 +55,10 @@ export default async function PromptsPage({ searchParams }: Props) {
 
   // ── Queries ────────────────────────────────────────────────────────────────
   let rows: Awaited<ReturnType<typeof fetchArtifactsByIds>>;
+  let mode: "hybrid" | "keyword" = "keyword";
 
   if (q) {
-    const { ids } = await hybridSearch({
+    const res = await hybridSearch({
       query: q,
       accessCondition: promptWhere,
       tagFilter,
@@ -65,12 +67,13 @@ export default async function PromptsPage({ searchParams }: Props) {
       limit,
       offset,
     });
-    rows = await fetchArtifactsByIds(ids, db);
+    mode = res.mode;
+    rows = sortArtifactRows(await fetchArtifactsByIds(res.ids, db), sort ?? "relevant");
   } else {
     const tagWhere = and(promptWhere, tagFilter);
     rows = await db.query.artifacts.findMany({
       where: tagWhere,
-      orderBy: desc(artifacts.updatedAt),
+      orderBy: sort === "title" ? asc(artifacts.title) : desc(artifacts.updatedAt),
       limit,
       offset,
       with: { versions: { limit: 1, orderBy: desc(artifactVersions.versionNo) } },
@@ -89,18 +92,42 @@ export default async function PromptsPage({ searchParams }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Prompts</h1>
-          <p className="text-sm text-muted-foreground">{rows.length} result{rows.length !== 1 ? "s" : ""}{q ? ` for "${q}"` : ""}</p>
-        </div>
-        <Button asChild>
-          <Link href="/prompts/new">New prompt</Link>
-        </Button>
-      </div>
+      <PageHeader
+        title="Prompts"
+        description={`${rows.length} result${rows.length !== 1 ? "s" : ""}${q ? ` for "${q}"` : ""}`}
+        badge={
+          q ? (
+            <Badge variant="outline" className="ml-2 text-[10px] align-middle">
+              {mode === "hybrid" ? "semantic" : "keyword"}
+            </Badge>
+          ) : undefined
+        }
+        actions={
+          <Button asChild>
+            <Link href="/prompts/new">New prompt</Link>
+          </Button>
+        }
+      />
 
       <Suspense>
-        <SearchBar allTags={allTags} />
+        <ListToolbar
+          searchPlaceholder="Search prompts…"
+          hasQuery={!!q}
+          extra={
+            allTags.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                <span className="text-xs text-muted-foreground self-center">Filter:</span>
+                {allTags.map((t) => (
+                  <Link key={t} href={tag === t ? "/prompts" : `/prompts?tag=${encodeURIComponent(t)}`}>
+                    <Badge variant={tag === t ? "default" : "secondary"} className="cursor-pointer text-[10px]">
+                      {t}
+                    </Badge>
+                  </Link>
+                ))}
+              </div>
+            ) : undefined
+          }
+        />
       </Suspense>
 
       {rows.length === 0 ? (
@@ -155,14 +182,14 @@ export default async function PromptsPage({ searchParams }: Props) {
         <div className="flex justify-center gap-2">
           {offset > 0 && (
             <Button asChild variant="outline" size="sm">
-              <Link href={`?${new URLSearchParams({ ...(q ? { q } : {}), ...(tag ? { tag } : {}), offset: String(Math.max(0, offset - limit)) })}`}>
+              <Link href={`?${new URLSearchParams({ ...(q ? { q } : {}), ...(tag ? { tag } : {}), ...(sort ? { sort } : {}), offset: String(Math.max(0, offset - limit)) })}`}>
                 Previous
               </Link>
             </Button>
           )}
           {rows.length === limit && (
             <Button asChild variant="outline" size="sm">
-              <Link href={`?${new URLSearchParams({ ...(q ? { q } : {}), ...(tag ? { tag } : {}), offset: String(offset + limit) })}`}>
+              <Link href={`?${new URLSearchParams({ ...(q ? { q } : {}), ...(tag ? { tag } : {}), ...(sort ? { sort } : {}), offset: String(offset + limit) })}`}>
                 Next
               </Link>
             </Button>

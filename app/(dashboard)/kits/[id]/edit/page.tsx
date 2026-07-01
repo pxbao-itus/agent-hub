@@ -6,6 +6,7 @@ import { db } from "@/server/db";
 import { artifacts, artifactVersions, artifactMembers } from "@/server/db/schema";
 import { eq, and, desc, asc, inArray } from "drizzle-orm";
 import { canMutatePrompt } from "@/server/auth/access";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { KitForm } from "../../_components/kit-form";
 import type { MemberEntry } from "../../_components/member-picker";
 
@@ -68,6 +69,9 @@ export default async function EditKitPage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
+      <Breadcrumb
+        items={[{ label: "Kits", href: "/kits" }, { label: kit.title, href: `/kits/${id}` }, { label: "Edit" }]}
+      />
       <div>
         <h1 className="text-2xl font-bold">Edit kit</h1>
         <p className="text-sm text-muted-foreground">{kit.title}</p>

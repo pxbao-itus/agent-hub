@@ -128,3 +128,20 @@ export async function fetchArtifactsByIds(ids: string[], dbClient: DbClient) {
   const map = new Map(rows.map((r) => [r.id, r]));
   return ids.map((id) => map.get(id)).filter(Boolean) as typeof rows;
 }
+
+/**
+ * Re-sort already-fetched search results for list pages. "relevant" keeps
+ * hybridSearch's RRF order as-is (a no-op); "recent"/"title" override it.
+ */
+export function sortArtifactRows<T extends { updatedAt: Date | string; title: string }>(
+  rows: T[],
+  sort: string,
+): T[] {
+  if (sort === "recent") {
+    return [...rows].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }
+  if (sort === "title") {
+    return [...rows].sort((a, b) => a.title.localeCompare(b.title));
+  }
+  return rows;
+}

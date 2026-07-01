@@ -6,6 +6,7 @@ import { db } from "@/server/db";
 import { artifacts, artifactVersions } from "@/server/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { canMutatePrompt } from "@/server/auth/access";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { DocForm } from "../../_components/doc-form";
 
 const getDoc = cache(async (id: string) =>
@@ -37,6 +38,9 @@ export default async function EditDocPage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="space-y-6">
+      <Breadcrumb
+        items={[{ label: "Docs", href: "/docs" }, { label: doc.title, href: `/docs/${id}` }, { label: "Edit" }]}
+      />
       <div>
         <h1 className="text-2xl font-bold">Edit doc</h1>
         <p className="text-sm text-muted-foreground">{doc.title}</p>

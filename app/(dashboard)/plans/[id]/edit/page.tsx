@@ -6,6 +6,7 @@ import { db } from "@/server/db";
 import { artifacts, artifactVersions, artifactTasks } from "@/server/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { canMutatePrompt } from "@/server/auth/access";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { PlanForm } from "../../_components/plan-form";
 
 const getPlan = cache(async (id: string) =>
@@ -44,6 +45,9 @@ export default async function EditPlanPage({ params }: { params: Promise<{ id: s
 
   return (
     <div className="space-y-6">
+      <Breadcrumb
+        items={[{ label: "Plans", href: "/plans" }, { label: plan.title, href: `/plans/${id}` }, { label: "Edit" }]}
+      />
       <div>
         <h1 className="text-2xl font-bold">Edit plan</h1>
         <p className="text-sm text-muted-foreground">{plan.title}</p>

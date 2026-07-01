@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SidebarNav } from "./_components/sidebar-nav";
 import { MobileHeader } from "./_components/mobile-header";
+import { CommandPalette } from "@/components/command-palette";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -15,6 +16,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="flex h-screen overflow-hidden">
+      <CommandPalette />
+
       {/* ── Desktop sidebar ───────────────────────────────────────────────── */}
       <aside className="hidden md:flex w-56 shrink-0 flex-col border-r bg-card">
         <div className="flex h-14 items-center border-b px-5">

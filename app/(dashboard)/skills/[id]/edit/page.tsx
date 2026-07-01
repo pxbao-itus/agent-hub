@@ -6,6 +6,7 @@ import { db } from "@/server/db";
 import { artifacts, artifactVersions } from "@/server/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { canMutatePrompt } from "@/server/auth/access";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { SkillForm } from "../../_components/skill-form";
 
 const getSkillForEdit = cache(async (id: string) =>
@@ -52,6 +53,9 @@ export default async function EditSkillPage({ params }: { params: Promise<{ id: 
 
   return (
     <div className="space-y-6">
+      <Breadcrumb
+        items={[{ label: "Skills", href: "/skills" }, { label: skill.title, href: `/skills/${id}` }, { label: "Edit" }]}
+      />
       <div>
         <h1 className="text-2xl font-bold">Edit skill</h1>
         <p className="text-sm text-muted-foreground">Saving creates a new immutable version.</p>

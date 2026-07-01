@@ -1,27 +1,29 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
-import { artifacts, artifactTasks } from "@/server/db/schema";
-import { desc, eq, sql, and, inArray } from "drizzle-orm";
+import { artifacts } from "@/server/db/schema";
+import { desc, asc, eq, sql, and, inArray } from "drizzle-orm";
 import { artifactAccessCondition } from "@/server/auth/access";
-import { hybridSearch } from "@/server/lib/search";
+import { hybridSearch, sortArtifactRows } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ClipboardList, Search } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { PageHeader } from "@/components/ui/page-header";
+import { ListToolbar } from "@/components/ui/list-toolbar";
 
 export const metadata: Metadata = { title: "Plans" };
 
 type Props = {
-  searchParams: Promise<{ q?: string; tag?: string; offset?: string }>;
+  searchParams: Promise<{ q?: string; tag?: string; sort?: string; offset?: string }>;
 };
 
 export default async function PlansPage({ searchParams }: Props) {
-  const { q, tag, offset: offsetStr } = await searchParams;
+  const { q, tag, sort, offset: offsetStr } = await searchParams;
   const offset = Number(offsetStr ?? 0);
   const limit = 30;
 
@@ -36,8 +38,9 @@ export default async function PlansPage({ searchParams }: Props) {
   const planWith = { tasks: { columns: { status: true } } } as const;
 
   let rows;
+  let mode: "hybrid" | "keyword" = "keyword";
   if (q) {
-    const { ids } = await hybridSearch({
+    const res = await hybridSearch({
       query: q,
       accessCondition: planWhere,
       tagFilter,
@@ -46,15 +49,16 @@ export default async function PlansPage({ searchParams }: Props) {
       limit,
       offset,
     });
-    const found = ids.length
-      ? await db.query.artifacts.findMany({ where: inArray(artifacts.id, ids), with: planWith })
+    mode = res.mode;
+    const found = res.ids.length
+      ? await db.query.artifacts.findMany({ where: inArray(artifacts.id, res.ids), with: planWith })
       : [];
     const byId = new Map(found.map((r) => [r.id, r]));
-    rows = ids.map((id) => byId.get(id)).filter(Boolean) as typeof found;
+    rows = sortArtifactRows(res.ids.map((id) => byId.get(id)).filter(Boolean) as typeof found, sort ?? "relevant");
   } else {
     rows = await db.query.artifacts.findMany({
       where: and(planWhere, tagFilter),
-      orderBy: desc(artifacts.updatedAt),
+      orderBy: sort === "title" ? asc(artifacts.title) : desc(artifacts.updatedAt),
       limit,
       offset,
       with: planWith,
@@ -66,39 +70,42 @@ export default async function PlansPage({ searchParams }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Plans</h1>
-          <p className="text-sm text-muted-foreground">
-            {rows.length} result{rows.length !== 1 ? "s" : ""}
-            {q ? ` for "${q}"` : ""}
-          </p>
-        </div>
-        <Button asChild>
-          <Link href="/plans/new">New plan</Link>
-        </Button>
-      </div>
-
-      <form method="GET" className="flex gap-2">
-        <Input name="q" defaultValue={q} placeholder="Search plans…" className="max-w-sm" />
-        {q && (
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/plans">Clear</Link>
+      <PageHeader
+        title="Plans"
+        description={`${rows.length} result${rows.length !== 1 ? "s" : ""}${q ? ` for "${q}"` : ""}`}
+        badge={
+          q ? (
+            <Badge variant="outline" className="ml-2 text-[10px] align-middle">
+              {mode === "hybrid" ? "semantic" : "keyword"}
+            </Badge>
+          ) : undefined
+        }
+        actions={
+          <Button asChild>
+            <Link href="/plans/new">New plan</Link>
           </Button>
-        )}
-      </form>
+        }
+      />
 
-      {allTags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {allTags.map((t) => (
-            <Link key={t} href={tag === t ? "/plans" : `/plans?tag=${encodeURIComponent(t)}`}>
-              <Badge variant={tag === t ? "default" : "secondary"} className="cursor-pointer text-[10px]">
-                {t}
-              </Badge>
-            </Link>
-          ))}
-        </div>
-      )}
+      <Suspense>
+        <ListToolbar
+          searchPlaceholder="Search plans…"
+          hasQuery={!!q}
+          extra={
+            allTags.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {allTags.map((t) => (
+                  <Link key={t} href={tag === t ? "/plans" : `/plans?tag=${encodeURIComponent(t)}`}>
+                    <Badge variant={tag === t ? "default" : "secondary"} className="cursor-pointer text-[10px]">
+                      {t}
+                    </Badge>
+                  </Link>
+                ))}
+              </div>
+            ) : undefined
+          }
+        />
+      </Suspense>
 
       {rows.length === 0 ? (
         <EmptyState
@@ -168,14 +175,14 @@ export default async function PlansPage({ searchParams }: Props) {
         <div className="flex justify-center gap-2">
           {offset > 0 && (
             <Button asChild variant="outline" size="sm">
-              <Link href={`?${new URLSearchParams({ ...(q ? { q } : {}), ...(tag ? { tag } : {}), offset: String(Math.max(0, offset - limit)) })}`}>
+              <Link href={`?${new URLSearchParams({ ...(q ? { q } : {}), ...(tag ? { tag } : {}), ...(sort ? { sort } : {}), offset: String(Math.max(0, offset - limit)) })}`}>
                 Previous
               </Link>
             </Button>
           )}
           {rows.length === limit && (
             <Button asChild variant="outline" size="sm">
-              <Link href={`?${new URLSearchParams({ ...(q ? { q } : {}), ...(tag ? { tag } : {}), offset: String(offset + limit) })}`}>
+              <Link href={`?${new URLSearchParams({ ...(q ? { q } : {}), ...(tag ? { tag } : {}), ...(sort ? { sort } : {}), offset: String(offset + limit) })}`}>
                 Next
               </Link>
             </Button>
