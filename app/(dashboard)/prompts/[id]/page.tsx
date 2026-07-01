@@ -7,12 +7,15 @@ import { db } from "@/server/db";
 import { artifacts, artifactVersions, artifactLinks } from "@/server/db/schema";
 import { eq, and, desc, asc } from "drizzle-orm";
 import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/auth/access";
+import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
+import { slugify } from "@/lib/slug";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DeletePromptButton } from "./_components/delete-prompt-button";
 import { VersionHistory } from "./_components/version-history";
 import { BodyViewer } from "@/components/ui/body-viewer";
+import { McpUsage } from "@/components/ui/mcp-usage";
 import { ShareDialog } from "../../_components/share-dialog";
 import { LinkedDocsSection } from "../../_components/linked-docs-section";
 
@@ -48,6 +51,13 @@ export default async function PromptDetailPage({ params }: { params: Promise<{ i
   const canEdit = await canMutatePrompt(identity, prompt, db);
   const canShare = await canShareArtifact(identity, prompt, db);
   const currentVersion = prompt.versions[0];
+
+  const ownerPaths = await resolveOwnerSlugPaths(
+    [{ ownerType: prompt.ownerType, ownerId: prompt.ownerId }],
+    db,
+  );
+  const spacePath = ownerPaths.get(`${prompt.ownerType}:${prompt.ownerId}`) ?? "";
+  const fullSlug = [spacePath, prompt.slug ?? slugify(prompt.title)].filter(Boolean).join(".");
 
   const rawLinks = await db.query.artifactLinks.findMany({
     where: and(eq(artifactLinks.sourceArtifactId, id), eq(artifactLinks.relation, "doc")),
@@ -93,6 +103,8 @@ export default async function PromptDetailPage({ params }: { params: Promise<{ i
           )}
         </div>
       </div>
+
+      <McpUsage kind="prompt" fullSlug={fullSlug} />
 
       {/* Current body */}
       {currentVersion && (

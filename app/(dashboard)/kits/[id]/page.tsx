@@ -7,9 +7,12 @@ import { db } from "@/server/db";
 import { artifacts, artifactVersions, artifactMembers, artifactLinks } from "@/server/db/schema";
 import { eq, and, desc, asc, sql } from "drizzle-orm";
 import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/auth/access";
+import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
+import { slugify } from "@/lib/slug";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BodyViewer } from "@/components/ui/body-viewer";
+import { McpUsage } from "@/components/ui/mcp-usage";
 import { DeleteKitButton } from "../_components/delete-kit-button";
 import { KitVersionHistory } from "./_components/kit-version-history";
 import { ShareDialog } from "../../_components/share-dialog";
@@ -60,6 +63,13 @@ export default async function KitDetailPage({ params }: { params: Promise<{ id: 
   const canEdit = await canMutatePrompt(identity, kit, db);
   const canShare = await canShareArtifact(identity, kit, db);
   const currentVersion = kit.versions[0];
+
+  const ownerPaths = await resolveOwnerSlugPaths(
+    [{ ownerType: kit.ownerType, ownerId: kit.ownerId }],
+    db,
+  );
+  const spacePath = ownerPaths.get(`${kit.ownerType}:${kit.ownerId}`) ?? "";
+  const fullSlug = [spacePath, kit.slug ?? slugify(kit.title)].filter(Boolean).join(".");
 
   const rawLinks = await db.query.artifactLinks.findMany({
     where: and(eq(artifactLinks.sourceArtifactId, id), eq(artifactLinks.relation, "doc")),
@@ -117,6 +127,8 @@ export default async function KitDetailPage({ params }: { params: Promise<{ id: 
           )}
         </div>
       </div>
+
+      <McpUsage kind="kit" fullSlug={fullSlug} />
 
       {/* Overview */}
       {currentVersion && (

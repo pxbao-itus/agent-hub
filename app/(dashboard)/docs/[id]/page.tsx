@@ -7,9 +7,12 @@ import { db } from "@/server/db";
 import { artifacts, artifactVersions, artifactLinks } from "@/server/db/schema";
 import { eq, and, desc, asc } from "drizzle-orm";
 import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/auth/access";
+import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
+import { slugify } from "@/lib/slug";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BodyViewer } from "@/components/ui/body-viewer";
+import { McpUsage } from "@/components/ui/mcp-usage";
 import { DeleteDocButton } from "../_components/delete-doc-button";
 import { ShareDialog } from "../../_components/share-dialog";
 import { FileText, ClipboardList, BookText, Wrench, Package } from "lucide-react";
@@ -59,6 +62,13 @@ export default async function DocDetailPage({ params }: { params: Promise<{ id: 
   const canShare = await canShareArtifact(identity, doc, db);
   const currentVersion = doc.versions[0];
 
+  const ownerPaths = await resolveOwnerSlugPaths(
+    [{ ownerType: doc.ownerType, ownerId: doc.ownerId }],
+    db,
+  );
+  const spacePath = ownerPaths.get(`${doc.ownerType}:${doc.ownerId}`) ?? "";
+  const fullSlug = [spacePath, doc.slug ?? slugify(doc.title)].filter(Boolean).join(".");
+
   // "Referenced by" — plans that link to this doc
   const incomingLinks = await db.query.artifactLinks.findMany({
     where: and(eq(artifactLinks.targetArtifactId, id), eq(artifactLinks.relation, "doc")),
@@ -105,6 +115,8 @@ export default async function DocDetailPage({ params }: { params: Promise<{ id: 
           )}
         </div>
       </div>
+
+      <McpUsage kind="doc" fullSlug={fullSlug} />
 
       {/* Body */}
       {currentVersion && (

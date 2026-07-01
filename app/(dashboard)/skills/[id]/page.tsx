@@ -7,10 +7,13 @@ import { db } from "@/server/db";
 import { artifacts, artifactVersions, artifactLinks } from "@/server/db/schema";
 import { eq, and, desc, asc } from "drizzle-orm";
 import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/auth/access";
+import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
+import { slugify } from "@/lib/slug";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CodeBlock } from "@/components/ui/code-block";
 import { BodyViewer } from "@/components/ui/body-viewer";
+import { McpUsage } from "@/components/ui/mcp-usage";
 import { DeleteSkillButton } from "../_components/delete-skill-button";
 import { SkillVersionHistory } from "./_components/skill-version-history";
 import { ShareDialog } from "../../_components/share-dialog";
@@ -52,6 +55,13 @@ export default async function SkillDetailPage({ params }: { params: Promise<{ id
   const canShare = await canShareArtifact(identity, skill, db);
   const currentVersion = skill.versions[0];
   const currentFiles = currentVersion?.files ?? [];
+
+  const ownerPaths = await resolveOwnerSlugPaths(
+    [{ ownerType: skill.ownerType, ownerId: skill.ownerId }],
+    db,
+  );
+  const spacePath = ownerPaths.get(`${skill.ownerType}:${skill.ownerId}`) ?? "";
+  const fullSlug = [spacePath, skill.slug ?? slugify(skill.title)].filter(Boolean).join(".");
 
   const rawLinks = await db.query.artifactLinks.findMany({
     where: and(eq(artifactLinks.sourceArtifactId, id), eq(artifactLinks.relation, "doc")),
@@ -98,6 +108,8 @@ export default async function SkillDetailPage({ params }: { params: Promise<{ id
           )}
         </div>
       </div>
+
+      <McpUsage kind="skill" fullSlug={fullSlug} />
 
       {/* Instructions */}
       {currentVersion && (

@@ -6,7 +6,7 @@ import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { MemberPicker, type MemberEntry } from "./member-picker";
@@ -333,14 +333,13 @@ export function KitForm(props: Props) {
           <Label htmlFor="body">Overview</Label>
           <span className="text-xs text-muted-foreground">Markdown supported</span>
         </div>
-        <Textarea
+        <MarkdownEditor
           id="body"
           value={body}
-          onChange={(e) => setBody(e.target.value)}
+          onChange={setBody}
           required
           rows={8}
           placeholder="# My Kit&#10;&#10;Describe what this kit is for and how to use its members..."
-          className="font-mono text-sm resize-y"
         />
       </div>
 

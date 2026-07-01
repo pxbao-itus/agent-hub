@@ -6,7 +6,7 @@ import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { FileEditor, type FileEntry } from "./file-editor";
@@ -331,14 +331,13 @@ export function SkillForm(props: Props) {
           <Label htmlFor="body">Instructions (SKILL.md)</Label>
           <span className="text-xs text-muted-foreground">Markdown supported</span>
         </div>
-        <Textarea
+        <MarkdownEditor
           id="body"
           value={body}
-          onChange={(e) => setBody(e.target.value)}
+          onChange={setBody}
           required
           rows={12}
           placeholder="# My Skill&#10;&#10;Describe what this skill does and how to use it..."
-          className="font-mono text-sm resize-y"
         />
       </div>
 

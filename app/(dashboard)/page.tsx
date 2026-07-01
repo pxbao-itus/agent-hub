@@ -1,15 +1,30 @@
 import Link from "next/link";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
-import { artifacts, orgs, mcpTokens, memberships, artifactVersions } from "@/server/db/schema";
+import { artifacts, orgs, mcpTokens, memberships } from "@/server/db/schema";
 import { eq, and, desc, count, isNull, gt, or } from "drizzle-orm";
 import { artifactAccessCondition } from "@/server/auth/access";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { BookText, Wrench, Package, ClipboardList, FileText, Building2, Key, Plus } from "lucide-react";
+import { BookText, Wrench, Package, ClipboardList, FileText, Building2, Key, Plus, Sparkles } from "lucide-react";
 
 export const metadata = { title: "Dashboard" };
+
+const KIND_ICON: Record<string, React.ElementType> = {
+  prompt: BookText,
+  skill: Wrench,
+  kit: Package,
+  plan: ClipboardList,
+  doc: FileText,
+};
+const KIND_HREF: Record<string, string> = {
+  prompt: "/prompts",
+  skill: "/skills",
+  kit: "/kits",
+  plan: "/plans",
+  doc: "/docs",
+};
 
 export default async function DashboardHome() {
   const session = await auth();
@@ -20,7 +35,7 @@ export default async function DashboardHome() {
   const accessWhere = await artifactAccessCondition(userId, isSuperAdmin ? "superadmin" : "user", db);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
-  const [[{ promptCount }], [{ skillCount }], [{ kitCount }], [{ planCount }], [{ docCount }], [{ orgCount }], [{ tokenCount }], recentPrompts] = await Promise.all([
+  const [[{ promptCount }], [{ skillCount }], [{ kitCount }], [{ planCount }], [{ docCount }], [{ orgCount }], [{ tokenCount }], recentActivity] = await Promise.all([
     db.select({ promptCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "prompt"), accessWhere)),
     db.select({ skillCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "skill"), accessWhere)),
     db.select({ kitCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "kit"), accessWhere)),
@@ -38,13 +53,14 @@ export default async function DashboardHome() {
         or(isNull(mcpTokens.expiresAt), gt(mcpTokens.expiresAt, new Date())),
       )),
     db.query.artifacts.findMany({
-      where: and(eq(artifacts.kind, "prompt"), accessWhere),
+      where: accessWhere,
       orderBy: desc(artifacts.updatedAt),
-      limit: 5,
-      with: { versions: { limit: 1, orderBy: desc(artifactVersions.versionNo) } },
+      limit: 8,
+      columns: { id: true, kind: true, title: true, description: true, visibility: true },
     }),
   ]);
 
+  const totalArtifacts = promptCount + skillCount + kitCount + planCount + docCount;
   const displayName = session!.user?.name ?? session!.user?.email ?? "there";
 
   return (
@@ -153,43 +169,63 @@ export default async function DashboardHome() {
         </Button>
       </div>
 
-      {/* Recent prompts */}
-      {recentPrompts.length > 0 && (
+      {/* Recent activity */}
+      {recentActivity.length > 0 && (
         <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Recent prompts</h2>
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/prompts">View all</Link>
-            </Button>
-          </div>
+          <h2 className="text-lg font-semibold">Recent activity</h2>
           <div className="divide-y rounded-md border">
-            {recentPrompts.map((p) => (
-              <Link
-                key={p.id}
-                href={`/prompts/${p.id}`}
-                className="flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors"
-              >
-                <div className="space-y-0.5 min-w-0">
-                  <p className="text-sm font-medium truncate">{p.title}</p>
-                  {p.description && (
-                    <p className="text-xs text-muted-foreground truncate">{p.description}</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 ml-4 shrink-0">
-                  <Badge variant="outline">{p.visibility}</Badge>
-                </div>
-              </Link>
-            ))}
+            {recentActivity.map((a) => {
+              const Icon = KIND_ICON[a.kind] ?? BookText;
+              const href = `${KIND_HREF[a.kind] ?? "/prompts"}/${a.id}`;
+              return (
+                <Link
+                  key={a.id}
+                  href={href}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors"
+                >
+                  <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="space-y-0.5 min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{a.title}</p>
+                    {a.description && (
+                      <p className="text-xs text-muted-foreground truncate">{a.description}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 ml-4 shrink-0">
+                    <Badge variant="secondary" className="text-[10px]">{a.kind}</Badge>
+                    <Badge variant="outline" className="text-[10px]">{a.visibility}</Badge>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         </section>
       )}
 
-      {recentPrompts.length === 0 && promptCount === 0 && (
-        <div className="rounded-lg border border-dashed p-12 text-center">
-          <p className="text-muted-foreground">No prompts yet.</p>
-          <Button asChild className="mt-4" variant="outline">
-            <Link href="/prompts/new">Create your first prompt</Link>
-          </Button>
+      {/* Onboarding — first run, nothing accessible yet */}
+      {totalArtifacts === 0 && (
+        <div className="rounded-lg border border-dashed p-8 text-center space-y-4">
+          <Sparkles className="mx-auto h-8 w-8 text-muted-foreground" />
+          <div>
+            <p className="font-medium">Nothing here yet</p>
+            <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
+              A typical flow: capture a bug report or requirement as a <strong>doc</strong>,
+              work through it with an agent, then turn the outcome into a <strong>plan</strong>.
+            </p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button asChild size="sm">
+              <Link href="/docs/new"><Plus className="h-4 w-4" />New doc</Link>
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/prompts/new"><Plus className="h-4 w-4" />New prompt</Link>
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/skills/new"><Plus className="h-4 w-4" />New skill</Link>
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/plans/new"><Plus className="h-4 w-4" />New plan</Link>
+            </Button>
+          </div>
         </div>
       )}
     </div>

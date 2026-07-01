@@ -11,6 +11,7 @@ import { getEmbedder } from "@/server/embedder";
 import { type TokenScope, applyScopeToOwners, promptPassesScopeTags } from "./scope";
 import { flattenKitMembers } from "@/server/lib/kit";
 import { createPlan, addPlanLink } from "@/server/services/plan";
+import { slugify } from "@/lib/slug";
 import type { ArtifactKind } from "@/server/db/schema";
 
 type Identity = { userId: string; systemRole: "user" | "superadmin" };
@@ -782,16 +783,6 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function slugify(s: string): string {
-  return (
-    s
-      .toLowerCase()
-      .replace(/[^\w\s-]/g, "")
-      .replace(/[\s_]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "prompt"
-  );
-}
 
 function uniqueSlug(title: string, id: string, seen: Set<string>): string {
   const base = slugify(title);
