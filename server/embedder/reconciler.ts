@@ -1,6 +1,13 @@
 import { eq, and, isNull, inArray } from "drizzle-orm";
 import { db } from "@/server/db";
-import { artifacts, artifactVersions, artifactEmbeddings } from "@/server/db/schema";
+import {
+  artifacts,
+  artifactVersions,
+  artifactEmbeddings,
+  artifactFiles,
+  artifactTasks,
+  artifactMembers,
+} from "@/server/db/schema";
 import { getEmbedder } from "./index";
 
 const BATCH = 10;
@@ -33,17 +40,68 @@ async function tick() {
 
   if (!pending.length) return;
 
-  // Fetch artifact metadata (title + description) to enrich the embedding text.
+  // Fetch artifact metadata (title + description + kind) to enrich the embedding text.
   const artifactIds = [...new Set(pending.map((r) => r.artifactId))];
   const artifactMeta = await db
-    .select({ id: artifacts.id, title: artifacts.title, description: artifacts.description })
+    .select({ id: artifacts.id, title: artifacts.title, description: artifacts.description, kind: artifacts.kind })
     .from(artifacts)
     .where(inArray(artifacts.id, artifactIds));
   const metaMap = new Map(artifactMeta.map((p) => [p.id, p]));
 
+  // Kind-specific extra text so the vector captures more than just the body:
+  // skill → bundled file paths (per version), plan → task content, kit → member titles.
+  const versionIds = pending.map((v) => v.versionId);
+  const skillFiles = await db
+    .select({ artifactVersionId: artifactFiles.artifactVersionId, path: artifactFiles.path })
+    .from(artifactFiles)
+    .where(inArray(artifactFiles.artifactVersionId, versionIds));
+  const filesByVersion = new Map<string, string[]>();
+  for (const f of skillFiles) {
+    const list = filesByVersion.get(f.artifactVersionId) ?? [];
+    list.push(f.path);
+    filesByVersion.set(f.artifactVersionId, list);
+  }
+
+  const planTasks = await db
+    .select({ artifactId: artifactTasks.artifactId, content: artifactTasks.content })
+    .from(artifactTasks)
+    .where(inArray(artifactTasks.artifactId, artifactIds));
+  const tasksByArtifact = new Map<string, string[]>();
+  for (const t of planTasks) {
+    const list = tasksByArtifact.get(t.artifactId) ?? [];
+    list.push(t.content);
+    tasksByArtifact.set(t.artifactId, list);
+  }
+
+  const memberLinks = await db
+    .select({ kitArtifactId: artifactMembers.kitArtifactId, memberArtifactId: artifactMembers.memberArtifactId })
+    .from(artifactMembers)
+    .where(inArray(artifactMembers.kitArtifactId, artifactIds));
+  const memberArtifactIds = [...new Set(memberLinks.map((m) => m.memberArtifactId))];
+  const memberTitles = memberArtifactIds.length
+    ? await db
+        .select({ id: artifacts.id, title: artifacts.title })
+        .from(artifacts)
+        .where(inArray(artifacts.id, memberArtifactIds))
+    : [];
+  const memberTitleById = new Map(memberTitles.map((m) => [m.id, m.title]));
+  const memberTitlesByKit = new Map<string, string[]>();
+  for (const link of memberLinks) {
+    const title = memberTitleById.get(link.memberArtifactId);
+    if (!title) continue;
+    const list = memberTitlesByKit.get(link.kitArtifactId) ?? [];
+    list.push(title);
+    memberTitlesByKit.set(link.kitArtifactId, list);
+  }
+
   const texts = pending.map((v) => {
     const meta = metaMap.get(v.artifactId);
-    return [meta?.title, meta?.description, v.body].filter(Boolean).join("\n\n");
+    const extra =
+      meta?.kind === "skill" ? filesByVersion.get(v.versionId)?.join(", ")
+      : meta?.kind === "plan" ? tasksByArtifact.get(v.artifactId)?.join("\n")
+      : meta?.kind === "kit" ? memberTitlesByKit.get(v.artifactId)?.join(", ")
+      : undefined;
+    return [meta?.title, meta?.description, v.body, extra].filter(Boolean).join("\n\n");
   });
 
   const vectors = await embedder.embed(texts);
