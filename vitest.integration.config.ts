@@ -15,6 +15,9 @@ export default defineConfig({
     // DB-backed tests share state (the seeded fixtures) — run sequentially
     // to avoid one file's assumptions colliding with another's.
     fileParallelism: false,
+    // Repoints DATABASE_URL -> TEST_DATABASE_URL before any test file's
+    // module-level `db` imports (e.g. server/mcp/server.ts) resolve.
+    setupFiles: ["./server/test-support/integration-setup.ts"],
   },
   resolve: {
     alias: { "@": resolve(__dirname, ".") },
