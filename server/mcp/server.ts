@@ -6,6 +6,7 @@ import { artifacts, artifactVersions, artifactTasks, artifactLinks } from "@/ser
 import { getAccessibleGroups, getSharedArtifactIds, effectiveGroupRole } from "@/server/auth/access";
 import { renderTemplate } from "@/server/lib/template";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
+import { getCachedVersionContent } from "@/server/lib/version-cache";
 import { hybridSearch } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import { type TokenScope, applyScopeToOwners, promptPassesScopeTags } from "./scope";
@@ -21,16 +22,35 @@ type Identity = { userId: string; systemRole: "user" | "superadmin" };
  * Each accessible prompt is registered as its own named slash command
  * so agents can invoke prompts directly without going through list/get.
  */
+const ALL_KINDS: ArtifactKind[] = ["prompt", "skill", "kit", "plan", "doc"];
+
 export async function createMcpServer(identity: Identity, scope: TokenScope = {}): Promise<McpServer> {
   const server = new McpServer({ name: "agent-hub", version: "0.1.0" });
 
-  const rows = await getArtifactsForIdentity(identity, scope, "prompt");
+  // One access resolution + one query for every kind, instead of 5 of each
+  // (Phase 39 perf) — getAccessibleGroups/getSharedArtifactIds/findMany were
+  // each re-run per kind despite returning the same thing every time.
+  const byKind = await getArtifactsForIdentity(identity, scope, ALL_KINDS);
+  const rows = byKind.prompt;
+  const skillRows = byKind.skill;
+  const kitRows = byKind.kit;
+  const planRows = byKind.plan;
+  const docRows = byKind.doc;
 
-  // Resolve hierarchical slug paths for all owner entities in one batch
+  // Resolve hierarchical slug paths for every owner across every kind in one
+  // batch — same reasoning: this is a pure lookup by owner identity, not by
+  // which kind asked for it, so one shared map is correct for all five.
   const ownerSlugPaths = await resolveOwnerSlugPaths(
-    rows.map((p) => ({ ownerType: p.ownerType, ownerId: p.ownerId })),
+    [...rows, ...skillRows, ...kitRows, ...planRows, ...docRows].map((r) => ({
+      ownerType: r.ownerType,
+      ownerId: r.ownerId,
+    })),
     db,
   );
+  const skillOwnerPaths = ownerSlugPaths;
+  const kitOwnerPaths = ownerSlugPaths;
+  const docOwnerPaths = ownerSlugPaths;
+  const planOwnerPaths = ownerSlugPaths;
 
   const seen = new Set<string>();
 
@@ -78,12 +98,6 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
   // ── Tool: get_skill ───────────────────────────────────────────────────────
   // Fetch a skill's instructions (SKILL.md body) and bundled files by slug.
 
-  const skillRows = await getArtifactsForIdentity(identity, scope, "skill");
-  const skillOwnerPaths = await resolveOwnerSlugPaths(
-    skillRows.map((s) => ({ ownerType: s.ownerType, ownerId: s.ownerId })),
-    db,
-  );
-
   // Build slug → skill map for fast lookup
   const skillBySlug = new Map<string, typeof skillRows[number]>();
   for (const s of skillRows) {
@@ -118,22 +132,23 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         return { content: [{ type: "text" as const, text: `Skill '${slug}' has no versions.` }] };
       }
 
-      // Fetch files for this version
-      const versionWithFiles = await db.query.artifactVersions.findFirst({
-        where: eq(artifactVersions.id, version.id),
-        with: { files: true },
-      });
+      // Cached by version id (Phase 39 perf) — this used to re-fetch the
+      // whole version row (body included, though only .files was actually
+      // used; body already came from the batched fetch above) on every call,
+      // uncached. Versions are immutable, so once a version id has been
+      // resolved once, every later call for it is free.
+      const content = await getCachedVersionContent(version.id, db);
 
       const parts: string[] = [];
       parts.push(`# ${skill.title}`);
       if (skill.description) parts.push(`_${skill.description}_`);
       parts.push("");
-      parts.push(version.body);
+      parts.push(content?.body ?? version.body);
 
-      if (versionWithFiles?.files.length) {
+      if (content?.files.length) {
         parts.push("");
         parts.push("## Bundled files");
-        for (const f of versionWithFiles.files) {
+        for (const f of content.files) {
           parts.push(`\n### ${f.path}`);
           parts.push("```");
           parts.push(f.content);
@@ -177,12 +192,6 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
   );
 
   // ── Kit tools ─────────────────────────────────────────────────────────────
-
-  const kitRows = await getArtifactsForIdentity(identity, scope, "kit");
-  const kitOwnerPaths = await resolveOwnerSlugPaths(
-    kitRows.map((k) => ({ ownerType: k.ownerType, ownerId: k.ownerId })),
-    db,
-  );
 
   const kitBySlug = new Map<string, typeof kitRows[number]>();
   for (const k of kitRows) {
@@ -303,11 +312,6 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
 
   // ── Doc setup (needed by plan tools for linked-docs trace) ──────────────
 
-  const docRows = await getArtifactsForIdentity(identity, scope, "doc");
-  const docOwnerPaths = await resolveOwnerSlugPaths(
-    docRows.map((d) => ({ ownerType: d.ownerType, ownerId: d.ownerId })),
-    db,
-  );
   const accessibleDocIds = new Set(docRows.map((d) => d.id));
 
   const docBySlug = new Map<string, typeof docRows[number]>();
@@ -320,12 +324,6 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
   }
 
   // ── Plan tools ────────────────────────────────────────────────────────────
-
-  const planRows = await getArtifactsForIdentity(identity, scope, "plan");
-  const planOwnerPaths = await resolveOwnerSlugPaths(
-    planRows.map((p) => ({ ownerType: p.ownerType, ownerId: p.ownerId })),
-    db,
-  );
 
   const planBySlug = new Map<string, typeof planRows[number]>();
   for (const p of planRows) {
@@ -429,21 +427,29 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         return { content: [{ type: "text" as const, text: "No plans available." }] };
       }
 
-      const lines = await Promise.all(
-        planRows.map(async (p) => {
-          const spacePath = planOwnerPaths.get(`${p.ownerType}:${p.ownerId}`) ?? "";
-          const localSlug = p.slug ?? slugify(p.title);
-          const fullSlug = [spacePath, localSlug].filter(Boolean).join(".");
-          const tasks = await db.query.artifactTasks.findMany({
-            where: eq(artifactTasks.artifactId, p.id),
-            columns: { status: true },
-          });
-          const done = tasks.filter((t) => t.status === "done").length;
-          const progress = tasks.length ? ` [${done}/${tasks.length}]` : "";
-          const desc = p.description ? `: ${p.description}` : "";
-          return `- ${fullSlug}${desc}${progress}`;
-        }),
-      );
+      // One query for every plan's tasks instead of one query per plan
+      // (Phase 39 perf) — counted and grouped in JS below.
+      const allTasks = await db.query.artifactTasks.findMany({
+        where: inArray(artifactTasks.artifactId, planRows.map((p) => p.id)),
+        columns: { artifactId: true, status: true },
+      });
+      const counts = new Map<string, { total: number; done: number }>();
+      for (const t of allTasks) {
+        const c = counts.get(t.artifactId) ?? { total: 0, done: 0 };
+        c.total++;
+        if (t.status === "done") c.done++;
+        counts.set(t.artifactId, c);
+      }
+
+      const lines = planRows.map((p) => {
+        const spacePath = planOwnerPaths.get(`${p.ownerType}:${p.ownerId}`) ?? "";
+        const localSlug = p.slug ?? slugify(p.title);
+        const fullSlug = [spacePath, localSlug].filter(Boolean).join(".");
+        const c = counts.get(p.id);
+        const progress = c?.total ? ` [${c.done}/${c.total}]` : "";
+        const desc = p.description ? `: ${p.description}` : "";
+        return `- ${fullSlug}${desc}${progress}`;
+      });
 
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     },
@@ -795,17 +801,23 @@ function uniqueSlug(title: string, id: string, seen: Set<string>): string {
   return withId;
 }
 
+/**
+ * Fetches every accessible artifact across all of `kinds` in one query and
+ * groups the results by kind (Phase 39 perf — see the call site comment).
+ * Access resolution (accessible groups + shares) is computed once here
+ * regardless of how many kinds are requested.
+ */
 async function getArtifactsForIdentity(
   identity: Identity,
   scope: TokenScope,
-  kind: ArtifactKind,
+  kinds: ArtifactKind[],
 ) {
   const { userId, systemRole } = identity;
 
   const accessibleGroups = await getAccessibleGroups(userId, db);
   const scopedGroups = applyScopeToOwners(scope, accessibleGroups);
 
-  const kindFilter = eq(artifacts.kind, kind);
+  const kindFilter = inArray(artifacts.kind, kinds);
 
   let where = kindFilter;
   if (systemRole !== "superadmin") {
@@ -832,15 +844,16 @@ async function getArtifactsForIdentity(
   const rows = await db.query.artifacts.findMany({
     where,
     orderBy: desc(artifacts.updatedAt),
-    columns: { id: true, title: true, description: true, slug: true, ownerType: true, ownerId: true, tags: true },
+    columns: { id: true, kind: true, title: true, description: true, slug: true, ownerType: true, ownerId: true, tags: true },
     with: {
       variables: { columns: { name: true } },
       versions: { orderBy: desc(artifactVersions.versionNo), limit: 1 },
     },
   });
 
-  if (scope.tags?.length) {
-    return rows.filter((r) => promptPassesScopeTags(r.tags, scope));
-  }
-  return rows;
+  const filtered = scope.tags?.length ? rows.filter((r) => promptPassesScopeTags(r.tags, scope)) : rows;
+
+  const byKind = Object.fromEntries(kinds.map((k) => [k, [] as typeof filtered])) as Record<ArtifactKind, typeof filtered>;
+  for (const r of filtered) byKind[r.kind as ArtifactKind].push(r);
+  return byKind;
 }
