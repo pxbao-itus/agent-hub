@@ -48,9 +48,24 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# drizzle-kit + schema, for the entrypoint's schema push. Next's standalone
+# output only bundles what `next start` itself needs — drizzle-kit is a
+# devDependency and gets traced out of it entirely. Copying the full `deps`
+# node_modules on top (merge, not replace — standalone's own node_modules
+# stays intact for anything not in this copy) adds it back. This does make
+# the runner meaningfully bigger than a pure standalone image; that's an
+# accepted trade-off for "docker compose up actually applies the schema"
+# over image size, for a single-instance self-host (D-013).
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --chown=nextjs:nodejs drizzle.config.ts ./
+COPY --chown=nextjs:nodejs server/db/schema.ts ./server/db/schema.ts
+COPY --chown=nextjs:nodejs docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
+
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
+ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["node", "server.js"]

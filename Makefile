@@ -1,5 +1,5 @@
 .PHONY: dev build start test test/integration typecheck lint \
-        db/up db/down db/migrate db/generate db/push db/studio db/seed db/create-root db/reindex \
+        db/up db/down db/push db/studio db/seed db/create-root db/reindex \
         setup install
 
 # ── Dev ──────────────────────────────────────────────────────────────────────
@@ -23,12 +23,6 @@ db/up:
 
 db/down:
 	docker compose down
-
-db/migrate:
-	pnpm db:migrate
-
-db/generate:
-	pnpm db:generate
 
 db/push:
 	pnpm db:push
@@ -73,5 +67,5 @@ lint:
 install:
 	pnpm install
 
-# Start DB, apply migrations, then launch dev server
-setup: db/up db/migrate dev
+# Start DB, apply schema, then launch dev server
+setup: db/up db/push dev

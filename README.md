@@ -47,11 +47,9 @@ cp .env.example .env
 #   NEXTAUTH_URL  — set to your public URL (e.g. https://hub.example.com)
 #   ROOT_EMAIL / ROOT_PASSWORD — for the first superadmin (see below)
 
-# Build and start (Postgres + app)
+# Build and start (Postgres + app) — the app container applies the database
+# schema itself on every boot, so this is the only command you need.
 docker compose up -d --build
-
-# Apply database migrations (first run only)
-docker compose exec app node node_modules/.bin/drizzle-kit migrate
 
 # Create a superadmin account (first run only; reads ROOT_EMAIL/ROOT_PASSWORD from .env)
 docker compose exec app npx tsx server/scripts/create-superadmin.ts
@@ -64,25 +62,36 @@ To update to a new version:
 ```bash
 git pull
 docker compose up -d --build
-docker compose exec app node node_modules/.bin/drizzle-kit migrate
 ```
+
+> The container applies the schema (`drizzle-kit push`, non-interactively)
+> before starting on every boot — there's no separate migration step to run.
+> This means a schema change that would involve data loss (e.g. a dropped
+> column) also applies automatically on next restart, with no confirmation
+> prompt. Review `schema.ts` changes before deploying, the same care a
+> hand-run migration would need anyway.
 
 ## Development
 
-Requirements: Node 20+, pnpm, Docker.
+Requirements: Node 22+, pnpm, Docker.
 
 ```bash
 pnpm install                 # install dependencies
 cp .env.example .env         # configure env (set AUTH_SECRET)
 docker compose up -d db      # Postgres only
-pnpm db:migrate              # create tables
+pnpm db:push                 # create tables
 pnpm db:seed                 # (optional) seed sample data
 pnpm dev                     # http://localhost:3000
 ```
 
-A `Makefile` wraps the common flows: `make setup` (DB up + migrate + dev), `make db/up`, `make db/migrate`, `make db/seed`, `make db/create-root email=you@example.com password=secret`, `make test`, `make typecheck`.
+A `Makefile` wraps the common flows: `make setup` (DB up + push + dev), `make db/up`, `make db/push`, `make db/seed`, `make db/create-root email=you@example.com password=secret`, `make test`, `make typecheck`.
 
-Other DB commands: `pnpm db:generate` (generate a migration from the schema), `pnpm db:push`, `pnpm db:studio`.
+Other DB commands: `pnpm db:studio`.
+
+> `schema.ts` is the single source of truth — there's no versioned migration
+> history. `drizzle-kit push` diffs it against the live database and applies
+> the difference directly; run it again after pulling any update that
+> touches the schema.
 
 ## Search & embeddings
 
