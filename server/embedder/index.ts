@@ -28,11 +28,20 @@ export class NullEmbedder implements Embedder {
   }
 }
 
-let _instance: Embedder = new NullEmbedder();
+// A plain module-level `let` here does NOT reliably share state between
+// instrumentation.ts's register() and route/page code: confirmed by testing
+// (both `next dev` and a clean `next start`/standalone build) that
+// setEmbedder() from instrumentation.ts left every page-rendered search on
+// keyword-only fallback despite EMBEDDER being set to local/remote/stub —
+// instrumentation runs in a separate module realm from request handling.
+// globalThis is a true process-wide object, immune to that split (same
+// pattern already used for the DB pool in server/db/index.ts).
+const g = globalThis as unknown as { __embedderInstance?: Embedder };
+if (!g.__embedderInstance) g.__embedderInstance = new NullEmbedder();
 
 /** Returns the current singleton Embedder. Always synchronous. */
 export function getEmbedder(): Embedder {
-  return _instance;
+  return g.__embedderInstance!;
 }
 
 /**
@@ -40,5 +49,5 @@ export function getEmbedder(): Embedder {
  * before any requests are served. Safe to call multiple times (last write wins).
  */
 export function setEmbedder(e: Embedder): void {
-  _instance = e;
+  g.__embedderInstance = e;
 }
