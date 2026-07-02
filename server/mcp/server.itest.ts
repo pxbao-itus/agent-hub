@@ -48,6 +48,7 @@ const BACKEND_PATH = "qa-org.engineering.backend";
 let engMember: typeof schema.users.$inferSelect;
 let marketingMember: typeof schema.users.$inferSelect;
 let outsider: typeof schema.users.$inferSelect;
+let orgAdmin: typeof schema.users.$inferSelect;
 let backend: typeof schema.teams.$inferSelect;
 
 let prompt1Slug: string;
@@ -67,6 +68,7 @@ beforeAll(async () => {
     .from(schema.users)
     .where(eq(schema.users.email, "marketing-member@test.local"));
   [outsider] = await db.select().from(schema.users).where(eq(schema.users.email, "outsider@test.local"));
+  [orgAdmin] = await db.select().from(schema.users).where(eq(schema.users.email, "org-admin@test.local"));
   [backend] = await db.select().from(schema.teams).where(eq(schema.teams.slug, "backend"));
 
   const prompt1 = await mustArtifact("Rà soát bảo mật mã nguồn");
@@ -91,6 +93,14 @@ beforeAll(async () => {
 });
 
 afterAll(() => close());
+
+describe("D-016: read access inherits downward too (org-admin, no direct team/dept membership)", () => {
+  it("org-admin's list_skills includes a descendant team's group skill", async () => {
+    const client = await connect({ userId: orgAdmin.id, systemRole: "user" });
+    const result = await client.callTool({ name: "list_skills", arguments: {} });
+    expect(text(result)).toContain(skill1Slug); // owned by team backend, under org-admin's org
+  });
+});
 
 describe("prompts primitive", () => {
   it("lists the namespaced team prompt and the personal prompt for eng-member", async () => {

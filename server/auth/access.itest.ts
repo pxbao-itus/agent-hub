@@ -16,21 +16,28 @@ import {
  * server/db/seed-test.ts). Run via `pnpm test:integration`, which reseeds
  * first — these tests assume that exact fixture set and do not mutate data.
  *
- * These lock in a two-way asymmetry in the permission model that is easy to
- * get backwards when reasoning about it in the abstract:
+ * These lock in the permission model's two independent inheritance rules
+ * (D-016, docs/decisions.md) — easy to get backwards when reasoning about
+ * them in the abstract:
  *  - READ (getAccessibleGroups / canAccessArtifact / artifactAccessCondition)
- *    inherits UPWARD: a team member sees group artifacts owned by their team
- *    and its ancestors (dept, org), never a sibling team's or a descendant's.
- *  - MUTATE/SHARE authority (effectiveGroupRole) inherits DOWNWARD: a role
- *    held at a higher level (e.g. org admin) authorizes managing artifacts
- *    owned by anything under it, but a lower-level membership (e.g. a team
- *    editor) does NOT authorize managing its own parent dept's or org's
- *    directly-owned artifacts.
- * One consequence worth flagging explicitly: an org-level admin with no
- * *direct* team/dept membership can manage (mutate/share) a team's group
- * artifacts, but cannot browse/read them via the normal list/search path —
- * their read-accessible set is only {org} groups, same as a total outsider
- * for anything not public. See the "org-admin" describe block below.
+ *    inherits BOTH WAYS from each direct membership: a team member sees
+ *    group artifacts owned by their team, its ancestors (dept, org), AND —
+ *    since D-016 — its descendants too (a team has none, but a dept/org
+ *    membership does). It never sees a *sibling* group's artifacts (e.g. a
+ *    different team under the same dept) — that would only happen by
+ *    wrongly expanding downward from an ancestor reached via upward
+ *    traversal, which resolveAccessibleGroups's unit tests guard against
+ *    directly (server/auth/access.test.ts).
+ *  - MUTATE/SHARE authority (effectiveGroupRole) inherits DOWNWARD ONLY, and
+ *    is unaffected by D-016: a role held at a higher level (e.g. org admin)
+ *    authorizes managing artifacts owned by anything under it, but a
+ *    lower-level membership (e.g. a team editor) does NOT authorize managing
+ *    its own parent dept's or org's directly-owned artifacts, and a *read*
+ *    role (viewer) never authorizes mutating anything regardless of level.
+ * orgAdmin and orgViewer both have only an org-level membership (no direct
+ * team/dept membership) — orgAdmin as role "admin", orgViewer as role
+ * "viewer". Both now read every descendant group artifact (D-016); only
+ * orgAdmin can also mutate/share them.
  */
 
 const { db, close } = createTestDb();
@@ -38,6 +45,7 @@ const { db, close } = createTestDb();
 let engMember: typeof schema.users.$inferSelect;
 let marketingMember: typeof schema.users.$inferSelect;
 let orgAdmin: typeof schema.users.$inferSelect;
+let orgViewer: typeof schema.users.$inferSelect;
 let outsider: typeof schema.users.$inferSelect;
 
 let org: typeof schema.orgs.$inferSelect;
@@ -63,10 +71,11 @@ async function artifactByTitle(title: string) {
 }
 
 beforeAll(async () => {
-  [engMember, marketingMember, orgAdmin, outsider] = await Promise.all([
+  [engMember, marketingMember, orgAdmin, orgViewer, outsider] = await Promise.all([
     userByEmail("eng-member@test.local"),
     userByEmail("marketing-member@test.local"),
     userByEmail("org-admin@test.local"),
+    userByEmail("org-viewer@test.local"),
     userByEmail("outsider@test.local"),
   ]);
 
@@ -125,9 +134,14 @@ describe("canAccessArtifact", () => {
     expect(ok).toBe(false);
   });
 
-  it("an org-level member does NOT see a descendant team's group artifact (read inherits upward only, not downward)", async () => {
+  it("an org-level member DOES see a descendant team's group artifact (D-016 — read now inherits downward too)", async () => {
     const ok = await canAccessArtifact({ userId: orgAdmin.id, systemRole: "user" }, prompt1, db);
-    expect(ok).toBe(false);
+    expect(ok).toBe(true);
+  });
+
+  it("downward read applies to a viewer-role org member too, not just admin", async () => {
+    const ok = await canAccessArtifact({ userId: orgViewer.id, systemRole: "user" }, prompt1, db);
+    expect(ok).toBe(true);
   });
 
   it("an org-level member DOES see a group artifact owned directly by the org", async () => {
@@ -151,6 +165,10 @@ describe("effectiveGroupRole (mutate/share authority — inherits DOWNWARD)", ()
 
   it("an org admin's role flows down to a descendant team", async () => {
     expect(await effectiveGroupRole(orgAdmin.id, "team", backend.id, db)).toBe("admin");
+  });
+
+  it("an org viewer's role also flows down (as viewer, not admin) — role rank is preserved, not upgraded", async () => {
+    expect(await effectiveGroupRole(orgViewer.id, "team", backend.id, db)).toBe("viewer");
   });
 
   it("a team membership does NOT flow up to the parent department's own role", async () => {
@@ -187,6 +205,11 @@ describe("canMutatePrompt", () => {
   it("an org admin can mutate a descendant team's artifact (authority flows down)", async () => {
     const ok = await canMutatePrompt({ userId: orgAdmin.id, systemRole: "user" }, prompt1, db);
     expect(ok).toBe(true);
+  });
+
+  it("an org viewer can READ a descendant team's artifact but cannot mutate it (D-016 only changed read)", async () => {
+    expect(await canAccessArtifact({ userId: orgViewer.id, systemRole: "user" }, prompt1, db)).toBe(true);
+    expect(await canMutatePrompt({ userId: orgViewer.id, systemRole: "user" }, prompt1, db)).toBe(false);
   });
 
   it("a team editor cannot mutate their parent department's own artifact", async () => {
@@ -275,10 +298,22 @@ describe("artifactAccessCondition (full accessible set via a real query)", () =>
     );
   });
 
-  it("an org admin with no direct team/dept membership sees the same as an outsider (read does not inherit downward)", async () => {
+  it("an org admin with no direct team/dept membership sees every group artifact under the org (D-016 — read inherits downward)", async () => {
+    const titles = await accessibleTitles(orgAdmin.id, "user");
+    // Every seeded artifact except the 3 private ones not owned by / shared
+    // with orgAdmin (prompt2, skill3, kit3) — public + every group-visibility
+    // artifact anywhere under qa-org, regardless of which dept/team owns it.
+    expect(titles.size).toBe(12);
+    expect(titles.has(prompt2.title)).toBe(false);
+    expect(titles.has(skill3.title)).toBe(false);
+    expect(titles.has(prompt1.title)).toBe(true); // team backend, group
+    expect(titles.has(plan2.title)).toBe(true); // dept engineering, group
+  });
+
+  it("an org viewer (no admin/editor role anywhere) reads the same expanded set as an org admin", async () => {
     const orgAdminTitles = await accessibleTitles(orgAdmin.id, "user");
-    const outsiderTitles = await accessibleTitles(outsider.id, "user");
-    expect(orgAdminTitles).toEqual(outsiderTitles);
+    const orgViewerTitles = await accessibleTitles(orgViewer.id, "user");
+    expect(orgViewerTitles).toEqual(orgAdminTitles);
   });
 
   it("superadmin's condition is undefined (unfiltered) and returns every seeded artifact", async () => {

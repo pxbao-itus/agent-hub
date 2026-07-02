@@ -6,8 +6,8 @@ export const metadata: Metadata = { title: "Prompts" };
 import { auth } from "@/auth";
 import { db } from "@/server/db";
 import { artifacts, artifactVersions } from "@/server/db/schema";
-import { desc, asc, eq, or, sql, and } from "drizzle-orm";
-import { getAccessibleGroups } from "@/server/auth/access";
+import { desc, asc, eq, sql, and } from "drizzle-orm";
+import { artifactAccessCondition } from "@/server/auth/access";
 import { hybridSearch, fetchArtifactsByIds, sortArtifactRows } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import { Button } from "@/components/ui/button";
@@ -32,22 +32,13 @@ export default async function PromptsPage({ searchParams }: Props) {
   const isSuperAdmin = session!.user!.systemRole === "superadmin";
 
   // ── Access condition ───────────────────────────────────────────────────────
-  let accessWhere;
-  if (!isSuperAdmin) {
-    const groups = await getAccessibleGroups(userId, db);
-    const groupConditions = groups.map((g) =>
-      and(
-        eq(artifacts.visibility, "group"),
-        eq(artifacts.ownerType, g.groupType as "org" | "department" | "team"),
-        eq(artifacts.ownerId, g.groupId),
-      ),
-    );
-    accessWhere = or(
-      eq(artifacts.visibility, "public"),
-      and(eq(artifacts.ownerType, "user"), eq(artifacts.ownerId, userId)),
-      ...(groupConditions.length > 0 ? groupConditions : [sql`false`]),
-    );
-  }
+  // Shared with every other list page (also picks up artifacts shared
+  // directly with this user, which the old inline version here missed).
+  const accessWhere = await artifactAccessCondition(
+    userId,
+    isSuperAdmin ? "superadmin" : "user",
+    db,
+  );
 
   // Forward-compat: this page lists prompt-kind artifacts only.
   const promptWhere = and(eq(artifacts.kind, "prompt"), accessWhere);

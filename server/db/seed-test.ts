@@ -126,13 +126,19 @@ async function main() {
 
   // ---- Users --------------------------------------------------------------
   // superadmin: bypasses all access checks.
-  // orgAdmin: org-level admin membership (gate for dept/team management).
+  // orgAdmin: org-level admin membership (gate for dept/team management;
+  //   also proves mutate/share authority flows down to descendant groups).
+  // orgViewer: org-level VIEWER membership — no admin/editor role anywhere.
+  //   Proves READ inherits downward for every role (D-016), not just admin:
+  //   orgViewer must see descendant group artifacts but must NOT be able to
+  //   mutate/share them (that's still admin/editor-only, effectiveGroupRole
+  //   is unchanged by D-016).
   // engMember: team-level member of Backend (inherits Engineering + QA Org).
   // marketingMember: team-level member of Content (inherits Marketing + QA Org)
   //   — used as the negative case: must NOT see Backend/Engineering-only
   //   group artifacts, except the one explicitly shared with them below.
   // outsider: no membership anywhere — must only see "public" artifacts.
-  const [, orgAdmin, engMember, marketingMember] = await db
+  const [, orgAdmin, engMember, marketingMember, , orgViewer] = await db
     .insert(schema.users)
     .values([
       { name: "QA Superadmin", email: "superadmin@test.local", passwordHash, systemRole: "superadmin" },
@@ -140,6 +146,7 @@ async function main() {
       { name: "QA Eng Member", email: "eng-member@test.local", passwordHash },
       { name: "QA Marketing Member", email: "marketing-member@test.local", passwordHash },
       { name: "QA Outsider", email: "outsider@test.local", passwordHash },
+      { name: "QA Org Viewer", email: "org-viewer@test.local", passwordHash },
     ])
     .returning();
 
@@ -160,9 +167,15 @@ async function main() {
     ])
     .returning();
 
-  // ---- Memberships (lowest level; access inherits upward — option A) ------
+  // ---- Memberships ----------------------------------------------------------
+  // Read access (getAccessibleGroups) inherits both up AND down from each of
+  // these (D-016) — e.g. orgAdmin/orgViewer's org membership also covers
+  // Engineering/Marketing and Backend/Content. Mutate/share authority
+  // (effectiveGroupRole) inherits DOWN only, and role still matters there:
+  // orgAdmin can edit a descendant team's artifacts, orgViewer cannot.
   await db.insert(schema.memberships).values([
     { userId: orgAdmin.id, groupType: "org", groupId: org.id, role: "admin" },
+    { userId: orgViewer.id, groupType: "org", groupId: org.id, role: "viewer" },
     { userId: engMember.id, groupType: "team", groupId: backend.id, role: "editor" },
     { userId: marketingMember.id, groupType: "team", groupId: content.id, role: "editor" },
   ]);
@@ -444,7 +457,7 @@ async function main() {
   });
 
   console.log("Seeded:");
-  console.log(`  users: superadmin, org-admin, eng-member, marketing-member, outsider (password: ${PASSWORD})`);
+  console.log(`  users: superadmin, org-admin, org-viewer, eng-member, marketing-member, outsider (password: ${PASSWORD})`);
   console.log(`  org "${org.slug}" → dept [engineering, marketing] → team [backend, content]`);
   console.log("  15 artifacts (3 per kind: prompt, skill, kit, plan, doc), 1 cross-team share, 1 nested kit");
 }

@@ -12,9 +12,25 @@ type TeamRow = { id: string; departmentId: string };
 type DeptRow = { id: string; orgId: string };
 
 /**
- * Pure function — no DB calls. Given a user's direct memberships plus the
- * hierarchy maps, returns every (groupType, groupId) pair the user can access
- * (option A: team member ⇒ implicitly belongs to parent dept and org).
+ * Pure function — no DB calls. Given a user's direct memberships plus
+ * hierarchy maps, returns the full READ-access cone for each membership:
+ * every ancestor, the membership's own group, and every descendant
+ * (D-016 — read now inherits both ways; mutate/share authority is a
+ * separate, downward-only concern, see effectiveGroupRole below).
+ *
+ * `teamsMap`/`deptsMap` must contain every row needed to walk both
+ * directions from each membership — callers (see getAccessibleGroups)
+ * fetch descendant rows in addition to the ancestor-chain rows the old
+ * upward-only version needed. Missing rows fail conservatively (that
+ * branch is just not expanded), matching the existing "unknown id" cases.
+ *
+ * Downward expansion is applied strictly per-membership, from that
+ * membership's own group id — never from a group reached via upward
+ * traversal. Doing it the other way (e.g. expanding a team membership up
+ * to its org, then back down to every team under that org) would leak
+ * access to sibling teams/depts that share only a distant ancestor —
+ * exactly the bug this function must not have. See the "sibling-leak
+ * guard" tests in access.test.ts.
  */
 export function resolveAccessibleGroups(
   userMemberships: MembershipRow[],
@@ -31,13 +47,38 @@ export function resolveAccessibleGroups(
     result.push(g);
   }
 
+  const deptsByOrg = new Map<string, string[]>();
+  for (const d of deptsMap.values()) {
+    if (!deptsByOrg.has(d.orgId)) deptsByOrg.set(d.orgId, []);
+    deptsByOrg.get(d.orgId)!.push(d.id);
+  }
+  const teamsByDept = new Map<string, string[]>();
+  for (const t of teamsMap.values()) {
+    if (!teamsByDept.has(t.departmentId)) teamsByDept.set(t.departmentId, []);
+    teamsByDept.get(t.departmentId)!.push(t.id);
+  }
+
+  function addDescendantTeamsOf(deptId: string) {
+    for (const teamId of teamsByDept.get(deptId) ?? []) {
+      add({ groupType: "team", groupId: teamId });
+    }
+  }
+  function addDescendantsOfOrg(orgId: string) {
+    for (const deptId of deptsByOrg.get(orgId) ?? []) {
+      add({ groupType: "department", groupId: deptId });
+      addDescendantTeamsOf(deptId);
+    }
+  }
+
   for (const m of userMemberships) {
     if (m.groupType === "org") {
       add({ groupType: "org", groupId: m.groupId });
+      addDescendantsOfOrg(m.groupId);
     } else if (m.groupType === "department") {
       add({ groupType: "department", groupId: m.groupId });
       const dept = deptsMap.get(m.groupId);
       if (dept) add({ groupType: "org", groupId: dept.orgId });
+      addDescendantTeamsOf(m.groupId);
     } else if (m.groupType === "team") {
       add({ groupType: "team", groupId: m.groupId });
       const team = teamsMap.get(m.groupId);
@@ -48,6 +89,7 @@ export function resolveAccessibleGroups(
           add({ groupType: "org", groupId: dept.orgId });
         }
       }
+      // Teams have no descendants — nothing further to expand.
     }
   }
 
@@ -55,8 +97,9 @@ export function resolveAccessibleGroups(
 }
 
 /**
- * DB-backed version. Fetches the user's memberships + necessary hierarchy rows,
- * then delegates to the pure function above.
+ * DB-backed version. Fetches the user's memberships plus every hierarchy row
+ * needed to walk both up (ancestors) and down (descendants) from them, then
+ * delegates to the pure function above.
  */
 export async function getAccessibleGroups(
   userId: string,
@@ -69,50 +112,78 @@ export async function getAccessibleGroups(
 
   if (userMemberships.length === 0) return [];
 
-  const teamIds = userMemberships
-    .filter((m) => m.groupType === "team")
-    .map((m) => m.groupId);
+  const orgIds = userMemberships.filter((m) => m.groupType === "org").map((m) => m.groupId);
+  const teamIds = userMemberships.filter((m) => m.groupType === "team").map((m) => m.groupId);
   const deptIdsFromMemberships = userMemberships
     .filter((m) => m.groupType === "department")
     .map((m) => m.groupId);
 
-  const [teamRows, deptRowsDirect] = await Promise.all([
+  // Round 1, independent of each other: the department a directly-joined
+  // team belongs to (ancestor), and every department under a directly-joined
+  // org (descendant).
+  const [teamRowsForAncestor, deptRowsUnderOrgs] = await Promise.all([
     teamIds.length > 0
       ? db
           .select({ id: teams.id, departmentId: teams.departmentId })
           .from(teams)
           .where(inArray(teams.id, teamIds))
-      : Promise.resolve([]),
-    deptIdsFromMemberships.length > 0
+      : Promise.resolve([] as { id: string; departmentId: string }[]),
+    orgIds.length > 0
       ? db
           .select({ id: departments.id, orgId: departments.orgId })
           .from(departments)
-          .where(inArray(departments.id, deptIdsFromMemberships))
-      : Promise.resolve([]),
+          .where(inArray(departments.orgId, orgIds))
+      : Promise.resolve([] as { id: string; orgId: string }[]),
   ]);
 
-  // Also need dept rows for teams
-  const deptIdsFromTeams = teamRows.map((t) => t.departmentId);
-  const allDeptIds = [...new Set([...deptIdsFromMemberships, ...deptIdsFromTeams])];
-  const deptRows =
-    allDeptIds.length > 0
-      ? await db
+  // Round 2: any department row still missing (direct dept membership, or a
+  // directly-joined team's department — round 1 may already cover the latter
+  // if that department also happens to sit under an org membership); and
+  // every team under any department we can now reach (direct dept
+  // membership, or a descendant department from an org membership).
+  const knownDeptIds = new Set(deptRowsUnderOrgs.map((d) => d.id));
+  const missingDeptIds = [
+    ...new Set([...deptIdsFromMemberships, ...teamRowsForAncestor.map((t) => t.departmentId)]),
+  ].filter((id) => !knownDeptIds.has(id));
+  const deptIdsNeedingTeams = [
+    ...new Set([...deptIdsFromMemberships, ...deptRowsUnderOrgs.map((d) => d.id)]),
+  ];
+
+  const [missingDeptRows, teamRowsUnderDepts] = await Promise.all([
+    missingDeptIds.length > 0
+      ? db
           .select({ id: departments.id, orgId: departments.orgId })
           .from(departments)
-          .where(inArray(departments.id, allDeptIds))
-      : deptRowsDirect;
+          .where(inArray(departments.id, missingDeptIds))
+      : Promise.resolve([] as { id: string; orgId: string }[]),
+    deptIdsNeedingTeams.length > 0
+      ? db
+          .select({ id: teams.id, departmentId: teams.departmentId })
+          .from(teams)
+          .where(inArray(teams.departmentId, deptIdsNeedingTeams))
+      : Promise.resolve([] as { id: string; departmentId: string }[]),
+  ]);
 
-  const teamsMap = new Map(teamRows.map((t) => [t.id, t]));
-  const deptsMap = new Map(deptRows.map((d) => [d.id, d]));
+  const teamsMap = new Map(
+    [...teamRowsForAncestor, ...teamRowsUnderDepts].map((t) => [t.id, t]),
+  );
+  const deptsMap = new Map([...deptRowsUnderOrgs, ...missingDeptRows].map((d) => [d.id, d]));
 
   return resolveAccessibleGroups(userMemberships, teamsMap, deptsMap);
 }
 
 /**
- * The user's highest effective role on a group-owned entity, considering
- * upward inheritance (option A): a role held on an ancestor group applies
- * downward. E.g. an org admin is effectively admin on every dept/team under
- * it. Returns null if the user has no membership anywhere in the chain.
+ * The user's highest effective role on a group-owned entity, for
+ * MUTATE/SHARE authority specifically: a role held on an ancestor group
+ * applies downward. E.g. an org admin is effectively admin on every
+ * dept/team under it. Returns null if the user has no membership anywhere
+ * in the chain.
+ *
+ * This is independent of READ access (see getAccessibleGroups /
+ * resolveAccessibleGroups above, D-016) — read inherits both up and down
+ * from a membership, mutate/share authority only flows down. A team editor
+ * can therefore read their parent department's own artifacts but not edit
+ * them; an org admin can both read and edit a descendant team's artifacts.
  */
 export async function effectiveGroupRole(
   userId: string,
