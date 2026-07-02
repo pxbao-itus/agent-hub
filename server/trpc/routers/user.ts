@@ -23,7 +23,10 @@ async function countOtherSuperAdmins(db: DbClient, excludeUserId: string): Promi
 export const userRouter = router({
   /**
    * Search users by name or email.
-   * Gate: superadmin OR is admin of at least one org.
+   * Gate: any authenticated user — needed so any artifact owner can find a
+   * recipient to share with (canShareArtifact already allows this; search
+   * used to be admin-only, which made per-user sharing unusable for regular
+   * owners, see D-017 in docs/decisions.md).
    */
   search: protectedProcedure
     .input(
@@ -33,17 +36,6 @@ export const userRouter = router({
       }),
     )
     .query(async ({ ctx, input }) => {
-      const { userId, systemRole } = ctx.session;
-      if (systemRole !== "superadmin") {
-        const adminMembership = await ctx.db.query.memberships.findFirst({
-          where: and(
-            eq(memberships.userId, userId),
-            eq(memberships.groupType, "org"),
-            eq(memberships.role, "admin"),
-          ),
-        });
-        if (!adminMembership) throw new TRPCError({ code: "FORBIDDEN" });
-      }
       const q = `%${input.query}%`;
       return ctx.db
         .select({ id: users.id, name: users.name, email: users.email, image: users.image })
