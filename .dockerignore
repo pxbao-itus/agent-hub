@@ -1,0 +1,12 @@
+# The builder stage installs Linux node_modules in the `deps` stage, then does
+# `COPY . .` — without excluding these, that copy would clobber those with the
+# host's node_modules (native modules like argon2/pg built for the host OS,
+# not Linux → broken image), leak .env into the image, and bloat the context.
+node_modules
+.next
+.git
+.env
+.env.*
+npm-debug.log*
+Dockerfile
+.dockerignore

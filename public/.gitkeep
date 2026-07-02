@@ -1,0 +1,4 @@
+# Keeps public/ present so the Dockerfile's `COPY /app/public ./public` (and
+# Next.js standalone output, which expects a public/ dir) don't fail on a
+# missing source. Static assets today are served via app/ conventions
+# (app/icon.svg); add real files here if the app ever needs raw public assets.

@@ -11,8 +11,9 @@ import {
   primaryKey,
   unique,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 
 /* -------------------------------------------------------------------------- */
 /* Enums                                                                       */
@@ -225,9 +226,24 @@ export const artifacts = pgTable(
   (t) => [
     index("artifacts_owner_idx").on(t.ownerType, t.ownerId),
     index("artifacts_visibility_idx").on(t.visibility),
+    // Full-text search over title + description. Must be declared here (not
+    // just in a raw-SQL migration) so `drizzle-kit push`-built databases get
+    // it too — otherwise search falls back to a per-row seq scan (D-019).
+    // The tsvector expression must match runTs()/runFts() in lib/search.ts
+    // exactly for the planner to use this index.
+    index("artifacts_fts_idx").using(
+      "gin",
+      sql`to_tsvector('english', ${t.title} || ' ' || coalesce(${t.description}, ''))`,
+    ),
+    // Slug is unique per owner scope, but NULL slugs are unlimited. Same
+    // schema-vs-migration divergence as the FTS index (D-019): without this
+    // in schema.ts, push-built DBs have no DB-level guard against duplicate
+    // slugs — checkSlug in the router is only a TOCTOU check, not a guarantee.
+    uniqueIndex("artifacts_owner_slug_uniq")
+      .on(t.ownerType, t.ownerId, t.slug)
+      .where(sql`${t.slug} IS NOT NULL`),
   ]
 );
-// Partial unique index enforced at migration level (slug nullable — see 0003/0005).
 
 /** Each save creates a new immutable version. */
 export const artifactVersions = pgTable(
