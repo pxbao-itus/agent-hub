@@ -328,6 +328,43 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
     if (fullSlug !== localSlug) docBySlug.set(localSlug, d);
   }
 
+  // ── Resource: doc ─────────────────────────────────────────────────────────
+  // Alongside the get_doc tool, expose each accessible doc as an MCP resource
+  // (agenthub://doc/<fullSlug>) — clients that support the resources
+  // primitive can attach docs directly (e.g. as context in a picker) instead
+  // of going through a tool call. One registerResource() per doc, same
+  // per-artifact-loop pattern as registerPrompt() above; access is already
+  // enforced by docRows only containing what this identity can read.
+  for (const d of docRows) {
+    const spacePath = docOwnerPaths.get(`${d.ownerType}:${d.ownerId}`) ?? "";
+    const localSlug = d.slug ?? slugify(d.title);
+    const fullSlug = [spacePath, localSlug].filter(Boolean).join(".");
+    const uri = `agenthub://doc/${fullSlug}`;
+
+    server.registerResource(
+      fullSlug,
+      uri,
+      {
+        title: d.title,
+        description: d.description ?? undefined,
+        mimeType: "text/markdown",
+      },
+      async () => {
+        bumpUsage(d.id);
+        const version = d.versions[0];
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: "text/markdown",
+              text: version?.body ?? "",
+            },
+          ],
+        };
+      },
+    );
+  }
+
   // ── Plan tools ────────────────────────────────────────────────────────────
 
   const planBySlug = new Map<string, typeof planRows[number]>();

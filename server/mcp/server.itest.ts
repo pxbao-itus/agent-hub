@@ -218,6 +218,36 @@ describe("plan and doc reads", () => {
   });
 });
 
+describe("doc resources (MCP resources primitive, Phase 42 M1)", () => {
+  it("lists an accessible doc as a resource with the agenthub://doc/<slug> URI", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    const { resources } = await client.listResources();
+    const uris = resources.map((r) => r.uri);
+    expect(uris).toContain(`agenthub://doc/${doc1Slug}`);
+  });
+
+  it("readResource returns the doc's full body as markdown", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    const result = await client.readResource({ uri: `agenthub://doc/${doc1Slug}` });
+    expect(result.contents).toHaveLength(1);
+    const content = result.contents[0];
+    expect(content.mimeType).toBe("text/markdown");
+    expect("text" in content && content.text).toContain("session.maxAge");
+  });
+
+  it("outsider's resource list excludes the team-only doc", async () => {
+    const client = await connect({ userId: outsider.id, systemRole: "user" });
+    const { resources } = await client.listResources();
+    const uris = resources.map((r) => r.uri);
+    expect(uris).not.toContain(`agenthub://doc/${doc1Slug}`);
+  });
+
+  it("readResource rejects a URI not registered for this identity", async () => {
+    const client = await connect({ userId: outsider.id, systemRole: "user" });
+    await expect(client.readResource({ uri: `agenthub://doc/${doc1Slug}` })).rejects.toThrow();
+  });
+});
+
 /**
  * bumpUsage() writes fire-and-forget (not awaited by the tool handler), so
  * these tests poll briefly instead of asserting immediately after the call.
