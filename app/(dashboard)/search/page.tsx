@@ -10,6 +10,7 @@ import { getEmbedder } from "@/server/embedder";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { HighlightText } from "@/components/ui/highlight-text";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BookText, Wrench, Package, ClipboardList, FileText, Search } from "lucide-react";
@@ -160,16 +161,22 @@ export default async function SearchPage({ searchParams }: Props) {
                             <div className="flex items-start justify-between gap-2">
                               <div className="flex items-center gap-1.5 min-w-0">
                                 <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                                <CardTitle className="text-sm leading-snug truncate">{artifact.title}</CardTitle>
+                                <CardTitle className="text-sm leading-snug truncate">
+                                  {mode === "keyword" ? <HighlightText text={artifact.title} query={q} /> : artifact.title}
+                                </CardTitle>
                               </div>
                               <Badge variant="outline" className="shrink-0 text-[10px]">{artifact.visibility}</Badge>
                             </div>
                           </CardHeader>
                           <CardContent className="space-y-2">
                             {artifact.description ? (
-                              <p className="line-clamp-2 text-xs text-muted-foreground">{artifact.description}</p>
+                              <p className="line-clamp-2 text-xs text-muted-foreground">
+                                {mode === "keyword" ? <HighlightText text={artifact.description} query={q} /> : artifact.description}
+                              </p>
                             ) : preview ? (
-                              <p className="line-clamp-2 font-mono text-xs text-muted-foreground">{preview}</p>
+                              <p className="line-clamp-2 font-mono text-xs text-muted-foreground">
+                                {mode === "keyword" ? <HighlightText text={preview} query={q} /> : preview}
+                              </p>
                             ) : null}
                             {artifact.tags.length > 0 && (
                               <div className="flex flex-wrap gap-1">

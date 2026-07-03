@@ -10,6 +10,7 @@ import { docRouter } from "./doc";
 import { linkRouter } from "./link";
 import { shareRouter } from "./share";
 import { notificationRouter } from "./notification";
+import { favoriteRouter } from "./favorite";
 import { tokenRouter } from "./token";
 import { userRouter } from "./user";
 import { searchRouter } from "./search";
@@ -37,6 +38,7 @@ export const appRouter = router({
   link: linkRouter,
   share: shareRouter,
   notification: notificationRouter,
+  favorite: favoriteRouter,
   token: tokenRouter,
   user: userRouter,
   search: searchRouter,

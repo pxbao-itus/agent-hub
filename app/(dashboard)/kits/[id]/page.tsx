@@ -18,6 +18,8 @@ import { ArtifactMeta } from "@/components/ui/artifact-meta";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { DuplicateArtifactButton } from "@/components/ui/duplicate-artifact-button";
 import { ExportArtifactButton } from "@/components/ui/export-artifact-button";
+import { FavoriteButton } from "@/components/ui/favorite-button";
+import { isFavorited } from "@/server/lib/favorites";
 import { DeleteKitButton } from "../_components/delete-kit-button";
 import { KitVersionHistory } from "./_components/kit-version-history";
 import { ShareDialog } from "../../_components/share-dialog";
@@ -68,6 +70,7 @@ export default async function KitDetailPage({ params }: { params: Promise<{ id: 
   const canEdit = await canMutatePrompt(identity, kit, db);
   const canShare = await canShareArtifact(identity, kit, db);
   const currentVersion = kit.versions[0];
+  const favorited = await isFavorited(userId, id, db);
 
   const ownerPaths = await resolveOwnerSlugPaths(
     [{ ownerType: kit.ownerType, ownerId: kit.ownerId }],
@@ -133,6 +136,7 @@ export default async function KitDetailPage({ params }: { params: Promise<{ id: 
           )}
         </div>
         <div className="flex shrink-0 gap-2">
+          <FavoriteButton artifactId={id} initialFavorited={favorited} />
           <DuplicateArtifactButton artifactId={id} kind="kit" />
           <ExportArtifactButton artifactId={id} title={kit.title} />
           {canShare && <ShareDialog artifactId={id} artifactTitle={kit.title} />}

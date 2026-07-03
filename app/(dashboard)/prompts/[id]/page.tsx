@@ -15,6 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DuplicateArtifactButton } from "@/components/ui/duplicate-artifact-button";
 import { ExportArtifactButton } from "@/components/ui/export-artifact-button";
+import { FavoriteButton } from "@/components/ui/favorite-button";
+import { isFavorited } from "@/server/lib/favorites";
 import { DeletePromptButton } from "./_components/delete-prompt-button";
 import { VersionHistory } from "./_components/version-history";
 import { BodyViewer } from "@/components/ui/body-viewer";
@@ -56,6 +58,7 @@ export default async function PromptDetailPage({ params }: { params: Promise<{ i
   const canEdit = await canMutatePrompt(identity, prompt, db);
   const canShare = await canShareArtifact(identity, prompt, db);
   const currentVersion = prompt.versions[0];
+  const favorited = await isFavorited(userId, id, db);
 
   const ownerPaths = await resolveOwnerSlugPaths(
     [{ ownerType: prompt.ownerType, ownerId: prompt.ownerId }],
@@ -109,6 +112,7 @@ export default async function PromptDetailPage({ params }: { params: Promise<{ i
           )}
         </div>
         <div className="flex shrink-0 gap-2">
+          <FavoriteButton artifactId={id} initialFavorited={favorited} />
           <DuplicateArtifactButton artifactId={id} kind="prompt" />
           <ExportArtifactButton artifactId={id} title={prompt.title} />
           {canShare && <ShareDialog artifactId={id} artifactTitle={prompt.title} />}

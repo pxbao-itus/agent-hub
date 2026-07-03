@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
-import { artifacts, orgs, mcpTokens, memberships } from "@/server/db/schema";
+import { artifacts, orgs, mcpTokens, memberships, artifactFavorites } from "@/server/db/schema";
 import { eq, and, desc, count, isNull, gt, or } from "drizzle-orm";
 import { artifactAccessCondition } from "@/server/auth/access";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { BookText, Wrench, Package, ClipboardList, FileText, Building2, Key, Plus, Sparkles, Flame } from "lucide-react";
+import { BookText, Wrench, Package, ClipboardList, FileText, Building2, Key, Plus, Sparkles, Flame, Star } from "lucide-react";
 
 export const metadata = { title: "Dashboard" };
 
@@ -35,7 +35,7 @@ export default async function DashboardHome() {
   const accessWhere = await artifactAccessCondition(userId, isSuperAdmin ? "superadmin" : "user", db);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
-  const [[{ promptCount }], [{ skillCount }], [{ kitCount }], [{ planCount }], [{ docCount }], [{ orgCount }], [{ tokenCount }], recentActivity, mostUsed] = await Promise.all([
+  const [[{ promptCount }], [{ skillCount }], [{ kitCount }], [{ planCount }], [{ docCount }], [{ orgCount }], [{ tokenCount }], recentActivity, mostUsed, favorites] = await Promise.all([
     db.select({ promptCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "prompt"), accessWhere)),
     db.select({ skillCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "skill"), accessWhere)),
     db.select({ kitCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "kit"), accessWhere)),
@@ -64,6 +64,13 @@ export default async function DashboardHome() {
       limit: 5,
       columns: { id: true, kind: true, title: true, fetchCount: true },
     }),
+    db
+      .select({ id: artifacts.id, kind: artifacts.kind, title: artifacts.title })
+      .from(artifactFavorites)
+      .innerJoin(artifacts, eq(artifacts.id, artifactFavorites.artifactId))
+      .where(and(eq(artifactFavorites.userId, userId), accessWhere))
+      .orderBy(desc(artifactFavorites.createdAt))
+      .limit(10),
   ]);
 
   const totalArtifacts = promptCount + skillCount + kitCount + planCount + docCount;
@@ -174,6 +181,33 @@ export default async function DashboardHome() {
           <Link href="/settings/tokens">Manage tokens</Link>
         </Button>
       </div>
+
+      {/* Favorites — starred via FavoriteButton on the detail page */}
+      {favorites.length > 0 && (
+        <section className="space-y-4">
+          <h2 className="text-lg font-semibold flex items-center gap-1.5">
+            <Star className="h-4 w-4 text-muted-foreground" />
+            Favorites
+          </h2>
+          <div className="divide-y rounded-md border">
+            {favorites.map((a) => {
+              const Icon = KIND_ICON[a.kind] ?? BookText;
+              const href = `${KIND_HREF[a.kind] ?? "/prompts"}/${a.id}`;
+              return (
+                <Link
+                  key={a.id}
+                  href={href}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors"
+                >
+                  <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <p className="text-sm font-medium truncate flex-1">{a.title}</p>
+                  <Badge variant="secondary" className="text-[10px] shrink-0">{a.kind}</Badge>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Most used — pulled via MCP; see server/mcp/server.ts's bumpUsage() */}
       {mostUsed.length > 0 && (

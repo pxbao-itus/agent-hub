@@ -410,6 +410,25 @@ export const notifications = pgTable(
   ]
 );
 
+/** Per-user "starred" artifacts (Phase 43 M3.3) — one row per (user, artifact), toggled on/off. */
+export const artifactFavorites = pgTable(
+  "artifact_favorites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    artifactId: uuid("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("artifact_favorites_user_artifact_uq").on(t.userId, t.artifactId),
+    index("artifact_favorites_user_idx").on(t.userId),
+  ]
+);
+
 /**
  * Generic directed link between two artifacts (e.g. plan → doc).
  * `relation` is free-form text (default 'doc'). Unique per (source, target, relation).
@@ -602,6 +621,17 @@ export const notificationsRelations = relations(notifications, ({ one }) => ({
   artifactVersion: one(artifactVersions, {
     fields: [notifications.artifactVersionId],
     references: [artifactVersions.id],
+  }),
+}));
+
+export const artifactFavoritesRelations = relations(artifactFavorites, ({ one }) => ({
+  user: one(users, {
+    fields: [artifactFavorites.userId],
+    references: [users.id],
+  }),
+  artifact: one(artifacts, {
+    fields: [artifactFavorites.artifactId],
+    references: [artifacts.id],
   }),
 }));
 

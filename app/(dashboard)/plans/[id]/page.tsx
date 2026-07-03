@@ -18,6 +18,8 @@ import { ArtifactMeta } from "@/components/ui/artifact-meta";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { DuplicateArtifactButton } from "@/components/ui/duplicate-artifact-button";
 import { ExportArtifactButton } from "@/components/ui/export-artifact-button";
+import { FavoriteButton } from "@/components/ui/favorite-button";
+import { isFavorited } from "@/server/lib/favorites";
 import { DeletePlanButton } from "../_components/delete-plan-button";
 import { PlanTaskList } from "./_components/plan-task-list";
 import { ShareDialog } from "../../_components/share-dialog";
@@ -58,6 +60,7 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
 
   const currentVersion = plan.versions[0];
   const tasks = plan.tasks ?? [];
+  const favorited = await isFavorited(userId, id, db);
 
   const ownerPaths = await resolveOwnerSlugPaths(
     [{ ownerType: plan.ownerType, ownerId: plan.ownerId }],
@@ -116,6 +119,7 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
           )}
         </div>
         <div className="flex shrink-0 gap-2">
+          <FavoriteButton artifactId={id} initialFavorited={favorited} />
           <DuplicateArtifactButton artifactId={id} kind="plan" />
           <ExportArtifactButton artifactId={id} title={plan.title} />
           {canShare && <ShareDialog artifactId={id} artifactTitle={plan.title} />}
@@ -168,6 +172,7 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
             Tasks ({done}/{total})
           </h2>
           <PlanTaskList
+            planId={id}
             tasks={tasks.map((t) => ({
               id: t.id,
               content: t.content,

@@ -386,4 +386,42 @@ export const planRouter = router({
 
       return { taskId: input.taskId, status: input.status };
     }),
+
+  reorderTasks: protectedProcedure
+    .input(
+      z.object({
+        planId: z.string().uuid(),
+        taskIds: z.array(z.string().uuid()).min(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { userId, systemRole } = ctx.session;
+
+      const plan = await ctx.db.query.artifacts.findFirst({
+        where: and(eq(artifacts.id, input.planId), eq(artifacts.kind, "plan")),
+      });
+      if (!plan) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const allowed = await canMutatePrompt({ userId, systemRole }, plan, ctx.db);
+      if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
+
+      const existing = await ctx.db.query.artifactTasks.findMany({
+        where: eq(artifactTasks.artifactId, input.planId),
+        columns: { id: true },
+      });
+      const existingIds = new Set(existing.map((t) => t.id));
+      const sameSet =
+        input.taskIds.length === existingIds.size && input.taskIds.every((id) => existingIds.has(id));
+      if (!sameSet) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "taskIds must exactly match the plan's current tasks" });
+      }
+
+      await Promise.all(
+        input.taskIds.map((id, i) =>
+          ctx.db.update(artifactTasks).set({ position: i, updatedAt: new Date() }).where(eq(artifactTasks.id, id)),
+        ),
+      );
+
+      return { ok: true };
+    }),
 });

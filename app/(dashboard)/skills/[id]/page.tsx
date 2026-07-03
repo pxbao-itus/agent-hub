@@ -19,6 +19,8 @@ import { ArtifactMeta } from "@/components/ui/artifact-meta";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { DuplicateArtifactButton } from "@/components/ui/duplicate-artifact-button";
 import { ExportArtifactButton } from "@/components/ui/export-artifact-button";
+import { FavoriteButton } from "@/components/ui/favorite-button";
+import { isFavorited } from "@/server/lib/favorites";
 import { DeleteSkillButton } from "../_components/delete-skill-button";
 import { SkillVersionHistory } from "./_components/skill-version-history";
 import { ShareDialog } from "../../_components/share-dialog";
@@ -60,6 +62,7 @@ export default async function SkillDetailPage({ params }: { params: Promise<{ id
   const canShare = await canShareArtifact(identity, skill, db);
   const currentVersion = skill.versions[0];
   const currentFiles = currentVersion?.files ?? [];
+  const favorited = await isFavorited(userId, id, db);
 
   const ownerPaths = await resolveOwnerSlugPaths(
     [{ ownerType: skill.ownerType, ownerId: skill.ownerId }],
@@ -114,6 +117,7 @@ export default async function SkillDetailPage({ params }: { params: Promise<{ id
           )}
         </div>
         <div className="flex shrink-0 gap-2">
+          <FavoriteButton artifactId={id} initialFavorited={favorited} />
           <DuplicateArtifactButton artifactId={id} kind="skill" />
           <ExportArtifactButton artifactId={id} title={skill.title} />
           {canShare && <ShareDialog artifactId={id} artifactTitle={skill.title} />}
