@@ -1,6 +1,7 @@
 import { eq, and, sql } from "drizzle-orm";
-import { artifacts, artifactVersions, artifactTasks, artifactLinks } from "@/server/db/schema";
+import { artifactLinks } from "@/server/db/schema";
 import type { DbClient } from "@/server/db/types";
+import { createArtifact } from "@/server/services/artifact";
 
 type TaskInput = { content: string; status?: "todo" | "doing" | "done"; position?: number };
 
@@ -20,50 +21,23 @@ export type CreatePlanInput = {
 
 /** Core plan creation — used by both tRPC plan.create and MCP create_plan. */
 export async function createPlan(input: CreatePlanInput, db: DbClient) {
-  const [plan] = await db
-    .insert(artifacts)
-    .values({
+  return createArtifact(
+    {
       kind: "plan",
       ownerType: input.ownerType,
       ownerId: input.ownerId,
       title: input.title,
-      slug: input.slug ?? null,
+      slug: input.slug,
       description: input.description,
-      tags: input.tags ?? [],
-      visibility: input.visibility ?? "private",
-      createdBy: input.createdBy,
-    })
-    .returning();
-
-  const [version] = await db
-    .insert(artifactVersions)
-    .values({
-      artifactId: plan.id,
-      versionNo: 1,
+      tags: input.tags,
+      visibility: input.visibility,
       body: input.body,
-      changelog: input.changelog ?? "Initial version",
+      changelog: input.changelog,
       createdBy: input.createdBy,
-    })
-    .returning();
-
-  if (input.tasks && input.tasks.length > 0) {
-    await db.insert(artifactTasks).values(
-      input.tasks.map((t, i) => ({
-        artifactId: plan.id,
-        content: t.content,
-        status: (t.status ?? "todo") as "todo" | "doing" | "done",
-        position: t.position ?? i,
-      })),
-    );
-  }
-
-  const [updated] = await db
-    .update(artifacts)
-    .set({ currentVersionId: version.id })
-    .where(eq(artifacts.id, plan.id))
-    .returning();
-
-  return updated;
+      tasks: input.tasks,
+    },
+    db,
+  );
 }
 
 /** Attach a doc to a plan via artifact_links. No-op on duplicate. */

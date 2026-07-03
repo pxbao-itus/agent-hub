@@ -13,6 +13,8 @@ import { slugify } from "@/lib/slug";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DuplicateArtifactButton } from "@/components/ui/duplicate-artifact-button";
+import { ExportArtifactButton } from "@/components/ui/export-artifact-button";
 import { DeletePromptButton } from "./_components/delete-prompt-button";
 import { VersionHistory } from "./_components/version-history";
 import { BodyViewer } from "@/components/ui/body-viewer";
@@ -101,6 +103,8 @@ export default async function PromptDetailPage({ params }: { params: Promise<{ i
           )}
         </div>
         <div className="flex shrink-0 gap-2">
+          <DuplicateArtifactButton artifactId={id} kind="prompt" />
+          <ExportArtifactButton artifactId={id} title={prompt.title} />
           {canShare && <ShareDialog artifactId={id} artifactTitle={prompt.title} />}
           {canEdit && (
             <>

@@ -17,6 +17,8 @@ import { BodyViewer } from "@/components/ui/body-viewer";
 import { McpUsage } from "@/components/ui/mcp-usage";
 import { ArtifactMeta } from "@/components/ui/artifact-meta";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { DuplicateArtifactButton } from "@/components/ui/duplicate-artifact-button";
+import { ExportArtifactButton } from "@/components/ui/export-artifact-button";
 import { DeleteSkillButton } from "../_components/delete-skill-button";
 import { SkillVersionHistory } from "./_components/skill-version-history";
 import { ShareDialog } from "../../_components/share-dialog";
@@ -106,6 +108,8 @@ export default async function SkillDetailPage({ params }: { params: Promise<{ id
           )}
         </div>
         <div className="flex shrink-0 gap-2">
+          <DuplicateArtifactButton artifactId={id} kind="skill" />
+          <ExportArtifactButton artifactId={id} title={skill.title} />
           {canShare && <ShareDialog artifactId={id} artifactTitle={skill.title} />}
           {canEdit && (
             <>

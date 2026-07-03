@@ -16,6 +16,8 @@ import { BodyViewer } from "@/components/ui/body-viewer";
 import { McpUsage } from "@/components/ui/mcp-usage";
 import { ArtifactMeta } from "@/components/ui/artifact-meta";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { DuplicateArtifactButton } from "@/components/ui/duplicate-artifact-button";
+import { ExportArtifactButton } from "@/components/ui/export-artifact-button";
 import { DeleteDocButton } from "../_components/delete-doc-button";
 import { ShareDialog } from "../../_components/share-dialog";
 import { DocVersionHistory } from "./_components/doc-version-history";
@@ -114,6 +116,8 @@ export default async function DocDetailPage({ params }: { params: Promise<{ id: 
           )}
         </div>
         <div className="flex shrink-0 gap-2">
+          <DuplicateArtifactButton artifactId={id} kind="doc" />
+          <ExportArtifactButton artifactId={id} title={doc.title} />
           {canShare && <ShareDialog artifactId={id} artifactTitle={doc.title} />}
           {canEdit && (
             <>

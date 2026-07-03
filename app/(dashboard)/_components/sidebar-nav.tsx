@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { LayoutDashboard, BookText, Wrench, Package, ClipboardList, FileText, Compass, Building2, Key, Sun, Moon, Users, Search } from "lucide-react";
+import { LayoutDashboard, BookText, Wrench, Package, ClipboardList, FileText, Compass, Building2, Key, Sun, Moon, Users, Search, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -19,6 +19,7 @@ const MAIN_NAV = [
 ];
 
 const SETTINGS_NAV = [
+  { label: "Import", href: "/import", icon: Upload },
   { label: "Organizations", href: "/settings/orgs", icon: Building2 },
   { label: "MCP Tokens", href: "/settings/tokens", icon: Key },
 ];

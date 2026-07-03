@@ -16,6 +16,8 @@ import { BodyViewer } from "@/components/ui/body-viewer";
 import { McpUsage } from "@/components/ui/mcp-usage";
 import { ArtifactMeta } from "@/components/ui/artifact-meta";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { DuplicateArtifactButton } from "@/components/ui/duplicate-artifact-button";
+import { ExportArtifactButton } from "@/components/ui/export-artifact-button";
 import { DeleteKitButton } from "../_components/delete-kit-button";
 import { KitVersionHistory } from "./_components/kit-version-history";
 import { ShareDialog } from "../../_components/share-dialog";
@@ -125,6 +127,8 @@ export default async function KitDetailPage({ params }: { params: Promise<{ id: 
           )}
         </div>
         <div className="flex shrink-0 gap-2">
+          <DuplicateArtifactButton artifactId={id} kind="kit" />
+          <ExportArtifactButton artifactId={id} title={kit.title} />
           {canShare && <ShareDialog artifactId={id} artifactTitle={kit.title} />}
           {canEdit && (
             <>
