@@ -4,9 +4,10 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
-import { artifacts, artifactVersions, artifactTasks, artifactLinks } from "@/server/db/schema";
+import { artifacts, artifactVersions, artifactTasks, artifactLinks, projects, projectArtifacts } from "@/server/db/schema";
 import { eq, and, desc, asc } from "drizzle-orm";
 import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/auth/access";
+import { canViewProject, attachProjectManageFlags } from "@/server/lib/project-access";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
 import { getVersionAuthorName } from "@/server/lib/version-author";
 import { slugify } from "@/lib/slug";
@@ -24,6 +25,7 @@ import { DeletePlanButton } from "../_components/delete-plan-button";
 import { PlanTaskList } from "./_components/plan-task-list";
 import { ShareDialog } from "../../_components/share-dialog";
 import { PlanLinkedDocs } from "./_components/plan-linked-docs";
+import { ArtifactProjectsSection } from "../../_components/artifact-projects-section";
 import { PlanVersionHistory } from "./_components/plan-version-history";
 
 const getPlan = cache(async (id: string) =>
@@ -85,6 +87,19 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
   const done = tasks.filter((t) => t.status === "done").length;
   const total = tasks.length;
   const pct = total > 0 ? Math.round((done / total) * 100) : null;
+
+  // Projects this plan belongs to, filtered to what the caller can see (D-016 cone).
+  const projectRows = await db
+    .select({ project: projects })
+    .from(projectArtifacts)
+    .innerJoin(projects, eq(projectArtifacts.projectId, projects.id))
+    .where(eq(projectArtifacts.artifactId, id));
+  const viewableProjects = [];
+  for (const { project } of projectRows) {
+    const ok = await canViewProject(identity, project, db);
+    if (ok) viewableProjects.push(project);
+  }
+  const planProjects = await attachProjectManageFlags(viewableProjects, identity, db);
 
   return (
     <div className="space-y-8">
@@ -204,6 +219,22 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
               : null,
           }))}
           canEdit={canEdit}
+        />
+      </section>
+
+      {/* Projects */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Projects {planProjects.length > 0 ? `(${planProjects.length})` : ""}
+        </h2>
+        <ArtifactProjectsSection
+          artifactId={id}
+          initialProjects={planProjects.map((p) => ({
+            id: p.id,
+            name: p.name,
+            description: p.description,
+            canManage: p.canManage,
+          }))}
         />
       </section>
 

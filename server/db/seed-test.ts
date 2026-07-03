@@ -49,6 +49,7 @@ async function reset() {
   // actual safety net in case that order ever drifts from the schema.
   await db.execute(sql`
     TRUNCATE TABLE
+      project_artifacts, project_members, projects,
       artifact_links, artifact_shares, artifact_tasks, artifact_members,
       artifact_files, artifact_embeddings, artifact_variables, artifact_versions,
       artifacts, mcp_tokens, memberships, teams, departments, orgs,
@@ -456,10 +457,35 @@ async function main() {
     grantedBy: engMember.id,
   });
 
+  // ---- Project (Phase 44) — owned by Backend team ------------------------
+  // Visibility follows the same D-016 cone as backend's other group
+  // artifacts: engMember (direct team editor), orgAdmin/orgViewer (org
+  // membership covers descendant team) should all see it; marketingMember
+  // (different team) and outsider should not.
+  const [project1] = await db
+    .insert(schema.projects)
+    .values({
+      ownerGroupType: "team",
+      ownerGroupId: backend.id,
+      name: "Session bug fix",
+      description: "Docs and plan tracking the early session-expiry bug.",
+      createdBy: engMember.id,
+    })
+    .returning();
+  await db.insert(schema.projectArtifacts).values([
+    { projectId: project1.id, artifactId: plan1.id },
+    { projectId: project1.id, artifactId: doc1.id },
+  ]);
+  await db.insert(schema.projectMembers).values({
+    projectId: project1.id,
+    userId: engMember.id,
+  });
+
   console.log("Seeded:");
   console.log(`  users: superadmin, org-admin, org-viewer, eng-member, marketing-member, outsider (password: ${PASSWORD})`);
   console.log(`  org "${org.slug}" → dept [engineering, marketing] → team [backend, content]`);
   console.log("  15 artifacts (3 per kind: prompt, skill, kit, plan, doc), 1 cross-team share, 1 nested kit");
+  console.log("  1 project (Backend team) with 1 plan + 1 doc assigned, 1 member (eng-member)");
 }
 
 main()

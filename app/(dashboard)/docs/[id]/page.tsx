@@ -4,9 +4,10 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
-import { artifacts, artifactVersions, artifactLinks } from "@/server/db/schema";
+import { artifacts, artifactVersions, artifactLinks, projects, projectArtifacts } from "@/server/db/schema";
 import { eq, and, desc, asc } from "drizzle-orm";
 import { canAccessArtifact, canMutatePrompt, canShareArtifact } from "@/server/auth/access";
+import { canViewProject, attachProjectManageFlags } from "@/server/lib/project-access";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
 import { getVersionAuthorName } from "@/server/lib/version-author";
 import { slugify } from "@/lib/slug";
@@ -22,6 +23,7 @@ import { FavoriteButton } from "@/components/ui/favorite-button";
 import { isFavorited } from "@/server/lib/favorites";
 import { DeleteDocButton } from "../_components/delete-doc-button";
 import { ShareDialog } from "../../_components/share-dialog";
+import { ArtifactProjectsSection } from "../../_components/artifact-projects-section";
 import { DocVersionHistory } from "./_components/doc-version-history";
 import { FileText, ClipboardList, BookText, Wrench, Package } from "lucide-react";
 
@@ -93,6 +95,19 @@ export default async function DocDetailPage({ params }: { params: Promise<{ id: 
     const ok = await canAccessArtifact(identity, link.source, db);
     if (ok) accessibleSources.push(link);
   }
+
+  // Projects this doc belongs to, filtered to what the caller can see (D-016 cone).
+  const projectRows = await db
+    .select({ project: projects })
+    .from(projectArtifacts)
+    .innerJoin(projects, eq(projectArtifacts.projectId, projects.id))
+    .where(eq(projectArtifacts.artifactId, id));
+  const viewableProjects = [];
+  for (const { project } of projectRows) {
+    const ok = await canViewProject(identity, project, db);
+    if (ok) viewableProjects.push(project);
+  }
+  const docProjects = await attachProjectManageFlags(viewableProjects, identity, db);
 
   return (
     <div className="space-y-8">
@@ -199,6 +214,22 @@ export default async function DocDetailPage({ params }: { params: Promise<{ id: 
           </Button>
         </section>
       )}
+
+      {/* Projects */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Projects {docProjects.length > 0 ? `(${docProjects.length})` : ""}
+        </h2>
+        <ArtifactProjectsSection
+          artifactId={id}
+          initialProjects={docProjects.map((p) => ({
+            id: p.id,
+            name: p.name,
+            description: p.description,
+            canManage: p.canManage,
+          }))}
+        />
+      </section>
 
       {/* Version history */}
       {doc.versions.length > 0 && (

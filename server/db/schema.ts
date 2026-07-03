@@ -488,6 +488,79 @@ export const artifactEmbeddings = pgTable(
 );
 
 /* -------------------------------------------------------------------------- */
+/* Projects (Phase 44) — organizational grouping of doc/plan artifacts        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A project is a purely organizational grouping of doc/plan artifacts, owned
+ * by a group (org/dept/team). It does NOT grant any access — visibility of a
+ * project follows `getAccessibleGroups` (D-016 cone) on its owner group, and
+ * management follows `effectiveGroupRole` on that same group, exactly like
+ * group-owned artifacts. `ownerGroupId` is polymorphic (no FK), same pattern
+ * as `memberships.groupId`.
+ */
+export const projects = pgTable(
+  "projects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerGroupType: groupTypeEnum("owner_group_type").notNull(),
+    ownerGroupId: uuid("owner_group_id").notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("projects_owner_idx").on(t.ownerGroupType, t.ownerGroupId)]
+);
+
+/**
+ * Many-to-many: a doc/plan artifact can belong to multiple projects.
+ * Kind restriction (doc|plan only) is enforced at the router level, not here
+ * (matches the codebase convention of kind-checking in routers).
+ */
+export const projectArtifacts = pgTable(
+  "project_artifacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    artifactId: uuid("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("project_artifacts_project_artifact_uq").on(t.projectId, t.artifactId),
+    index("project_artifacts_artifact_idx").on(t.artifactId),
+  ]
+);
+
+/**
+ * Flat (no-role) member list of a project. Organizational only — membership
+ * itself grants no permissions; manage-rights come from the owning group's
+ * `effectiveGroupRole`. Used to power "My projects" surfaces.
+ */
+export const projectMembers = pgTable(
+  "project_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("project_members_project_user_uq").on(t.projectId, t.userId),
+    index("project_members_user_idx").on(t.userId),
+  ]
+);
+
+/* -------------------------------------------------------------------------- */
 /* MCP tokens                                                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -645,5 +718,32 @@ export const artifactLinksRelations = relations(artifactLinks, ({ one }) => ({
     relationName: "target",
     fields: [artifactLinks.targetArtifactId],
     references: [artifacts.id],
+  }),
+}));
+
+export const projectsRelations = relations(projects, ({ many }) => ({
+  artifacts: many(projectArtifacts),
+  members: many(projectMembers),
+}));
+
+export const projectArtifactsRelations = relations(projectArtifacts, ({ one }) => ({
+  project: one(projects, {
+    fields: [projectArtifacts.projectId],
+    references: [projects.id],
+  }),
+  artifact: one(artifacts, {
+    fields: [projectArtifacts.artifactId],
+    references: [artifacts.id],
+  }),
+}));
+
+export const projectMembersRelations = relations(projectMembers, ({ one }) => ({
+  project: one(projects, {
+    fields: [projectMembers.projectId],
+    references: [projects.id],
+  }),
+  user: one(users, {
+    fields: [projectMembers.userId],
+    references: [users.id],
   }),
 }));
