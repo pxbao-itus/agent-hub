@@ -218,6 +218,86 @@ describe("plan and doc reads", () => {
   });
 });
 
+/**
+ * bumpUsage() writes fire-and-forget (not awaited by the tool handler), so
+ * these tests poll briefly instead of asserting immediately after the call.
+ */
+async function waitForFetchCount(artifactId: string, min: number, timeoutMs = 5000): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const [row] = await db.select().from(schema.artifacts).where(eq(schema.artifacts.id, artifactId));
+    if (row.fetchCount >= min) return row.fetchCount;
+    if (Date.now() > deadline) {
+      throw new Error(`fetchCount for ${artifactId} did not reach ${min} within ${timeoutMs}ms (got ${row.fetchCount})`);
+    }
+    await new Promise((r) => setTimeout(r, 20));
+  }
+}
+
+describe("usage analytics (fetchCount / lastFetchedAt)", () => {
+  it("get_skill bumps fetchCount and sets lastFetchedAt", async () => {
+    const skill1 = await mustArtifact("PR review checklist");
+    const before = skill1.fetchCount;
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    await client.callTool({ name: "get_skill", arguments: { slug: skill1Slug } });
+    const after = await waitForFetchCount(skill1.id, before + 1);
+    expect(after).toBe(before + 1);
+    const [row] = await db.select().from(schema.artifacts).where(eq(schema.artifacts.id, skill1.id));
+    expect(row.lastFetchedAt).not.toBeNull();
+  });
+
+  it("get_kit bumps the kit itself but not its recursively flattened members", async () => {
+    const kit3 = await mustArtifact("Meta kit");
+    const prompt1 = await mustArtifact("Rà soát bảo mật mã nguồn");
+    const kitBefore = kit3.fetchCount;
+    const promptBefore = prompt1.fetchCount;
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    await client.callTool({ name: "get_kit", arguments: { slug: kit3Slug } });
+    const kitAfter = await waitForFetchCount(kit3.id, kitBefore + 1);
+    expect(kitAfter).toBe(kitBefore + 1);
+    const [promptRow] = await db.select().from(schema.artifacts).where(eq(schema.artifacts.id, prompt1.id));
+    expect(promptRow.fetchCount).toBe(promptBefore);
+  });
+
+  it("get_plan bumps fetchCount", async () => {
+    const plan1 = await mustArtifact("Sửa lỗi phiên đăng nhập hết hạn sớm");
+    const before = plan1.fetchCount;
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    await client.callTool({ name: "get_plan", arguments: { slug: plan1Slug } });
+    const after = await waitForFetchCount(plan1.id, before + 1);
+    expect(after).toBe(before + 1);
+  });
+
+  it("get_doc bumps fetchCount", async () => {
+    const doc1 = await mustArtifact("Lỗi: phiên đăng nhập hết hạn sau 5 phút");
+    const before = doc1.fetchCount;
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    await client.callTool({ name: "get_doc", arguments: { slug: doc1Slug } });
+    const after = await waitForFetchCount(doc1.id, before + 1);
+    expect(after).toBe(before + 1);
+  });
+
+  it("getPrompt bumps fetchCount for the underlying prompt artifact", async () => {
+    const prompt1 = await mustArtifact("Rà soát bảo mật mã nguồn");
+    const before = prompt1.fetchCount;
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    await client.getPrompt({ name: prompt1Slug, arguments: { diff: "+ const x = 1" } });
+    const after = await waitForFetchCount(prompt1.id, before + 1);
+    expect(after).toBe(before + 1);
+  });
+
+  it("list_skills and search_artifacts do not bump fetchCount", async () => {
+    const skill1 = await mustArtifact("PR review checklist");
+    const before = skill1.fetchCount;
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    await client.callTool({ name: "list_skills", arguments: {} });
+    await client.callTool({ name: "search_artifacts", arguments: { query: "checklist" } });
+    await new Promise((r) => setTimeout(r, 100));
+    const [row] = await db.select().from(schema.artifacts).where(eq(schema.artifacts.id, skill1.id));
+    expect(row.fetchCount).toBe(before);
+  });
+});
+
 describe("search_artifacts", () => {
   it("eng-member finds their team's group artifact by keyword", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" });

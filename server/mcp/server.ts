@@ -80,18 +80,21 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
     server.registerPrompt(
       slug,
       { description: p.description ?? p.title, argsSchema: argsShape },
-      async (args) => ({
-        description: p.title,
-        messages: [
-          {
-            role: "user" as const,
-            content: {
-              type: "text" as const,
-              text: renderTemplate(body, args as Record<string, string>),
+      async (args) => {
+        bumpUsage(p.id);
+        return {
+          description: p.title,
+          messages: [
+            {
+              role: "user" as const,
+              content: {
+                type: "text" as const,
+                text: renderTemplate(body, args as Record<string, string>),
+              },
             },
-          },
-        ],
-      }),
+          ],
+        };
+      },
     );
   }
 
@@ -131,6 +134,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
       if (!version) {
         return { content: [{ type: "text" as const, text: `Skill '${slug}' has no versions.` }] };
       }
+      bumpUsage(skill.id);
 
       // Cached by version id (Phase 39 perf) — this used to re-fetch the
       // whole version row (body included, though only .files was actually
@@ -250,6 +254,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         };
       }
 
+      bumpUsage(kit.id);
       const version = kit.versions[0];
       const overviewBody = version?.body ?? "";
 
@@ -473,6 +478,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         };
       }
 
+      bumpUsage(plan.id);
       const version = plan.versions[0];
       const tasks = await db.query.artifactTasks.findMany({
         where: eq(artifactTasks.artifactId, plan.id),
@@ -565,6 +571,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         };
       }
 
+      bumpUsage(doc.id);
       const version = doc.versions[0];
       const parts: string[] = [];
       parts.push(`# ${doc.title}`);
@@ -789,6 +796,25 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Usage analytics (Phase 41) — fire-and-forget, deliberately not awaited on
+ * the tool-response path (Phase 39 cut this exact request down to 8 queries;
+ * blocking every content read on a write would give half of that back).
+ * Called only where an agent actually retrieves content (prompt invoked,
+ * get_skill/get_kit/get_plan/get_doc) — not on list/search, which only
+ * surface a candidate, not a use.
+ */
+function bumpUsage(artifactId: string): void {
+  // drizzle query builders are lazy thenables — execute() only runs once
+  // something calls .then()/.catch(), so a bare `void db.update(...)` with
+  // no handler attached never actually reaches the database. The .catch()
+  // here isn't just error handling, it's what makes the write happen at all.
+  db.update(artifacts)
+    .set({ fetchCount: sql`${artifacts.fetchCount} + 1`, lastFetchedAt: new Date() })
+    .where(eq(artifacts.id, artifactId))
+    .catch((err) => console.error("[bumpUsage] failed", artifactId, err));
+}
 
 function uniqueSlug(title: string, id: string, seen: Set<string>): string {
   const base = slugify(title);

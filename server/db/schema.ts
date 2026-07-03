@@ -222,6 +222,14 @@ export const artifacts = pgTable(
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Usage analytics (Phase 41): bumped fire-and-forget whenever an agent
+     * actually pulls this artifact's content over MCP (prompt invoked,
+     * get_skill/get_kit/get_plan/get_doc) — not on search results or list
+     * views, which only surface a candidate, not a use.
+     */
+    fetchCount: integer("fetch_count").notNull().default(0),
+    lastFetchedAt: timestamp("last_fetched_at", { withTimezone: true }),
   },
   (t) => [
     index("artifacts_owner_idx").on(t.ownerType, t.ownerId),

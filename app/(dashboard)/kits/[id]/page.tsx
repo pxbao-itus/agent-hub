@@ -123,7 +123,13 @@ export default async function KitDetailPage({ params }: { params: Promise<{ id: 
             </div>
           )}
           {currentVersion && (
-            <ArtifactMeta updatedAt={kit.updatedAt} authorName={authorName} versionNo={currentVersion.versionNo} />
+            <ArtifactMeta
+              updatedAt={kit.updatedAt}
+              authorName={authorName}
+              versionNo={currentVersion.versionNo}
+              fetchCount={kit.fetchCount}
+              lastFetchedAt={kit.lastFetchedAt}
+            />
           )}
         </div>
         <div className="flex shrink-0 gap-2">

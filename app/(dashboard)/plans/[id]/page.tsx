@@ -106,7 +106,13 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
             </div>
           )}
           {currentVersion && (
-            <ArtifactMeta updatedAt={plan.updatedAt} authorName={authorName} versionNo={currentVersion.versionNo} />
+            <ArtifactMeta
+              updatedAt={plan.updatedAt}
+              authorName={authorName}
+              versionNo={currentVersion.versionNo}
+              fetchCount={plan.fetchCount}
+              lastFetchedAt={plan.lastFetchedAt}
+            />
           )}
         </div>
         <div className="flex shrink-0 gap-2">

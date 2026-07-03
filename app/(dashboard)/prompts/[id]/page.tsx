@@ -99,7 +99,13 @@ export default async function PromptDetailPage({ params }: { params: Promise<{ i
             </div>
           )}
           {currentVersion && (
-            <ArtifactMeta updatedAt={prompt.updatedAt} authorName={authorName} versionNo={currentVersion.versionNo} />
+            <ArtifactMeta
+              updatedAt={prompt.updatedAt}
+              authorName={authorName}
+              versionNo={currentVersion.versionNo}
+              fetchCount={prompt.fetchCount}
+              lastFetchedAt={prompt.lastFetchedAt}
+            />
           )}
         </div>
         <div className="flex shrink-0 gap-2">

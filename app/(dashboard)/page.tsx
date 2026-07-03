@@ -7,7 +7,7 @@ import { artifactAccessCondition } from "@/server/auth/access";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { BookText, Wrench, Package, ClipboardList, FileText, Building2, Key, Plus, Sparkles } from "lucide-react";
+import { BookText, Wrench, Package, ClipboardList, FileText, Building2, Key, Plus, Sparkles, Flame } from "lucide-react";
 
 export const metadata = { title: "Dashboard" };
 
@@ -35,7 +35,7 @@ export default async function DashboardHome() {
   const accessWhere = await artifactAccessCondition(userId, isSuperAdmin ? "superadmin" : "user", db);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
-  const [[{ promptCount }], [{ skillCount }], [{ kitCount }], [{ planCount }], [{ docCount }], [{ orgCount }], [{ tokenCount }], recentActivity] = await Promise.all([
+  const [[{ promptCount }], [{ skillCount }], [{ kitCount }], [{ planCount }], [{ docCount }], [{ orgCount }], [{ tokenCount }], recentActivity, mostUsed] = await Promise.all([
     db.select({ promptCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "prompt"), accessWhere)),
     db.select({ skillCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "skill"), accessWhere)),
     db.select({ kitCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "kit"), accessWhere)),
@@ -57,6 +57,12 @@ export default async function DashboardHome() {
       orderBy: desc(artifacts.updatedAt),
       limit: 8,
       columns: { id: true, kind: true, title: true, description: true, visibility: true },
+    }),
+    db.query.artifacts.findMany({
+      where: and(accessWhere, gt(artifacts.fetchCount, 0)),
+      orderBy: desc(artifacts.fetchCount),
+      limit: 5,
+      columns: { id: true, kind: true, title: true, fetchCount: true },
     }),
   ]);
 
@@ -168,6 +174,35 @@ export default async function DashboardHome() {
           <Link href="/settings/tokens">Manage tokens</Link>
         </Button>
       </div>
+
+      {/* Most used — pulled via MCP; see server/mcp/server.ts's bumpUsage() */}
+      {mostUsed.length > 0 && (
+        <section className="space-y-4">
+          <h2 className="text-lg font-semibold flex items-center gap-1.5">
+            <Flame className="h-4 w-4 text-muted-foreground" />
+            Most used
+          </h2>
+          <div className="divide-y rounded-md border">
+            {mostUsed.map((a) => {
+              const Icon = KIND_ICON[a.kind] ?? BookText;
+              const href = `${KIND_HREF[a.kind] ?? "/prompts"}/${a.id}`;
+              return (
+                <Link
+                  key={a.id}
+                  href={href}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors"
+                >
+                  <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <p className="text-sm font-medium truncate flex-1">{a.title}</p>
+                  <Badge variant="secondary" className="text-[10px] shrink-0">
+                    {a.fetchCount} use{a.fetchCount === 1 ? "" : "s"}
+                  </Badge>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Recent activity */}
       {recentActivity.length > 0 && (

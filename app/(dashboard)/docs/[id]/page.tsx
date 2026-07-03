@@ -112,7 +112,13 @@ export default async function DocDetailPage({ params }: { params: Promise<{ id: 
             </div>
           )}
           {currentVersion && (
-            <ArtifactMeta updatedAt={doc.updatedAt} authorName={authorName} versionNo={currentVersion.versionNo} />
+            <ArtifactMeta
+              updatedAt={doc.updatedAt}
+              authorName={authorName}
+              versionNo={currentVersion.versionNo}
+              fetchCount={doc.fetchCount}
+              lastFetchedAt={doc.lastFetchedAt}
+            />
           )}
         </div>
         <div className="flex shrink-0 gap-2">

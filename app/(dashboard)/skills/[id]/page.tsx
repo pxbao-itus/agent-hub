@@ -104,7 +104,13 @@ export default async function SkillDetailPage({ params }: { params: Promise<{ id
             </div>
           )}
           {currentVersion && (
-            <ArtifactMeta updatedAt={skill.updatedAt} authorName={authorName} versionNo={currentVersion.versionNo} />
+            <ArtifactMeta
+              updatedAt={skill.updatedAt}
+              authorName={authorName}
+              versionNo={currentVersion.versionNo}
+              fetchCount={skill.fetchCount}
+              lastFetchedAt={skill.lastFetchedAt}
+            />
           )}
         </div>
         <div className="flex shrink-0 gap-2">

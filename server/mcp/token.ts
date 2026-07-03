@@ -36,11 +36,14 @@ export async function verifyMcpToken(
   const user = await db.query.users.findFirst({ where: eq(users.id, row.userId) });
   if (!user) return null;
 
-  // Update last used (fire-and-forget)
-  void db
-    .update(mcpTokens)
+  // Update last used (fire-and-forget). drizzle query builders are lazy
+  // thenables — execute() only runs once something calls .then()/.catch(),
+  // so the .catch() below isn't just error handling, it's what makes this
+  // write actually reach the database instead of silently no-op'ing.
+  db.update(mcpTokens)
     .set({ lastUsedAt: new Date() })
-    .where(eq(mcpTokens.id, row.id));
+    .where(eq(mcpTokens.id, row.id))
+    .catch((err) => console.error("[verifyMcpToken] lastUsedAt update failed", row.id, err));
 
   return { userId: user.id, systemRole: user.systemRole, tokenId: row.id, scope: parseScope(row.scope) };
 }

@@ -68,4 +68,17 @@ describe("verifyMcpToken", () => {
     expect(identity).not.toBeNull();
     expect(identity?.scope).toEqual({});
   });
+
+  it("bumps lastUsedAt as a side effect (fire-and-forget write actually lands)", async () => {
+    const raw = await insertToken({ userId: engMember.id });
+    const identity = await verifyMcpToken(raw, db);
+    const deadline = Date.now() + 2000;
+    let row: typeof schema.mcpTokens.$inferSelect | undefined;
+    do {
+      [row] = await db.select().from(schema.mcpTokens).where(eq(schema.mcpTokens.id, identity!.tokenId));
+      if (row?.lastUsedAt) break;
+      await new Promise((r) => setTimeout(r, 20));
+    } while (Date.now() < deadline);
+    expect(row?.lastUsedAt).not.toBeNull();
+  });
 });
