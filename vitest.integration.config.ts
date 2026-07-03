@@ -11,7 +11,9 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["**/*.itest.ts"],
-    exclude: ["node_modules", ".next"],
+    // See vitest.config.ts for why this must be a recursive glob, not a bare
+    // "node_modules" string, and why cli/ is excluded outright.
+    exclude: ["**/node_modules/**", "**/.next/**", "cli/**"],
     // DB-backed tests share state (the seeded fixtures) — run sequentially
     // to avoid one file's assumptions colliding with another's.
     fileParallelism: false,

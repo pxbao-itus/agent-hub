@@ -1,0 +1,26 @@
+{
+  "name": "agent-hub-cli",
+  "version": "0.1.0",
+  "description": "CLI for Agent Hub — pulls skills/kits from an Agent Hub instance onto the local filesystem (Tier 3 delivery, plans/42-cli-filesystem-sync.md).",
+  "type": "module",
+  "bin": {
+    "agent-hub": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}

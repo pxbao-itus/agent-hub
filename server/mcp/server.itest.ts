@@ -130,7 +130,7 @@ describe("prompts primitive", () => {
 });
 
 describe("write gate", () => {
-  it("read-only scope exposes exactly the 9 read tools", async () => {
+  it("read-only scope exposes exactly the 11 read tools", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" }, {});
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
@@ -144,15 +144,17 @@ describe("write gate", () => {
         "list_kits",
         "list_plans",
         "list_skills",
+        "pull_kit",
+        "pull_skill",
         "search_artifacts",
       ].sort(),
     );
   });
 
-  it("write:true scope adds the 6 write tools (15 total)", async () => {
+  it("write:true scope adds the 6 write tools (17 total)", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(15);
+    expect(tools).toHaveLength(17);
     const names = new Set(tools.map((t) => t.name));
     for (const n of [
       "update_task_status",
@@ -192,6 +194,57 @@ describe("get_kit recursive flatten", () => {
     expect(t).toContain(`/${prompt1Slug}`);
     expect(t).toContain(`/${prompt2Slug}`);
     expect(t).toContain(`get_skill('${skill1Slug}')`);
+  });
+});
+
+describe("pull_skill / pull_kit (CLI JSON bundles, Phase 42 M2)", () => {
+  it("pull_skill returns a JSON bundle with body, files, and version metadata", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    const result = await client.callTool({ name: "pull_skill", arguments: { slug: skill1Slug } });
+    const bundle = JSON.parse(text(result));
+    expect(bundle.schemaVersion).toBe(1);
+    expect(bundle.kind).toBe("skill");
+    expect(bundle.slug).toBe(skill1Slug);
+    expect(bundle.title).toBe("PR review checklist");
+    expect(bundle.body).toContain("checklist.md");
+    expect(bundle.files).toEqual([
+      expect.objectContaining({ path: "checklist.md" }),
+    ]);
+    expect(bundle.versionNo).toBe(1);
+    expect(typeof bundle.updatedAt).toBe("string");
+  });
+
+  it("pull_skill returns an error object (not a thrown error) for an unknown slug", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    const result = await client.callTool({ name: "pull_skill", arguments: { slug: "does-not-exist" } });
+    const bundle = JSON.parse(text(result));
+    expect(bundle.error).toContain("not found");
+  });
+
+  it("pull_skill on a team-only skill is invisible to an outsider (same access gate as get_skill)", async () => {
+    const client = await connect({ userId: outsider.id, systemRole: "user" });
+    const result = await client.callTool({ name: "pull_skill", arguments: { slug: skill1Slug } });
+    const bundle = JSON.parse(text(result));
+    expect(bundle.error).toContain("not found");
+  });
+
+  it("pull_kit returns the kit plus every recursively-flattened member, fully resolved", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    const result = await client.callTool({ name: "pull_kit", arguments: { slug: kit3Slug } });
+    const bundle = JSON.parse(text(result));
+    expect(bundle.schemaVersion).toBe(1);
+    expect(bundle.kind).toBe("kit");
+    expect(bundle.title).toBe("Meta kit");
+
+    const promptSlugs = bundle.prompts.map((p: { slug: string }) => p.slug);
+    expect(promptSlugs).toContain(prompt1Slug);
+    expect(promptSlugs).toContain(prompt2Slug);
+
+    expect(bundle.skills).toHaveLength(1);
+    expect(bundle.skills[0].slug).toBe(skill1Slug);
+    expect(bundle.skills[0].files).toEqual([
+      expect.objectContaining({ path: "checklist.md" }),
+    ]);
   });
 });
 

@@ -169,6 +169,51 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
     },
   );
 
+  // ── Tool: pull_skill ──────────────────────────────────────────────────────
+  // Machine-readable counterpart to get_skill, for the CLI (Phase 42 M2,
+  // plans/42-cli-filesystem-sync.md) — tRPC's artifact.export bundle isn't
+  // reachable with an MCP bearer token (session-cookie-only), so this is a
+  // dedicated JSON surface reusing the same bundle shape (Phase 40).
+  // get_skill's markdown output is unchanged; this is an additive tool.
+
+  server.tool(
+    "pull_skill",
+    "Machine-readable skill bundle (JSON) for CLI/filesystem sync — not for agent/LLM consumption, use get_skill for that.",
+    {
+      slug: z.string().describe("The skill slug (e.g. 'acme.code-review' or 'code-review')"),
+    },
+    async ({ slug }) => {
+      const skill = skillBySlug.get(slug);
+      if (!skill) {
+        return { content: [{ type: "text" as const, text: JSON.stringify({ error: `Skill '${slug}' not found.` }) }] };
+      }
+      const version = skill.versions[0];
+      if (!version) {
+        return { content: [{ type: "text" as const, text: JSON.stringify({ error: `Skill '${slug}' has no versions.` }) }] };
+      }
+      bumpUsage(skill.id);
+      const content = await getCachedVersionContent(version.id, db);
+
+      const spacePath = skillOwnerPaths.get(`${skill.ownerType}:${skill.ownerId}`) ?? "";
+      const localSlug = skill.slug ?? slugify(skill.title);
+      const fullSlug = [spacePath, localSlug].filter(Boolean).join(".");
+
+      const bundle = {
+        schemaVersion: 1 as const,
+        kind: "skill" as const,
+        slug: fullSlug,
+        title: skill.title,
+        description: skill.description ?? null,
+        body: content?.body ?? version.body,
+        files: content?.files ?? [],
+        versionNo: version.versionNo,
+        updatedAt: version.createdAt.toISOString(),
+      };
+
+      return { content: [{ type: "text" as const, text: JSON.stringify(bundle) }] };
+    },
+  );
+
   // ── Tool: list_skills ─────────────────────────────────────────────────────
   // Let the agent discover available skills.
 
@@ -312,6 +357,90 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
       return {
         content: [{ type: "text" as const, text: parts.join("\n") }],
       };
+    },
+  );
+
+  // ── Tool: pull_kit ────────────────────────────────────────────────────────
+  // Machine-readable counterpart to get_kit, for the CLI (Phase 42 M2). The
+  // flatten happens server-side (flattenKitMembers already handles recursion,
+  // dedup, and cycles) so the CLI receives one fully-resolved payload instead
+  // of re-implementing the kit graph walk itself.
+
+  server.tool(
+    "pull_kit",
+    "Machine-readable kit bundle (JSON): the kit itself plus every recursively-flattened member skill/prompt, fully resolved. For CLI/filesystem sync — not for agent/LLM consumption, use get_kit for that.",
+    {
+      slug: z.string().describe("The kit slug (e.g. 'acme.starter-kit' or 'starter-kit')"),
+    },
+    async ({ slug }) => {
+      const kit = kitBySlug.get(slug);
+      if (!kit) {
+        return { content: [{ type: "text" as const, text: JSON.stringify({ error: `Kit '${slug}' not found.` }) }] };
+      }
+      bumpUsage(kit.id);
+      const version = kit.versions[0];
+
+      const { prompts: flatPrompts, skills: flatSkills } = await flattenKitMembers(
+        kit.id,
+        db,
+        accessibleArtifactIds,
+      );
+
+      const promptById = new Map(rows.map((r) => [r.id, r]));
+      const skillById = new Map(skillRows.map((r) => [r.id, r]));
+
+      const prompts = flatPrompts.flatMap((p) => {
+        const full = promptById.get(p.id);
+        const v = full?.versions[0];
+        if (!full || !v) return [];
+        const spacePath = ownerSlugPaths.get(`${full.ownerType}:${full.ownerId}`) ?? "";
+        const localSlug = full.slug ?? slugify(full.title);
+        return [{
+          slug: [spacePath, localSlug].filter(Boolean).join("."),
+          title: full.title,
+          description: full.description ?? null,
+          body: v.body,
+          versionNo: v.versionNo,
+          updatedAt: v.createdAt.toISOString(),
+        }];
+      });
+
+      const skills = [];
+      for (const s of flatSkills) {
+        const full = skillById.get(s.id);
+        const v = full?.versions[0];
+        if (!full || !v) continue;
+        const content = await getCachedVersionContent(v.id, db);
+        const spacePath = skillOwnerPaths.get(`${full.ownerType}:${full.ownerId}`) ?? "";
+        const localSlug = full.slug ?? slugify(full.title);
+        skills.push({
+          slug: [spacePath, localSlug].filter(Boolean).join("."),
+          title: full.title,
+          description: full.description ?? null,
+          body: content?.body ?? v.body,
+          files: content?.files ?? [],
+          versionNo: v.versionNo,
+          updatedAt: v.createdAt.toISOString(),
+        });
+      }
+
+      const kitSpacePath = kitOwnerPaths.get(`${kit.ownerType}:${kit.ownerId}`) ?? "";
+      const kitLocalSlug = kit.slug ?? slugify(kit.title);
+
+      const bundle = {
+        schemaVersion: 1 as const,
+        kind: "kit" as const,
+        slug: [kitSpacePath, kitLocalSlug].filter(Boolean).join("."),
+        title: kit.title,
+        description: kit.description ?? null,
+        body: version?.body ?? "",
+        versionNo: version?.versionNo ?? 0,
+        updatedAt: version?.createdAt.toISOString() ?? null,
+        prompts,
+        skills,
+      };
+
+      return { content: [{ type: "text" as const, text: JSON.stringify(bundle) }] };
     },
   );
 
