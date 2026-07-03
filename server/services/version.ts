@@ -2,6 +2,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { artifacts, artifactVersions } from "@/server/db/schema";
 import type { DbClient } from "@/server/db/types";
+import { notifyVersionChange } from "@/server/services/notification";
 
 /**
  * Roll back an artifact to a prior version: copies that version's body into a
@@ -43,6 +44,8 @@ export async function rollbackVersion(
     .update(artifacts)
     .set({ currentVersionId: newVersion.id, updatedAt: new Date() })
     .where(eq(artifacts.id, artifactId));
+
+  await notifyVersionChange(artifactId, newVersion.id, userId, db);
 
   return { newVersionNo: newVersion.versionNo, newVersionId: newVersion.id };
 }

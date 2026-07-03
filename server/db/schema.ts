@@ -383,6 +383,34 @@ export const artifactShares = pgTable(
 );
 
 /**
+ * In-app notification: fired when an artifact shared with `userId` (per
+ * `artifactShares`, not group-membership) gets a new version. One row per
+ * (recipient, version) — append-only, only `isRead` ever changes.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    artifactId: uuid("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    artifactVersionId: uuid("artifact_version_id")
+      .notNull()
+      .references(() => artifactVersions.id, { onDelete: "cascade" }),
+    actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+    isRead: boolean("is_read").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("notifications_user_idx").on(t.userId),
+    index("notifications_user_unread_idx").on(t.userId, t.isRead),
+  ]
+);
+
+/**
  * Generic directed link between two artifacts (e.g. plan → doc).
  * `relation` is free-form text (default 'doc'). Unique per (source, target, relation).
  * Cascade-deletes when either artifact is removed.
@@ -553,6 +581,27 @@ export const artifactSharesRelations = relations(artifactShares, ({ one }) => ({
     relationName: "shareGrantor",
     fields: [artifactShares.grantedBy],
     references: [users.id],
+  }),
+}));
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  user: one(users, {
+    relationName: "notificationRecipient",
+    fields: [notifications.userId],
+    references: [users.id],
+  }),
+  actor: one(users, {
+    relationName: "notificationActor",
+    fields: [notifications.actorId],
+    references: [users.id],
+  }),
+  artifact: one(artifacts, {
+    fields: [notifications.artifactId],
+    references: [artifacts.id],
+  }),
+  artifactVersion: one(artifactVersions, {
+    fields: [notifications.artifactVersionId],
+    references: [artifactVersions.id],
   }),
 }));
 

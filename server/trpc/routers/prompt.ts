@@ -8,6 +8,7 @@ import { hybridSearch, fetchArtifactsByIds } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import { parseVariables } from "@/server/lib/template";
 import { rollbackVersion } from "@/server/services/version";
+import { notifyVersionChange } from "@/server/services/notification";
 import type { DbClient } from "@/server/db/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -282,6 +283,7 @@ export const promptRouter = router({
 
         metaUpdates.currentVersionId = version.id;
         await syncVariables(ctx.db, id, body);
+        await notifyVersionChange(id, version.id, userId, ctx.db);
       }
 
       const [updated] = await ctx.db

@@ -8,6 +8,7 @@ import { wouldCreateCycle } from "@/server/lib/kit";
 import { hybridSearch } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import { rollbackVersion } from "@/server/services/version";
+import { notifyVersionChange } from "@/server/services/notification";
 import type { DbClient } from "@/server/db/types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -294,6 +295,7 @@ export const kitRouter = router({
           .returning();
 
         metaUpdates.currentVersionId = version.id;
+        await notifyVersionChange(id, version.id, userId, ctx.db);
       }
 
       if (members !== undefined) {

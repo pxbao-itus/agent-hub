@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SidebarNav } from "./_components/sidebar-nav";
 import { MobileHeader } from "./_components/mobile-header";
+import { NotificationBell } from "./_components/notification-bell";
 import { CommandPalette } from "@/components/command-palette";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -20,10 +21,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
       {/* ── Desktop sidebar ───────────────────────────────────────────────── */}
       <aside className="hidden md:flex w-56 shrink-0 flex-col border-r bg-card">
-        <div className="flex h-14 items-center border-b px-5">
+        <div className="flex h-14 items-center justify-between border-b px-5">
           <Link href="/" className="text-base font-bold tracking-tight">
             Agent Hub
           </Link>
+          <NotificationBell />
         </div>
 
         <div className="flex-1 overflow-y-auto">

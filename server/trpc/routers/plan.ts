@@ -15,6 +15,7 @@ import {
 } from "@/server/auth/access";
 import { createPlan } from "@/server/services/plan";
 import { rollbackVersion } from "@/server/services/version";
+import { notifyVersionChange } from "@/server/services/notification";
 import { hybridSearch } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import type { DbClient } from "@/server/db/types";
@@ -270,6 +271,7 @@ export const planRouter = router({
           .returning();
 
         metaUpdates.currentVersionId = version.id;
+        await notifyVersionChange(id, version.id, userId, ctx.db);
       }
 
       // Diff tasks by id: update existing, insert new, delete removed.

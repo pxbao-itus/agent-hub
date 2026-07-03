@@ -9,6 +9,7 @@ import { planRouter } from "./plan";
 import { docRouter } from "./doc";
 import { linkRouter } from "./link";
 import { shareRouter } from "./share";
+import { notificationRouter } from "./notification";
 import { tokenRouter } from "./token";
 import { userRouter } from "./user";
 import { searchRouter } from "./search";
@@ -35,6 +36,7 @@ export const appRouter = router({
   doc: docRouter,
   link: linkRouter,
   share: shareRouter,
+  notification: notificationRouter,
   token: tokenRouter,
   user: userRouter,
   search: searchRouter,

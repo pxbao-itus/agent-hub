@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SidebarNav } from "./sidebar-nav";
+import { NotificationBell } from "./notification-bell";
 
 export function MobileHeader({ displayName, isSuperAdmin }: { displayName: string; isSuperAdmin?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -16,10 +17,13 @@ export function MobileHeader({ displayName, isSuperAdmin }: { displayName: strin
         <Link href="/" className="text-base font-bold tracking-tight">
           Agent Hub
         </Link>
-        <Button variant="ghost" size="icon" onClick={() => setOpen(true)}>
-          <Menu className="h-5 w-5" />
-          <span className="sr-only">Open menu</span>
-        </Button>
+        <div className="flex items-center gap-1">
+          <NotificationBell />
+          <Button variant="ghost" size="icon" onClick={() => setOpen(true)}>
+            <Menu className="h-5 w-5" />
+            <span className="sr-only">Open menu</span>
+          </Button>
+        </div>
       </header>
 
       {/* Drawer overlay */}
