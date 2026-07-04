@@ -257,6 +257,50 @@ describe("project.assignArtifact / unassignArtifact", () => {
   });
 });
 
+describe("project.assignArtifactsBulk (Phase 45 B2)", () => {
+  it("assigns readable doc/plan ids, skips a wrong-kind id", async () => {
+    const project = await callerAs({ userId: engMember.id, systemRole: "user" }).create({
+      ownerGroupType: "team",
+      ownerGroupId: backend.id,
+      name: "Bulk assign roundtrip",
+    });
+    createdProjectIds.push(project.id);
+
+    const plan2 = await mustArtifact("Migrate to Next.js 16");
+    const skill1 = await mustArtifact("PR review checklist");
+
+    const result = await callerAs({ userId: engMember.id, systemRole: "user" }).assignArtifactsBulk({
+      projectId: project.id,
+      artifactIds: [plan2.id, skill1.id],
+    });
+
+    expect(result.assignedIds).toEqual([plan2.id]);
+    expect(result.skippedIds).toEqual([skill1.id]);
+
+    const after = await callerAs({ userId: engMember.id, systemRole: "user" }).get({ id: project.id });
+    expect(after.artifacts.map((a) => a.id)).toContain(plan2.id);
+  });
+
+  it("skips an artifact the caller cannot read", async () => {
+    const contentProject = await callerAs({ userId: marketingMember.id, systemRole: "user" }).create({
+      ownerGroupType: "team",
+      ownerGroupId: content.id,
+      name: "Bulk assign unreadable test",
+    });
+    createdProjectIds.push(contentProject.id);
+
+    const plan1 = await mustArtifact("Sửa lỗi phiên đăng nhập hết hạn sớm"); // backend team, unreadable to marketingMember
+
+    const result = await callerAs({ userId: marketingMember.id, systemRole: "user" }).assignArtifactsBulk({
+      projectId: contentProject.id,
+      artifactIds: [plan1.id],
+    });
+
+    expect(result.assignedIds).toEqual([]);
+    expect(result.skippedIds).toEqual([plan1.id]);
+  });
+});
+
 describe("project.addMember / removeMember", () => {
   it("rejects adding a user outside the owning group's cone", async () => {
     const project1 = await mustProject("Session bug fix");

@@ -14,23 +14,26 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { toast } from "@/hooks/use-toast";
+import { runUndoable } from "@/lib/undoable-action";
 
 export function DeleteProjectButton({ projectId }: { projectId: string }) {
   const router = useRouter();
+  const del = trpc.project.delete.useMutation();
 
-  const del = trpc.project.delete.useMutation({
-    onSuccess: () => {
-      toast({ title: "Project deleted", variant: "success" });
-      router.push("/projects");
-    },
-    onError: (e) => toast({ title: "Failed to delete", description: e.message, variant: "destructive" }),
-  });
+  function handleConfirm() {
+    router.push("/projects");
+    runUndoable({
+      key: projectId,
+      message: "Project deleted",
+      commit: () => del.mutateAsync({ id: projectId }),
+      onCancel: () => router.push(`/projects/${projectId}`),
+    });
+  }
 
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="destructive" size="sm" disabled={del.isPending}>
+        <Button variant="destructive" size="sm">
           Delete
         </Button>
       </AlertDialogTrigger>
@@ -39,14 +42,14 @@ export function DeleteProjectButton({ projectId }: { projectId: string }) {
           <AlertDialogTitle>Delete this project?</AlertDialogTitle>
           <AlertDialogDescription>
             This removes the project and its doc/plan assignments and member list. The docs and plans
-            themselves are not deleted. This action cannot be undone.
+            themselves are not deleted. You&apos;ll have a few seconds to undo.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            onClick={() => del.mutate({ id: projectId })}
+            onClick={handleConfirm}
           >
             Delete
           </AlertDialogAction>

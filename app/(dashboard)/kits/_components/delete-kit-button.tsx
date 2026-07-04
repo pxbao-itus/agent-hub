@@ -14,23 +14,26 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { toast } from "@/hooks/use-toast";
+import { runUndoable } from "@/lib/undoable-action";
 
 export function DeleteKitButton({ kitId }: { kitId: string }) {
   const router = useRouter();
+  const del = trpc.kit.delete.useMutation();
 
-  const del = trpc.kit.delete.useMutation({
-    onSuccess: () => {
-      toast({ title: "Kit deleted", variant: "success" });
-      router.push("/kits");
-    },
-    onError: (e) => toast({ title: "Failed to delete", description: e.message, variant: "destructive" }),
-  });
+  function handleConfirm() {
+    router.push("/kits");
+    runUndoable({
+      key: kitId,
+      message: "Kit deleted",
+      commit: () => del.mutateAsync({ id: kitId }),
+      onCancel: () => router.push(`/kits/${kitId}`),
+    });
+  }
 
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="destructive" size="sm" disabled={del.isPending}>
+        <Button variant="destructive" size="sm">
           Delete
         </Button>
       </AlertDialogTrigger>
@@ -38,14 +41,14 @@ export function DeleteKitButton({ kitId }: { kitId: string }) {
         <AlertDialogHeader>
           <AlertDialogTitle>Delete this kit?</AlertDialogTitle>
           <AlertDialogDescription>
-            This will permanently delete the kit and all its versions. Member artifacts are not deleted. This action cannot be undone.
+            This will permanently delete the kit and all its versions. Member artifacts are not deleted. You&apos;ll have a few seconds to undo.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            onClick={() => del.mutate({ id: kitId })}
+            onClick={handleConfirm}
           >
             Delete
           </AlertDialogAction>

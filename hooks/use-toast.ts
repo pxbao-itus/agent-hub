@@ -9,6 +9,10 @@ const TOAST_REMOVE_DELAY = 4000;
 type ToastInput = Pick<ToastProps, "variant"> & {
   title?: string;
   description?: string;
+  /** Rendered as the toast's action slot, e.g. a <ToastAction>Undo</ToastAction>. */
+  action?: React.ReactNode;
+  /** Overrides TOAST_REMOVE_DELAY for this toast (e.g. to match an undo grace window). */
+  duration?: number;
 };
 
 type ToasterToast = ToastInput & { id: string; open: boolean };
@@ -55,11 +59,12 @@ function scheduleRemove(id: string) {
 
 function toast(input: ToastInput) {
   const id = genId();
+  const delay = input.duration ?? TOAST_REMOVE_DELAY;
   dispatch({ type: "ADD", toast: { ...input, id, open: true } });
   setTimeout(() => {
     dispatch({ type: "DISMISS", id });
     scheduleRemove(id);
-  }, TOAST_REMOVE_DELAY - 300);
+  }, Math.max(delay - 300, 0));
   return id;
 }
 

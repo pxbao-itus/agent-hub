@@ -15,6 +15,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { FileText, Search } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { ListToolbar } from "@/components/ui/list-toolbar";
+import { ListSelectionProvider } from "@/components/ui/list-selection-context";
+import { SelectableItem } from "@/components/ui/selectable-item";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 
 export const metadata: Metadata = { title: "Docs" };
 
@@ -112,43 +115,48 @@ export default async function DocsPage({ searchParams }: Props) {
           ) : undefined}
         />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {rows.map((doc) => {
-            const body = doc.versions[0]?.body ?? "";
-            const preview = body.slice(0, 120) + (body.length > 120 ? "…" : "");
-            return (
-              <Link key={doc.id} href={`/docs/${doc.id}`}>
-                <Card className="h-full cursor-pointer transition-all hover:bg-muted/50 hover:shadow-sm">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <CardTitle className="text-sm leading-snug truncate">{doc.title}</CardTitle>
-                      </div>
-                      <Badge variant="outline" className="shrink-0 text-[10px]">
-                        {doc.visibility}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {doc.description ? (
-                      <p className="text-xs text-muted-foreground line-clamp-2">{doc.description}</p>
-                    ) : preview ? (
-                      <p className="line-clamp-3 font-mono text-xs text-muted-foreground">{preview}</p>
-                    ) : null}
-                    {doc.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {doc.tags.map((t) => (
-                          <Badge key={t} variant={t === tag ? "default" : "secondary"} className="text-[10px]">{t}</Badge>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </Link>
-            );
-          })}
-        </div>
+        <ListSelectionProvider>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {rows.map((doc) => {
+              const body = doc.versions[0]?.body ?? "";
+              const preview = body.slice(0, 120) + (body.length > 120 ? "…" : "");
+              return (
+                <SelectableItem key={doc.id} id={doc.id} label={doc.title}>
+                  <Link href={`/docs/${doc.id}`}>
+                    <Card className="h-full cursor-pointer transition-all hover:bg-muted/50 hover:shadow-sm">
+                      <CardHeader className="pb-2">
+                        <div className="flex items-start justify-between gap-2 pl-5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <CardTitle className="text-sm leading-snug truncate">{doc.title}</CardTitle>
+                          </div>
+                          <Badge variant="outline" className="shrink-0 text-[10px]">
+                            {doc.visibility}
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {doc.description ? (
+                          <p className="text-xs text-muted-foreground line-clamp-2">{doc.description}</p>
+                        ) : preview ? (
+                          <p className="line-clamp-3 font-mono text-xs text-muted-foreground">{preview}</p>
+                        ) : null}
+                        {doc.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {doc.tags.map((t) => (
+                              <Badge key={t} variant={t === tag ? "default" : "secondary"} className="text-[10px]">{t}</Badge>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Link>
+                </SelectableItem>
+              );
+            })}
+          </div>
+          <BulkActionBar kind="doc" />
+        </ListSelectionProvider>
       )}
 
       {(rows.length === limit || offset > 0) && (

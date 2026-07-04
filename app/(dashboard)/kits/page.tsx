@@ -15,6 +15,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Package, Search } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { ListToolbar } from "@/components/ui/list-toolbar";
+import { ListSelectionProvider } from "@/components/ui/list-selection-context";
+import { SelectableItem } from "@/components/ui/selectable-item";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 
 export const metadata: Metadata = { title: "Kits" };
 
@@ -123,43 +126,48 @@ export default async function KitsPage({ searchParams }: Props) {
           ) : undefined}
         />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {rows.map((kit) => {
-            const memberCount = kit.members.length;
-            return (
-              <Link key={kit.id} href={`/kits/${kit.id}`}>
-                <Card className="h-full cursor-pointer transition-all hover:bg-muted/50 hover:shadow-sm">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <Package className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <CardTitle className="text-sm leading-snug truncate">{kit.title}</CardTitle>
-                      </div>
-                      <Badge variant="outline" className="shrink-0 text-[10px]">
-                        {kit.visibility}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {kit.description && (
-                      <p className="line-clamp-2 text-xs text-muted-foreground">{kit.description}</p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      {memberCount} member{memberCount !== 1 ? "s" : ""}
-                    </p>
-                    {kit.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {kit.tags.map((t) => (
-                          <Badge key={t} variant={t === tag ? "default" : "secondary"} className="text-[10px]">{t}</Badge>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </Link>
-            );
-          })}
-        </div>
+        <ListSelectionProvider>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {rows.map((kit) => {
+              const memberCount = kit.members.length;
+              return (
+                <SelectableItem key={kit.id} id={kit.id} label={kit.title}>
+                  <Link href={`/kits/${kit.id}`}>
+                    <Card className="h-full cursor-pointer transition-all hover:bg-muted/50 hover:shadow-sm">
+                      <CardHeader className="pb-2">
+                        <div className="flex items-start justify-between gap-2 pl-5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <Package className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <CardTitle className="text-sm leading-snug truncate">{kit.title}</CardTitle>
+                          </div>
+                          <Badge variant="outline" className="shrink-0 text-[10px]">
+                            {kit.visibility}
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {kit.description && (
+                          <p className="line-clamp-2 text-xs text-muted-foreground">{kit.description}</p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          {memberCount} member{memberCount !== 1 ? "s" : ""}
+                        </p>
+                        {kit.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {kit.tags.map((t) => (
+                              <Badge key={t} variant={t === tag ? "default" : "secondary"} className="text-[10px]">{t}</Badge>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Link>
+                </SelectableItem>
+              );
+            })}
+          </div>
+          <BulkActionBar kind="kit" />
+        </ListSelectionProvider>
       )}
 
       {/* Pagination */}

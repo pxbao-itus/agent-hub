@@ -1,6 +1,7 @@
 import { inArray } from "drizzle-orm";
 import type { DbClient } from "@/server/db/types";
 import { orgs, departments, teams } from "@/server/db/schema";
+import { getCachedSlugPaths } from "@/server/lib/slug-path-cache";
 
 /**
  * Resolves a list of prompt owners to their hierarchical slug paths.
@@ -12,9 +13,40 @@ import { orgs, departments, teams } from "@/server/db/schema";
  * team       → "acme.engineering.backend"
  *
  * Falls back to the first 8 chars of the ID if an entity has no slug.
- * Uses at most 3 batched DB queries regardless of input size.
+ * Results are cached process-wide (slug-path-cache.ts) — only owners not
+ * already cached hit the DB, at most 3 batched queries for that remainder.
  */
 export async function resolveOwnerSlugPaths(
+  owners: Array<{ ownerType: string; ownerId: string }>,
+  db: DbClient,
+): Promise<Map<string, string>> {
+  const cache = getCachedSlugPaths();
+  const result = new Map<string, string>();
+  const uncached: Array<{ ownerType: string; ownerId: string }> = [];
+
+  for (const o of owners) {
+    const key = `${o.ownerType}:${o.ownerId}`;
+    const hit = cache.get(key);
+    if (hit !== undefined) {
+      result.set(key, hit);
+    } else {
+      uncached.push(o);
+    }
+  }
+
+  if (uncached.length > 0) {
+    const computed = await computeOwnerSlugPaths(uncached, db);
+    for (const [key, path] of computed) {
+      cache.set(key, path);
+      result.set(key, path);
+    }
+  }
+
+  return result;
+}
+
+/** Uncached DB lookup — the actual 3-batched-query resolution. */
+async function computeOwnerSlugPaths(
   owners: Array<{ ownerType: string; ownerId: string }>,
   db: DbClient,
 ): Promise<Map<string, string>> {

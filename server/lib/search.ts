@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import type { DbClient } from "@/server/db/types";
 import { artifacts, artifactVersions, artifactEmbeddings } from "@/server/db/schema";
 import type { Embedder } from "@/server/embedder";
+import { getCachedQueryEmbedding } from "@/server/lib/query-embedding-cache";
 
 const FTS_POOL = 50;
 const VEC_POOL = 50;
@@ -107,8 +108,8 @@ export async function hybridSearch(opts: {
   }
 
   // Embed query + run FTS in parallel
-  const [[queryVec], ftsIds] = await Promise.all([
-    embedder.embed([query]),
+  const [queryVec, ftsIds] = await Promise.all([
+    getCachedQueryEmbedding(query, embedder),
     runFts(query, accessCondition, tagFilter, dbClient),
   ]);
 

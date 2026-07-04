@@ -15,19 +15,22 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { toast } from "@/hooks/use-toast";
+import { runUndoable } from "@/lib/undoable-action";
 
 export function DeletePromptButton({ promptId }: { promptId: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const del = trpc.prompt.delete.useMutation();
 
-  const del = trpc.prompt.delete.useMutation({
-    onSuccess: () => {
-      toast({ title: "Prompt deleted", variant: "default" });
-      router.push("/prompts");
-    },
-    onError: (e) => toast({ title: "Failed to delete", description: e.message, variant: "destructive" }),
-  });
+  function handleConfirm() {
+    router.push("/prompts");
+    runUndoable({
+      key: promptId,
+      message: "Prompt deleted",
+      commit: () => del.mutateAsync({ id: promptId }),
+      onCancel: () => router.push(`/prompts/${promptId}`),
+    });
+  }
 
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
@@ -38,17 +41,16 @@ export function DeletePromptButton({ promptId }: { promptId: string }) {
         <AlertDialogHeader>
           <AlertDialogTitle>Delete prompt?</AlertDialogTitle>
           <AlertDialogDescription>
-            This will permanently delete the prompt and all its versions. This action cannot be undone.
+            This will permanently delete the prompt and all its versions. You&apos;ll have a few seconds to undo.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            onClick={() => del.mutate({ id: promptId })}
-            disabled={del.isPending}
+            onClick={handleConfirm}
           >
-            {del.isPending ? "Deleting…" : "Delete"}
+            Delete
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

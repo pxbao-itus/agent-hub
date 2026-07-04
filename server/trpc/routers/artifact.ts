@@ -3,8 +3,10 @@ import { eq, desc, asc, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import { artifacts, artifactVersions, artifactMembers, artifactTasks } from "@/server/db/schema";
-import { canAccessArtifact, effectiveGroupRole } from "@/server/auth/access";
+import { canAccessArtifact, canMutatePrompt, effectiveGroupRole } from "@/server/auth/access";
 import { createArtifact } from "@/server/services/artifact";
+
+const BULK_MAX = 100;
 
 const artifactKindEnum = z.enum(["prompt", "skill", "kit", "plan", "doc"]);
 
@@ -285,5 +287,76 @@ export const artifactRouter = router({
       );
 
       return { ...created, skippedMembers };
+    }),
+
+  /**
+   * Bulk delete (Phase 45 B2). The client is expected to call this only
+   * after its own delayed-execute/Undo grace window elapses (B1) — this
+   * mutation itself deletes immediately, same as the single-kind `delete`
+   * mutations. Skips (and reports) ids the caller can't mutate rather than
+   * failing the whole batch.
+   */
+  bulkDelete: protectedProcedure
+    .input(z.object({ ids: z.array(z.string().uuid()).min(1).max(BULK_MAX) }))
+    .mutation(async ({ ctx, input }) => {
+      const { userId, systemRole } = ctx.session;
+
+      const rows = await ctx.db.query.artifacts.findMany({
+        where: inArray(artifacts.id, input.ids),
+        columns: { id: true, ownerType: true, ownerId: true },
+      });
+      const rowById = new Map(rows.map((r) => [r.id, r]));
+
+      const deletableIds: string[] = [];
+      const skippedIds: string[] = [];
+      for (const id of input.ids) {
+        const row = rowById.get(id);
+        const allowed = row && (await canMutatePrompt({ userId, systemRole }, row, ctx.db));
+        if (allowed) deletableIds.push(id);
+        else skippedIds.push(id);
+      }
+
+      if (deletableIds.length > 0) {
+        await ctx.db.delete(artifacts).where(inArray(artifacts.id, deletableIds));
+      }
+
+      return { deletedIds: deletableIds, skippedIds };
+    }),
+
+  /** Bulk-add a tag (Phase 45 B2). Skips ids the caller can't mutate; a no-op (still counted as success) if the tag is already present. */
+  bulkAddTag: protectedProcedure
+    .input(z.object({ ids: z.array(z.string().uuid()).min(1).max(BULK_MAX), tag: z.string().min(1).max(50) }))
+    .mutation(async ({ ctx, input }) => {
+      const { userId, systemRole } = ctx.session;
+
+      const rows = await ctx.db.query.artifacts.findMany({
+        where: inArray(artifacts.id, input.ids),
+        columns: { id: true, ownerType: true, ownerId: true, tags: true },
+      });
+      const rowById = new Map(rows.map((r) => [r.id, r]));
+
+      const updatedIds: string[] = [];
+      const skippedIds: string[] = [];
+      for (const id of input.ids) {
+        const row = rowById.get(id);
+        if (!row) {
+          skippedIds.push(id);
+          continue;
+        }
+        const allowed = await canMutatePrompt({ userId, systemRole }, row, ctx.db);
+        if (!allowed) {
+          skippedIds.push(id);
+          continue;
+        }
+        if (!row.tags.includes(input.tag)) {
+          await ctx.db
+            .update(artifacts)
+            .set({ tags: [...row.tags, input.tag], updatedAt: new Date() })
+            .where(eq(artifacts.id, id));
+        }
+        updatedIds.push(id);
+      }
+
+      return { updatedIds, skippedIds };
     }),
 });

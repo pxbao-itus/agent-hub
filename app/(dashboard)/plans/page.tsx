@@ -15,6 +15,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ClipboardList, Search } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { ListToolbar } from "@/components/ui/list-toolbar";
+import { ListSelectionProvider } from "@/components/ui/list-selection-context";
+import { SelectableItem } from "@/components/ui/selectable-item";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 
 export const metadata: Metadata = { title: "Plans" };
 
@@ -120,55 +123,60 @@ export default async function PlansPage({ searchParams }: Props) {
           ) : undefined}
         />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {rows.map((plan) => {
-            const tasks = plan.tasks ?? [];
-            const done = tasks.filter((t) => t.status === "done").length;
-            const total = tasks.length;
-            const pct = total > 0 ? Math.round((done / total) * 100) : null;
+        <ListSelectionProvider>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {rows.map((plan) => {
+              const tasks = plan.tasks ?? [];
+              const done = tasks.filter((t) => t.status === "done").length;
+              const total = tasks.length;
+              const pct = total > 0 ? Math.round((done / total) * 100) : null;
 
-            return (
-              <Link key={plan.id} href={`/plans/${plan.id}`}>
-                <Card className="h-full cursor-pointer transition-all hover:bg-muted/50 hover:shadow-sm">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <ClipboardList className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <CardTitle className="text-sm leading-snug truncate">{plan.title}</CardTitle>
-                      </div>
-                      <Badge variant="outline" className="shrink-0 text-[10px]">
-                        {plan.visibility}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {plan.description && (
-                      <p className="line-clamp-2 text-xs text-muted-foreground">{plan.description}</p>
-                    )}
-                    {total > 0 && (
-                      <div className="space-y-1">
-                        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                          <div
-                            className="h-full bg-primary transition-all"
-                            style={{ width: `${pct}%` }}
-                          />
+              return (
+                <SelectableItem key={plan.id} id={plan.id} label={plan.title}>
+                  <Link href={`/plans/${plan.id}`}>
+                    <Card className="h-full cursor-pointer transition-all hover:bg-muted/50 hover:shadow-sm">
+                      <CardHeader className="pb-2">
+                        <div className="flex items-start justify-between gap-2 pl-5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <ClipboardList className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <CardTitle className="text-sm leading-snug truncate">{plan.title}</CardTitle>
+                          </div>
+                          <Badge variant="outline" className="shrink-0 text-[10px]">
+                            {plan.visibility}
+                          </Badge>
                         </div>
-                        <p className="text-[10px] text-muted-foreground">{done}/{total} done</p>
-                      </div>
-                    )}
-                    {plan.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {plan.tags.map((t) => (
-                          <Badge key={t} variant={t === tag ? "default" : "secondary"} className="text-[10px]">{t}</Badge>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </Link>
-            );
-          })}
-        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {plan.description && (
+                          <p className="line-clamp-2 text-xs text-muted-foreground">{plan.description}</p>
+                        )}
+                        {total > 0 && (
+                          <div className="space-y-1">
+                            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                              <div
+                                className="h-full bg-primary transition-all"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">{done}/{total} done</p>
+                          </div>
+                        )}
+                        {plan.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {plan.tags.map((t) => (
+                              <Badge key={t} variant={t === tag ? "default" : "secondary"} className="text-[10px]">{t}</Badge>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Link>
+                </SelectableItem>
+              );
+            })}
+          </div>
+          <BulkActionBar kind="plan" />
+        </ListSelectionProvider>
       )}
 
       {(rows.length === limit || offset > 0) && (

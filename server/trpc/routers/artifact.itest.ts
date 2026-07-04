@@ -374,3 +374,91 @@ describe("artifact.import", () => {
     expect(version?.body).toBe(exported.body);
   });
 });
+
+describe("artifact.bulkDelete (Phase 45 B2)", () => {
+  it("deletes every id the caller can mutate", async () => {
+    const a = await createArtifact(
+      { kind: "prompt", ownerType: "user", ownerId: engMember.id, title: "bulk-delete a", body: "x", createdBy: engMember.id },
+      db,
+    );
+    const b = await createArtifact(
+      { kind: "prompt", ownerType: "user", ownerId: engMember.id, title: "bulk-delete b", body: "x", createdBy: engMember.id },
+      db,
+    );
+
+    const caller = callerAs({ userId: engMember.id, systemRole: "user" });
+    const result = await caller.bulkDelete({ ids: [a.id, b.id] });
+
+    expect(result.deletedIds.sort()).toEqual([a.id, b.id].sort());
+    expect(result.skippedIds).toEqual([]);
+    const remaining = await db.query.artifacts.findMany({ where: inArray(schema.artifacts.id, [a.id, b.id]) });
+    expect(remaining).toHaveLength(0);
+  });
+
+  it("skips an id the caller cannot mutate, deletes the rest, and leaves the skipped artifact intact", async () => {
+    const own = await createArtifact(
+      { kind: "prompt", ownerType: "user", ownerId: engMember.id, title: "bulk-delete own", body: "x", createdBy: engMember.id },
+      db,
+    );
+    const notMine = await mustArtifact("Viết email xin nghỉ phép"); // org-owned public prompt — readable but not mutable by engMember
+
+    const caller = callerAs({ userId: engMember.id, systemRole: "user" });
+    const result = await caller.bulkDelete({ ids: [own.id, notMine.id] });
+
+    expect(result.deletedIds).toEqual([own.id]);
+    expect(result.skippedIds).toEqual([notMine.id]);
+    const stillThere = await db.query.artifacts.findFirst({ where: eq(schema.artifacts.id, notMine.id) });
+    expect(stillThere).toBeDefined();
+  });
+
+  it("skips a non-existent id", async () => {
+    const missingId = "00000000-0000-0000-0000-000000000000";
+    const caller = callerAs({ userId: engMember.id, systemRole: "user" });
+    const result = await caller.bulkDelete({ ids: [missingId] });
+    expect(result.skippedIds).toEqual([missingId]);
+    expect(result.deletedIds).toEqual([]);
+  });
+});
+
+describe("artifact.bulkAddTag (Phase 45 B2)", () => {
+  it("adds the tag to every mutable id, without duplicating an already-present tag", async () => {
+    const a = await createArtifact(
+      { kind: "prompt", ownerType: "user", ownerId: engMember.id, title: "bulk-tag a", body: "x", tags: [], createdBy: engMember.id },
+      db,
+    );
+    const b = await createArtifact(
+      { kind: "prompt", ownerType: "user", ownerId: engMember.id, title: "bulk-tag b", body: "x", tags: ["urgent"], createdBy: engMember.id },
+      db,
+    );
+    createdArtifactIds.push(a.id, b.id);
+
+    const caller = callerAs({ userId: engMember.id, systemRole: "user" });
+    const result = await caller.bulkAddTag({ ids: [a.id, b.id], tag: "urgent" });
+
+    expect(result.updatedIds.sort()).toEqual([a.id, b.id].sort());
+    expect(result.skippedIds).toEqual([]);
+
+    const [rowA] = await db.select().from(schema.artifacts).where(eq(schema.artifacts.id, a.id));
+    const [rowB] = await db.select().from(schema.artifacts).where(eq(schema.artifacts.id, b.id));
+    expect(rowA.tags).toEqual(["urgent"]);
+    expect(rowB.tags).toEqual(["urgent"]); // no duplicate
+  });
+
+  it("skips an id the caller cannot mutate, leaving its tags unchanged", async () => {
+    const own = await createArtifact(
+      { kind: "prompt", ownerType: "user", ownerId: engMember.id, title: "bulk-tag own", body: "x", createdBy: engMember.id },
+      db,
+    );
+    createdArtifactIds.push(own.id);
+    const notMine = await mustArtifact("Viết email xin nghỉ phép");
+    const tagsBefore = notMine.tags;
+
+    const caller = callerAs({ userId: engMember.id, systemRole: "user" });
+    const result = await caller.bulkAddTag({ ids: [own.id, notMine.id], tag: "should-not-apply" });
+
+    expect(result.updatedIds).toEqual([own.id]);
+    expect(result.skippedIds).toEqual([notMine.id]);
+    const [after] = await db.select().from(schema.artifacts).where(eq(schema.artifacts.id, notMine.id));
+    expect(after.tags).toEqual(tagsBefore);
+  });
+});

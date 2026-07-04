@@ -14,23 +14,26 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { toast } from "@/hooks/use-toast";
+import { runUndoable } from "@/lib/undoable-action";
 
 export function DeleteSkillButton({ skillId }: { skillId: string }) {
   const router = useRouter();
+  const del = trpc.skill.delete.useMutation();
 
-  const del = trpc.skill.delete.useMutation({
-    onSuccess: () => {
-      toast({ title: "Skill deleted", variant: "success" });
-      router.push("/skills");
-    },
-    onError: (e) => toast({ title: "Failed to delete", description: e.message, variant: "destructive" }),
-  });
+  function handleConfirm() {
+    router.push("/skills");
+    runUndoable({
+      key: skillId,
+      message: "Skill deleted",
+      commit: () => del.mutateAsync({ id: skillId }),
+      onCancel: () => router.push(`/skills/${skillId}`),
+    });
+  }
 
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="destructive" size="sm" disabled={del.isPending}>
+        <Button variant="destructive" size="sm">
           Delete
         </Button>
       </AlertDialogTrigger>
@@ -38,14 +41,14 @@ export function DeleteSkillButton({ skillId }: { skillId: string }) {
         <AlertDialogHeader>
           <AlertDialogTitle>Delete this skill?</AlertDialogTitle>
           <AlertDialogDescription>
-            This will permanently delete the skill and all its versions. This action cannot be undone.
+            This will permanently delete the skill and all its versions. You&apos;ll have a few seconds to undo.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            onClick={() => del.mutate({ id: skillId })}
+            onClick={handleConfirm}
           >
             Delete
           </AlertDialogAction>

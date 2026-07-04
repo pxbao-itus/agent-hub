@@ -14,17 +14,21 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { toast } from "@/hooks/use-toast";
+import { runUndoable } from "@/lib/undoable-action";
 
 export function DeleteDocButton({ docId }: { docId: string }) {
   const router = useRouter();
-  const del = trpc.doc.delete.useMutation({
-    onSuccess: () => {
-      toast({ title: "Doc deleted", variant: "success" });
-      router.push("/docs");
-    },
-    onError: (e) => toast({ title: "Failed to delete", description: e.message, variant: "destructive" }),
-  });
+  const del = trpc.doc.delete.useMutation();
+
+  function handleConfirm() {
+    router.push("/docs");
+    runUndoable({
+      key: docId,
+      message: "Doc deleted",
+      commit: () => del.mutateAsync({ id: docId }),
+      onCancel: () => router.push(`/docs/${docId}`),
+    });
+  }
 
   return (
     <AlertDialog>
@@ -35,17 +39,16 @@ export function DeleteDocButton({ docId }: { docId: string }) {
         <AlertDialogHeader>
           <AlertDialogTitle>Delete doc?</AlertDialogTitle>
           <AlertDialogDescription>
-            This will permanently delete the doc and all its versions. Links from plans will also be removed. This action cannot be undone.
+            This will permanently delete the doc and all its versions. Links from plans will also be removed. You&apos;ll have a few seconds to undo.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            onClick={() => del.mutate({ id: docId })}
-            disabled={del.isPending}
+            onClick={handleConfirm}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
-            {del.isPending ? "Deleting…" : "Delete"}
+            Delete
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

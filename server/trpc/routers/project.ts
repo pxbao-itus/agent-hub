@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, and, or, desc } from "drizzle-orm";
+import { eq, and, or, desc, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import { projects, projectArtifacts, projectMembers, artifacts, users } from "@/server/db/schema";
@@ -214,6 +214,48 @@ export const projectRouter = router({
         .returning();
 
       return row ?? null;
+    }),
+
+  /**
+   * Bulk assign (Phase 45 B2 — "add to project" bulk action). Same
+   * per-item rules as `assignArtifact` (kind doc|plan + readable), applied
+   * across the batch — items failing either check are skipped and
+   * reported rather than failing the whole call.
+   */
+  assignArtifactsBulk: protectedProcedure
+    .input(z.object({ projectId: z.string().uuid(), artifactIds: z.array(z.string().uuid()).min(1).max(100) }))
+    .mutation(async ({ ctx, input }) => {
+      const { userId, systemRole } = ctx.session;
+      const project = await findProjectOrThrow(input.projectId, ctx.db);
+      await requireManage({ userId, systemRole }, project.ownerGroupType, project.ownerGroupId, ctx.db);
+
+      const rows = await ctx.db.query.artifacts.findMany({ where: inArray(artifacts.id, input.artifactIds) });
+      const rowById = new Map(rows.map((a) => [a.id, a]));
+
+      const assignedIds: string[] = [];
+      const skippedIds: string[] = [];
+      for (const id of input.artifactIds) {
+        const artifact = rowById.get(id);
+        if (!artifact || (artifact.kind !== "doc" && artifact.kind !== "plan")) {
+          skippedIds.push(id);
+          continue;
+        }
+        const readable = await canAccessArtifact({ userId, systemRole }, artifact, ctx.db);
+        if (!readable) {
+          skippedIds.push(id);
+          continue;
+        }
+        assignedIds.push(id);
+      }
+
+      if (assignedIds.length > 0) {
+        await ctx.db
+          .insert(projectArtifacts)
+          .values(assignedIds.map((artifactId) => ({ projectId: input.projectId, artifactId })))
+          .onConflictDoNothing();
+      }
+
+      return { assignedIds, skippedIds };
     }),
 
   unassignArtifact: protectedProcedure

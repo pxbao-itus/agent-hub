@@ -14,17 +14,21 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { toast } from "@/hooks/use-toast";
+import { runUndoable } from "@/lib/undoable-action";
 
 export function DeletePlanButton({ planId }: { planId: string }) {
   const router = useRouter();
-  const del = trpc.plan.delete.useMutation({
-    onSuccess: () => {
-      toast({ title: "Plan deleted", variant: "success" });
-      router.push("/plans");
-    },
-    onError: (e) => toast({ title: "Failed to delete", description: e.message, variant: "destructive" }),
-  });
+  const del = trpc.plan.delete.useMutation();
+
+  function handleConfirm() {
+    router.push("/plans");
+    runUndoable({
+      key: planId,
+      message: "Plan deleted",
+      commit: () => del.mutateAsync({ id: planId }),
+      onCancel: () => router.push(`/plans/${planId}`),
+    });
+  }
 
   return (
     <AlertDialog>
@@ -35,17 +39,16 @@ export function DeletePlanButton({ planId }: { planId: string }) {
         <AlertDialogHeader>
           <AlertDialogTitle>Delete plan?</AlertDialogTitle>
           <AlertDialogDescription>
-            This will permanently delete the plan, all its versions, and all tasks. This action cannot be undone.
+            This will permanently delete the plan, all its versions, and all tasks. You&apos;ll have a few seconds to undo.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            onClick={() => del.mutate({ id: planId })}
-            disabled={del.isPending}
+            onClick={handleConfirm}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
-            {del.isPending ? "Deleting…" : "Delete"}
+            Delete
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

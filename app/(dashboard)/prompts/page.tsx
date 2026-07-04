@@ -16,6 +16,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { ListToolbar } from "@/components/ui/list-toolbar";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ListSelectionProvider } from "@/components/ui/list-selection-context";
+import { SelectableItem } from "@/components/ui/selectable-item";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { BookText, Search } from "lucide-react";
 
 type Props = {
@@ -134,38 +137,43 @@ export default async function PromptsPage({ searchParams }: Props) {
           ) : undefined}
         />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {rows.map((prompt) => {
-            const currentBody = prompt.versions[0]?.body ?? "";
-            const preview = currentBody.slice(0, 120) + (currentBody.length > 120 ? "…" : "");
-            return (
-              <Link key={prompt.id} href={`/prompts/${prompt.id}`}>
-                <Card className="h-full cursor-pointer transition-all hover:bg-muted/50 hover:shadow-sm">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <CardTitle className="text-sm leading-snug">{prompt.title}</CardTitle>
-                      <Badge variant="outline" className="shrink-0 text-[10px]">
-                        {prompt.visibility}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {preview && (
-                      <p className="line-clamp-3 font-mono text-xs text-muted-foreground">{preview}</p>
-                    )}
-                    {prompt.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {prompt.tags.map((t) => (
-                          <Badge key={t} variant={t === tag ? "default" : "secondary"} className="text-[10px]">{t}</Badge>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </Link>
-            );
-          })}
-        </div>
+        <ListSelectionProvider>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {rows.map((prompt) => {
+              const currentBody = prompt.versions[0]?.body ?? "";
+              const preview = currentBody.slice(0, 120) + (currentBody.length > 120 ? "…" : "");
+              return (
+                <SelectableItem key={prompt.id} id={prompt.id} label={prompt.title}>
+                  <Link href={`/prompts/${prompt.id}`}>
+                    <Card className="h-full cursor-pointer transition-all hover:bg-muted/50 hover:shadow-sm">
+                      <CardHeader className="pb-2">
+                        <div className="flex items-start justify-between gap-2 pl-5">
+                          <CardTitle className="text-sm leading-snug">{prompt.title}</CardTitle>
+                          <Badge variant="outline" className="shrink-0 text-[10px]">
+                            {prompt.visibility}
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {preview && (
+                          <p className="line-clamp-3 font-mono text-xs text-muted-foreground">{preview}</p>
+                        )}
+                        {prompt.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {prompt.tags.map((t) => (
+                              <Badge key={t} variant={t === tag ? "default" : "secondary"} className="text-[10px]">{t}</Badge>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Link>
+                </SelectableItem>
+              );
+            })}
+          </div>
+          <BulkActionBar kind="prompt" />
+        </ListSelectionProvider>
       )}
 
       {/* Pagination */}

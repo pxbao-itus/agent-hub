@@ -17,6 +17,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Wrench, Search } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { ListToolbar } from "@/components/ui/list-toolbar";
+import { ListSelectionProvider } from "@/components/ui/list-selection-context";
+import { SelectableItem } from "@/components/ui/selectable-item";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 
 type Props = {
   searchParams: Promise<{ q?: string; tag?: string; sort?: string; offset?: string }>;
@@ -114,41 +117,46 @@ export default async function SkillsPage({ searchParams }: Props) {
           ) : undefined}
         />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {rows.map((skill) => {
-            const currentBody = skill.versions[0]?.body ?? "";
-            const preview = currentBody.slice(0, 120) + (currentBody.length > 120 ? "…" : "");
-            return (
-              <Link key={skill.id} href={`/skills/${skill.id}`}>
-                <Card className="h-full cursor-pointer transition-all hover:bg-muted/50 hover:shadow-sm">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <Wrench className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <CardTitle className="text-sm leading-snug truncate">{skill.title}</CardTitle>
-                      </div>
-                      <Badge variant="outline" className="shrink-0 text-[10px]">
-                        {skill.visibility}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {preview && (
-                      <p className="line-clamp-3 font-mono text-xs text-muted-foreground">{preview}</p>
-                    )}
-                    {skill.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {skill.tags.map((t) => (
-                          <Badge key={t} variant={t === tag ? "default" : "secondary"} className="text-[10px]">{t}</Badge>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </Link>
-            );
-          })}
-        </div>
+        <ListSelectionProvider>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {rows.map((skill) => {
+              const currentBody = skill.versions[0]?.body ?? "";
+              const preview = currentBody.slice(0, 120) + (currentBody.length > 120 ? "…" : "");
+              return (
+                <SelectableItem key={skill.id} id={skill.id} label={skill.title}>
+                  <Link href={`/skills/${skill.id}`}>
+                    <Card className="h-full cursor-pointer transition-all hover:bg-muted/50 hover:shadow-sm">
+                      <CardHeader className="pb-2">
+                        <div className="flex items-start justify-between gap-2 pl-5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <Wrench className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <CardTitle className="text-sm leading-snug truncate">{skill.title}</CardTitle>
+                          </div>
+                          <Badge variant="outline" className="shrink-0 text-[10px]">
+                            {skill.visibility}
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {preview && (
+                          <p className="line-clamp-3 font-mono text-xs text-muted-foreground">{preview}</p>
+                        )}
+                        {skill.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {skill.tags.map((t) => (
+                              <Badge key={t} variant={t === tag ? "default" : "secondary"} className="text-[10px]">{t}</Badge>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Link>
+                </SelectableItem>
+              );
+            })}
+          </div>
+          <BulkActionBar kind="skill" />
+        </ListSelectionProvider>
       )}
 
       {/* Pagination */}

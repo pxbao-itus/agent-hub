@@ -5,6 +5,7 @@ import { orgs, departments, teams, memberships, users, artifacts } from "@/serve
 import { TRPCError } from "@trpc/server";
 import type { DbClient } from "@/server/db/types";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
+import { clearSlugPathCache } from "@/server/lib/slug-path-cache";
 import { effectiveGroupRole } from "@/server/auth/access";
 
 const slugSchema = z
@@ -317,6 +318,10 @@ export const orgRouter = router({
           })
           .where(eq(departments.id, input.departmentId))
           .returning();
+        // A dept's slug is embedded in every descendant team's cached path
+        // too — clear the whole cache rather than compute the affected set
+        // for this rare, admin-only operation (see slug-path-cache.ts).
+        if (input.slug !== undefined) clearSlugPathCache();
         return updated;
       }),
 
@@ -413,6 +418,7 @@ export const orgRouter = router({
             })
             .where(eq(teams.id, input.teamId))
             .returning();
+          if (input.slug !== undefined) clearSlugPathCache();
           return updated;
         }),
 
