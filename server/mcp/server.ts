@@ -2,9 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { eq, asc, desc, and, or, sql, inArray } from "drizzle-orm";
 import { db } from "@/server/db";
-import { artifacts, artifactVersions, artifactTasks, artifactLinks, workflows, workflowStages, workflowStageArtifacts, projects } from "@/server/db/schema";
+import { artifacts, artifactVersions, artifactTasks, artifactLinks, workflows, workflowStages, workflowStageArtifacts, projects, projectArtifacts } from "@/server/db/schema";
 import { getAccessibleGroups, getSharedArtifactIds, effectiveGroupRole } from "@/server/auth/access";
-import { canViewWorkflow, attachWorkflowProgress } from "@/server/lib/workflow-access";
+import { canViewWorkflow, canManageWorkflow, attachWorkflowProgress } from "@/server/lib/workflow-access";
+import { canViewProject, attachProjectCounts } from "@/server/lib/project-access";
 import { renderTemplate } from "@/server/lib/template";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
 import { getCachedVersionContent } from "@/server/lib/version-cache";
@@ -25,8 +26,16 @@ type Identity = { userId: string; systemRole: "user" | "superadmin" };
  */
 const ALL_KINDS: ArtifactKind[] = ["prompt", "skill", "kit", "plan", "doc"];
 
+const SERVER_INSTRUCTIONS =
+  "Agent Hub is a shared library of prompts, skills, kits, plans, docs, and workflows. " +
+  "Prompts are exposed as native prompts/slash-commands; everything else is fetched with get_skill/get_kit/get_plan/get_doc/get_workflow. " +
+  "Start with the `overview` tool to see what's here before searching blind.";
+
 export async function createMcpServer(identity: Identity, scope: TokenScope = {}): Promise<McpServer> {
-  const server = new McpServer({ name: "agent-hub", version: "0.1.0" });
+  const server = new McpServer(
+    { name: "agent-hub", version: "0.1.0" },
+    { instructions: SERVER_INSTRUCTIONS },
+  );
 
   // One access resolution + one query for every kind, instead of 5 of each
   // (Phase 39 perf) — getAccessibleGroups/getSharedArtifactIds/findMany were
@@ -868,7 +877,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
 
       for (const stage of stageRows) {
         const check = stage.status === "done" ? "[x]" : stage.status === "doing" ? "[~]" : "[ ]";
-        parts.push(`## ${check} ${stage.name}`);
+        parts.push(`## ${check} ${stage.name} (id: ${stage.id})`);
         const artifactIds = artifactIdsByStage.get(stage.id) ?? [];
         const refs = artifactIds.flatMap((aid) => {
           const meta = searchMeta.get(aid);
@@ -883,6 +892,192 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
           }
         }
         parts.push("");
+      }
+
+      return { content: [{ type: "text" as const, text: parts.join("\n").trimEnd() }] };
+    },
+  );
+
+  // ── Tool: overview ───────────────────────────────────────────────────────
+  // Not a search — a fast "homepage" for an agent that just connected: what
+  // spaces/counts this token actually reaches, what's in flight, what's
+  // popular, and where to go next. Built entirely from data already resolved
+  // above (byKind counts, ownerSlugPaths, listAccessibleWorkflows) — no new
+  // query beyond the small workflow-progress lookup it shares with
+  // list_workflows.
+
+  server.tool(
+    "overview",
+    "Get a fast orientation to this Agent Hub instance: what you can access, what's in progress, and what's popular. Call this first, before search_artifacts or list_* — it's a map, not a search.",
+    {},
+    async () => {
+      const parts: string[] = [];
+      parts.push("# Agent Hub overview");
+      parts.push("");
+
+      const spacePaths = [...new Set([...ownerSlugPaths.values()].filter(Boolean))].sort();
+      const spaceLine =
+        identity.systemRole === "superadmin"
+          ? "all spaces (superadmin)"
+          : spacePaths.length
+            ? spacePaths.join(", ")
+            : "personal space only";
+      parts.push(`**Your access**: ${spaceLine}`);
+      parts.push(
+        `**Artifacts you can reach**: ${rows.length} prompts, ${skillRows.length} skills, ${kitRows.length} kits, ${planRows.length} plans, ${docRows.length} docs`,
+      );
+      parts.push("");
+
+      const accessibleWorkflows = await listAccessibleWorkflows();
+      parts.push("## In-flight workflows");
+      if (!accessibleWorkflows.length) {
+        parts.push("_None._");
+      } else {
+        const stages = await db.query.workflowStages.findMany({
+          where: inArray(workflowStages.workflowId, accessibleWorkflows.map((w) => w.id)),
+        });
+        const doingByWorkflow = new Map<string, string>();
+        for (const s of stages) {
+          if (s.status === "doing" && !doingByWorkflow.has(s.workflowId)) doingByWorkflow.set(s.workflowId, s.name);
+        }
+        const inFlight = accessibleWorkflows.filter((w) => doingByWorkflow.has(w.id)).slice(0, 5);
+        if (!inFlight.length) {
+          parts.push("_None currently on a `doing` stage._");
+        } else {
+          for (const w of inFlight) {
+            parts.push(`- ${w.name} — now: ${doingByWorkflow.get(w.id)} (id: ${w.id})`);
+          }
+        }
+      }
+      parts.push("");
+
+      const allArtifacts = [...rows, ...skillRows, ...kitRows, ...planRows, ...docRows];
+      const mostUsed = allArtifacts
+        .filter((a) => a.fetchCount > 0)
+        .sort((a, b) => b.fetchCount - a.fetchCount)
+        .slice(0, 5);
+      if (mostUsed.length) {
+        parts.push("## Frequently used");
+        for (const a of mostUsed) {
+          parts.push(`- [${a.kind}] ${a.title} (${a.fetchCount} uses)`);
+        }
+        parts.push("");
+      }
+
+      parts.push(
+        "Next: `search_artifacts` for something specific, or `list_workflows`/`get_workflow` to see a process's full stage structure.",
+      );
+
+      return { content: [{ type: "text" as const, text: parts.join("\n").trimEnd() }] };
+    },
+  );
+
+  // ── Project tools ─────────────────────────────────────────────────────────
+  // Projects aren't artifacts either (same reasoning as workflows above) —
+  // visibility follows the plain user cone (D-016), mirroring the project
+  // tRPC router exactly (server/trpc/routers/project.ts).
+
+  async function listAccessibleProjects() {
+    if (identity.systemRole === "superadmin") {
+      return db.query.projects.findMany({ orderBy: desc(projects.updatedAt) });
+    }
+    const groups = await getAccessibleGroups(identity.userId, db);
+    if (!groups.length) return [];
+    const where = or(
+      ...groups.map((g) => and(eq(projects.ownerGroupType, g.groupType), eq(projects.ownerGroupId, g.groupId))),
+    );
+    return db.query.projects.findMany({ where, orderBy: desc(projects.updatedAt) });
+  }
+
+  server.tool(
+    "list_projects",
+    "List projects (organizational groupings of docs/plans + members) you can see, with how many docs/plans and linked workflows each has.",
+    {},
+    async () => {
+      const rows = await listAccessibleProjects();
+      if (!rows.length) {
+        return { content: [{ type: "text" as const, text: "No projects available." }] };
+      }
+
+      const [withCounts, workflowCounts] = await Promise.all([
+        attachProjectCounts(rows, db),
+        db
+          .select({ projectId: workflows.projectId, count: sql<number>`count(*)::int` })
+          .from(workflows)
+          .where(inArray(workflows.projectId, rows.map((p) => p.id)))
+          .groupBy(workflows.projectId),
+      ]);
+      const workflowCountByProject = new Map(workflowCounts.map((w) => [w.projectId, w.count]));
+
+      const lines = withCounts.map((p) => {
+        const workflowCount = workflowCountByProject.get(p.id) ?? 0;
+        const desc = p.description ? ` — ${p.description}` : "";
+        return `- ${p.name}${desc} (${p.artifactCount} doc/plan, ${p.memberCount} member${p.memberCount === 1 ? "" : "s"}, ${workflowCount} workflow${workflowCount === 1 ? "" : "s"}) (id: ${p.id})`;
+      });
+
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    },
+  );
+
+  server.tool(
+    "get_project",
+    "Get a project's full context bundle — its assigned docs/plans as references (kind + slug + title) and any linked workflows (name + id + progress). Call get_doc/get_plan/get_workflow for the actual content of a reference.",
+    {
+      id: z.string().uuid().describe("The project id (from list_projects output)"),
+    },
+    async ({ id }) => {
+      const project = await db.query.projects.findFirst({ where: eq(projects.id, id) });
+      if (!project) {
+        return { content: [{ type: "text" as const, text: `Project '${id}' not found.` }] };
+      }
+      const viewable = await canViewProject(identityUser, project, db);
+      if (!viewable) {
+        return { content: [{ type: "text" as const, text: `Access denied: project '${id}' is not accessible.` }] };
+      }
+
+      const [assignedRows, linkedWorkflowRows] = await Promise.all([
+        db
+          .select({ artifactId: projectArtifacts.artifactId })
+          .from(projectArtifacts)
+          .where(eq(projectArtifacts.projectId, project.id)),
+        db.query.workflows.findMany({ where: eq(workflows.projectId, project.id) }),
+      ]);
+
+      const parts: string[] = [];
+      parts.push(`# ${project.name}`);
+      if (project.description) parts.push(`_${project.description}_`);
+      parts.push("");
+
+      // Same reasoning as get_workflow: resolving through searchMeta (already
+      // scope-filtered) rather than a raw lookup means an assigned doc/plan
+      // outside this token's scope is silently dropped, never leaked.
+      const refs = assignedRows.flatMap(({ artifactId }) => {
+        const meta = searchMeta.get(artifactId);
+        return meta ? [meta] : [];
+      });
+      parts.push("## Docs & plans");
+      if (refs.length === 0) {
+        parts.push("_Nothing assigned._");
+      } else {
+        for (const ref of refs) {
+          const d = ref.description ? ` — ${ref.description}` : "";
+          parts.push(`- [${ref.kind}] ${ref.title}${d} → ${usageHint(ref.kind, ref.fullSlug)}`);
+        }
+      }
+      parts.push("");
+
+      const viewableWorkflows = [];
+      for (const w of linkedWorkflowRows) {
+        if (await canViewWorkflow(identityUser, w, db)) viewableWorkflows.push(w);
+      }
+      parts.push("## Linked workflows");
+      if (viewableWorkflows.length === 0) {
+        parts.push("_None._");
+      } else {
+        const withProgress = await attachWorkflowProgress(viewableWorkflows, db);
+        for (const w of withProgress) {
+          parts.push(`- ${w.name} (${w.doneCount}/${w.stageCount} stages done) (id: ${w.id})`);
+        }
       }
 
       return { content: [{ type: "text" as const, text: parts.join("\n").trimEnd() }] };
@@ -956,6 +1151,51 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         });
         return {
           content: [{ type: "text" as const, text: `Updated. Progress: ${done}/${stages.length} stages done\n\n${checklist.join("\n")}` }],
+        };
+      },
+    );
+
+    server.tool(
+      "attach_artifact_to_workflow_stage",
+      "Attach an artifact (prompt/skill/kit/plan/doc, by slug) to a workflow stage — the way work you just produced (e.g. a doc or plan you created) joins the process. Only available with a write-enabled token. Agents can only add; ask the user to remove or reorganize attachments in the app.",
+      {
+        stageId: z.string().uuid().describe("The stage id (from get_workflow output)"),
+        slug: z.string().describe("The artifact's slug, exactly as shown by get_workflow/search_artifacts (e.g. 'acme.auth-bug' or 'auth-bug')"),
+      },
+      async ({ stageId, slug }) => {
+        const stage = await db.query.workflowStages.findFirst({ where: eq(workflowStages.id, stageId) });
+        if (!stage) {
+          return { content: [{ type: "text" as const, text: `Stage '${stageId}' not found.` }] };
+        }
+        const workflow = await db.query.workflows.findFirst({ where: eq(workflows.id, stage.workflowId) });
+        if (!workflow || !(await canManageWorkflow(identityUser, workflow.ownerGroupType, workflow.ownerGroupId, db))) {
+          return { content: [{ type: "text" as const, text: `Access denied: you can't manage stage '${stageId}'.` }] };
+        }
+
+        // Resolving through searchMeta (not a raw artifact lookup) means an
+        // artifact outside this token's scope — even if it exists and the
+        // user could otherwise read it — resolves the same as "not found",
+        // never a distinguishable "found but denied" response.
+        const found = [...searchMeta.entries()].find(([, meta]) => meta.fullSlug === slug);
+        if (!found) {
+          return { content: [{ type: "text" as const, text: `Artifact '${slug}' not found or not accessible.` }] };
+        }
+        const [artifactId, meta] = found;
+
+        const [{ maxPos }] = await db
+          .select({ maxPos: sql<number>`coalesce(max(position), -1)` })
+          .from(workflowStageArtifacts)
+          .where(eq(workflowStageArtifacts.stageId, stageId));
+
+        const [row] = await db
+          .insert(workflowStageArtifacts)
+          .values({ stageId, artifactId, position: maxPos + 1 })
+          .onConflictDoNothing()
+          .returning();
+
+        const verb = row ? "Attached" : "Already attached";
+        return {
+          content: [{ type: "text" as const, text: `${verb}: [${meta.kind}] ${meta.title} → stage '${stage.name}'.` }],
         };
       },
     );
@@ -1207,7 +1447,7 @@ async function getArtifactsForIdentity(
   const rows = await db.query.artifacts.findMany({
     where,
     orderBy: desc(artifacts.updatedAt),
-    columns: { id: true, kind: true, title: true, description: true, slug: true, ownerType: true, ownerId: true, tags: true },
+    columns: { id: true, kind: true, title: true, description: true, slug: true, ownerType: true, ownerId: true, tags: true, fetchCount: true },
     with: {
       variables: { columns: { name: true } },
       versions: { orderBy: desc(artifactVersions.versionNo), limit: 1 },

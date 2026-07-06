@@ -47,6 +47,12 @@ async function mustWorkflow(name: string) {
   return row;
 }
 
+async function mustProject(name: string) {
+  const [row] = await db.select().from(schema.projects).where(eq(schema.projects.name, name));
+  if (!row) throw new Error(`fixture project not found: ${name}`);
+  return row;
+}
+
 async function mustStage(workflowId: string, name: string) {
   const [row] = await db
     .select()
@@ -64,6 +70,7 @@ let engMember: typeof schema.users.$inferSelect;
 let marketingMember: typeof schema.users.$inferSelect;
 let outsider: typeof schema.users.$inferSelect;
 let orgAdmin: typeof schema.users.$inferSelect;
+let orgViewer: typeof schema.users.$inferSelect;
 let backend: typeof schema.teams.$inferSelect;
 
 let prompt1Slug: string;
@@ -85,6 +92,7 @@ beforeAll(async () => {
     .where(eq(schema.users.email, "marketing-member@test.local"));
   [outsider] = await db.select().from(schema.users).where(eq(schema.users.email, "outsider@test.local"));
   [orgAdmin] = await db.select().from(schema.users).where(eq(schema.users.email, "org-admin@test.local"));
+  [orgViewer] = await db.select().from(schema.users).where(eq(schema.users.email, "org-viewer@test.local"));
   [backend] = await db.select().from(schema.teams).where(eq(schema.teams.slug, "backend"));
 
   const prompt1 = await mustArtifact("Rà soát bảo mật mã nguồn");
@@ -148,7 +156,7 @@ describe("prompts primitive", () => {
 });
 
 describe("write gate", () => {
-  it("read-only scope exposes exactly the 13 read tools", async () => {
+  it("read-only scope exposes exactly the 16 read tools", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" }, {});
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
@@ -157,13 +165,16 @@ describe("write gate", () => {
         "get_doc",
         "get_kit",
         "get_plan",
+        "get_project",
         "get_skill",
         "get_workflow",
         "list_docs",
         "list_kits",
         "list_plans",
+        "list_projects",
         "list_skills",
         "list_workflows",
+        "overview",
         "pull_kit",
         "pull_skill",
         "search_artifacts",
@@ -171,10 +182,10 @@ describe("write gate", () => {
     );
   });
 
-  it("write:true scope adds the 7 write tools (20 total)", async () => {
+  it("write:true scope adds the 8 write tools (24 total)", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(20);
+    expect(tools).toHaveLength(24);
     const names = new Set(tools.map((t) => t.name));
     for (const n of [
       "update_task_status",
@@ -184,6 +195,7 @@ describe("write gate", () => {
       "create_plan",
       "create_doc",
       "set_workflow_stage_status",
+      "attach_artifact_to_workflow_stage",
     ]) {
       expect(names.has(n)).toBe(true);
     }
@@ -326,6 +338,12 @@ describe("workflow tools", () => {
     expect(t.indexOf("[x] Spec")).toBeLessThan(t.indexOf("[~] Build"));
     expect(t.indexOf("[~] Build")).toBeLessThan(t.indexOf("[ ] Review"));
 
+    // Each stage heading carries its own id (P48 B0 fix) — without this,
+    // set_workflow_stage_status/attach_artifact_to_workflow_stage have no
+    // way for an agent to name a specific stage.
+    const specStage = await mustStage(workflow.id, "Spec");
+    expect(t).toContain(`Spec (id: ${specStage.id})`);
+
     // Spec -> doc1, as a reference (kind + usage hint), not full body content
     expect(t).toContain(`[doc] Lỗi: phiên đăng nhập hết hạn sau 5 phút`);
     expect(t).toContain(`get_doc('${doc1Slug}')`);
@@ -373,6 +391,116 @@ describe("workflow tools", () => {
     expect(t).toContain("[skill] PR review checklist");
     // Spec's only attachment (doc1) was scoped out, so it now reads as empty
     expect(t).toContain("_Nothing attached._");
+  });
+});
+
+describe("overview tool", () => {
+  it("gives eng-member an access summary, artifact counts, in-flight workflow, and next-step hint", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    const result = await client.callTool({ name: "overview", arguments: {} });
+    const t = text(result);
+
+    expect(t).toContain(BACKEND_PATH);
+    expect(t).toMatch(/\*\*Artifacts you can reach\*\*: \d+ prompts, \d+ skills, \d+ kits, \d+ plans, \d+ docs/);
+    expect(t).toContain("## In-flight workflows");
+    expect(t).toContain("now: Build");
+    expect(t).toContain("Next:");
+    expect(t).toContain("search_artifacts");
+  });
+
+  it("outsider sees no reachable spaces and no in-flight workflows", async () => {
+    const client = await connect({ userId: outsider.id, systemRole: "user" });
+    const result = await client.callTool({ name: "overview", arguments: {} });
+    const t = text(result);
+
+    expect(t).not.toContain(BACKEND_PATH);
+    expect(t).toContain("## In-flight workflows");
+    expect(t).toContain("_None");
+  });
+
+  it("surfaces frequently-used artifacts once fetchCount is set", async () => {
+    const doc1 = await mustArtifact("Lỗi: phiên đăng nhập hết hạn sau 5 phút");
+    const originalCount = doc1.fetchCount;
+    await db.update(schema.artifacts).set({ fetchCount: 999 }).where(eq(schema.artifacts.id, doc1.id));
+
+    try {
+      const client = await connect({ userId: engMember.id, systemRole: "user" });
+      const result = await client.callTool({ name: "overview", arguments: {} });
+      const t = text(result);
+      expect(t).toContain("## Frequently used");
+      expect(t).toContain("[doc] Lỗi: phiên đăng nhập hết hạn sau 5 phút (999 uses)");
+    } finally {
+      await db.update(schema.artifacts).set({ fetchCount: originalCount }).where(eq(schema.artifacts.id, doc1.id));
+    }
+  });
+
+  it("superadmin sees 'all spaces' regardless of cone", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "superadmin" });
+    const result = await client.callTool({ name: "overview", arguments: {} });
+    expect(text(result)).toContain("all spaces (superadmin)");
+  });
+});
+
+describe("project tools", () => {
+  it("list_projects shows doc/plan, member, and workflow counts for eng-member", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    const result = await client.callTool({ name: "list_projects", arguments: {} });
+    const t = text(result);
+    expect(t).toContain("Session bug fix");
+    expect(t).toContain("2 doc/plan");
+    expect(t).toContain("1 member");
+    expect(t).toContain("1 workflow");
+  });
+
+  it("outsider sees no projects (empty cone)", async () => {
+    const client = await connect({ userId: outsider.id, systemRole: "user" });
+    const result = await client.callTool({ name: "list_projects", arguments: {} });
+    expect(text(result)).toBe("No projects available.");
+  });
+
+  it("get_project returns assigned doc/plan references and the linked workflow with progress", async () => {
+    const project = await mustProject("Session bug fix");
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    const result = await client.callTool({ name: "get_project", arguments: { id: project.id } });
+    const t = text(result);
+
+    expect(t).toContain("## Docs & plans");
+    expect(t).toContain("[doc] Lỗi: phiên đăng nhập hết hạn sau 5 phút");
+    expect(t).toContain(`get_doc('${doc1Slug}')`);
+    expect(t).toContain("[plan] Sửa lỗi phiên đăng nhập hết hạn sớm");
+    expect(t).toContain(`get_plan('${plan1Slug}')`);
+    expect(t).not.toContain("session.maxAge"); // doc1's body — must not leak here
+
+    expect(t).toContain("## Linked workflows");
+    expect(t).toContain("Session bug fix process (1/3 stages done)");
+  });
+
+  it("returns a friendly message (not a thrown error) for an unknown id", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    const result = await client.callTool({
+      name: "get_project",
+      arguments: { id: "00000000-0000-0000-0000-000000000000" },
+    });
+    expect(text(result)).toContain("not found");
+  });
+
+  it("denies access for an outsider (cannot view the owning team's project)", async () => {
+    const project = await mustProject("Session bug fix");
+    const client = await connect({ userId: outsider.id, systemRole: "user" });
+    const result = await client.callTool({ name: "get_project", arguments: { id: project.id } });
+    expect(text(result)).toContain("Access denied");
+  });
+
+  it("scope.tags filters assigned doc/plan references the same way it filters get_workflow", async () => {
+    // plan1 and doc1 (this project's only assignments) are both tagged "bug",
+    // not "engineering" — scoping to "engineering" should empty the section.
+    const project = await mustProject("Session bug fix");
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { tags: ["engineering"] });
+    const result = await client.callTool({ name: "get_project", arguments: { id: project.id } });
+    const t = text(result);
+    expect(t).not.toContain("Lỗi: phiên đăng nhập hết hạn sau 5 phút");
+    expect(t).not.toContain("Sửa lỗi phiên đăng nhập hết hạn sớm");
+    expect(t).toContain("_Nothing assigned._");
   });
 });
 
@@ -676,5 +804,78 @@ describe("write round-trip (scope.write = true)", () => {
       arguments: { stageId: spec.id, status: "todo" },
     });
     expect(text(result)).toContain("Access denied");
+  });
+
+  it("attach_artifact_to_workflow_stage attaches by slug, persists, and is idempotent", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const workflow = await mustWorkflow("Session bug fix process");
+    const review = await mustStage(workflow.id, "Review");
+
+    const first = await client.callTool({
+      name: "attach_artifact_to_workflow_stage",
+      arguments: { stageId: review.id, slug: skill2Slug },
+    });
+    expect(text(first)).toContain("Attached: [skill] Hướng dẫn viết test tự động");
+
+    const workflowResult = await client.callTool({ name: "get_workflow", arguments: { id: workflow.id } });
+    const t = text(workflowResult);
+    expect(t).toContain("[skill] Hướng dẫn viết test tự động");
+    expect(t).toContain(`get_skill('${skill2Slug}')`);
+
+    const second = await client.callTool({
+      name: "attach_artifact_to_workflow_stage",
+      arguments: { stageId: review.id, slug: skill2Slug },
+    });
+    expect(text(second)).toContain("Already attached");
+
+    // Restore fixture state (Review starts with nothing attached — asserted
+    // by the "returns ordered stages" test above).
+    const skill2 = await mustArtifact("Hướng dẫn viết test tự động");
+    await db
+      .delete(schema.workflowStageArtifacts)
+      .where(
+        and(
+          eq(schema.workflowStageArtifacts.stageId, review.id),
+          eq(schema.workflowStageArtifacts.artifactId, skill2.id),
+        ),
+      );
+  });
+
+  it("negative: attach_artifact_to_workflow_stage rejects a slug outside the caller's scope/access", async () => {
+    // skill3 ("Debug memory leaks in Node.js") is private to marketingMember —
+    // invisible to engMember's searchMeta, same as it would be to get_skill.
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const workflow = await mustWorkflow("Session bug fix process");
+    const review = await mustStage(workflow.id, "Review");
+
+    const result = await client.callTool({
+      name: "attach_artifact_to_workflow_stage",
+      arguments: { stageId: review.id, slug: "debug-memory-leaks-in-node-js" },
+    });
+    expect(text(result)).toContain("not found or not accessible");
+  });
+
+  it("negative: attach_artifact_to_workflow_stage denies a viewer who can see but not manage the workflow", async () => {
+    // org-viewer's org membership covers backend team's cone (D-016) so they
+    // can view the workflow, but their role is "viewer" — not editor/admin —
+    // so canManageWorkflow must reject the attach.
+    const client = await connect({ userId: orgViewer.id, systemRole: "user" }, { write: true });
+    const workflow = await mustWorkflow("Session bug fix process");
+    const review = await mustStage(workflow.id, "Review");
+
+    const result = await client.callTool({
+      name: "attach_artifact_to_workflow_stage",
+      arguments: { stageId: review.id, slug: skill2Slug },
+    });
+    expect(text(result)).toContain("Access denied");
+  });
+
+  it("returns a friendly message (not a thrown error) for an unknown stage id", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const result = await client.callTool({
+      name: "attach_artifact_to_workflow_stage",
+      arguments: { stageId: "00000000-0000-0000-0000-000000000000", slug: skill2Slug },
+    });
+    expect(text(result)).toContain("not found");
   });
 });
