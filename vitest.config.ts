@@ -6,13 +6,11 @@ export default defineConfig({
     environment: "node",
     include: ["**/*.test.ts"],
     // Plain "node_modules" only matches a literal top-level segment, not
-    // nested ones — src/cli/ has its own node_modules (separate package,
-    // plans/42-cli-filesystem-sync.md §4), and without the recursive glob
-    // its vendored deps' own *.test.ts files (e.g. zod's) got picked up too.
-    // cli/ is excluded outright, not just its node_modules — it's a fully
-    // separate package (own package.json, own `pnpm test`), not part of
-    // this app's test run.
-    exclude: ["**/node_modules/**", "**/.next/**", "cli/**"],
+    // nested ones — without the recursive glob, a vendored dep's own
+    // *.test.ts files could get picked up too. src/cli/ is a separate Go
+    // module (plans/49-go-cli.md) with no *.test.ts files, so it's excluded
+    // by this pattern automatically, no separate entry needed.
+    exclude: ["**/node_modules/**", "**/.next/**"],
   },
   resolve: {
     alias: { "@": resolve(__dirname, ".") },
