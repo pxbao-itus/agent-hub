@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createTestDb } from "@/server/test-support/test-db";
@@ -41,6 +41,21 @@ async function mustArtifact(title: string) {
   return row;
 }
 
+async function mustWorkflow(name: string) {
+  const [row] = await db.select().from(schema.workflows).where(eq(schema.workflows.name, name));
+  if (!row) throw new Error(`fixture workflow not found: ${name}`);
+  return row;
+}
+
+async function mustStage(workflowId: string, name: string) {
+  const [row] = await db
+    .select()
+    .from(schema.workflowStages)
+    .where(and(eq(schema.workflowStages.workflowId, workflowId), eq(schema.workflowStages.name, name)));
+  if (!row) throw new Error(`fixture stage not found: ${name}`);
+  return row;
+}
+
 const ORG_PATH = "qa-org";
 const ENG_PATH = "qa-org.engineering";
 const BACKEND_PATH = "qa-org.engineering.backend";
@@ -56,6 +71,7 @@ let prompt2Slug: string;
 let prompt3Slug: string;
 let skill1Slug: string;
 let skill2Slug: string;
+let kit1Slug: string;
 let kit3Slug: string;
 let plan1Slug: string;
 let plan2Slug: string;
@@ -76,6 +92,7 @@ beforeAll(async () => {
   const prompt3 = await mustArtifact("Viết email xin nghỉ phép");
   const skill1 = await mustArtifact("PR review checklist");
   const skill2 = await mustArtifact("Hướng dẫn viết test tự động");
+  const kit1 = await mustArtifact("Code review starter kit");
   const kit3 = await mustArtifact("Meta kit");
   const plan1 = await mustArtifact("Sửa lỗi phiên đăng nhập hết hạn sớm");
   const plan2 = await mustArtifact("Migrate to Next.js 16");
@@ -86,6 +103,7 @@ beforeAll(async () => {
   prompt3Slug = `${ORG_PATH}.${prompt3.slug}`;
   skill1Slug = `${BACKEND_PATH}.${slugify(skill1.title)}`;
   skill2Slug = `${ENG_PATH}.${slugify(skill2.title)}`;
+  kit1Slug = `${BACKEND_PATH}.${slugify(kit1.title)}`;
   kit3Slug = slugify(kit3.title);
   plan1Slug = `${BACKEND_PATH}.${slugify(plan1.title)}`;
   plan2Slug = `${ENG_PATH}.${slugify(plan2.title)}`;
@@ -130,7 +148,7 @@ describe("prompts primitive", () => {
 });
 
 describe("write gate", () => {
-  it("read-only scope exposes exactly the 11 read tools", async () => {
+  it("read-only scope exposes exactly the 13 read tools", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" }, {});
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
@@ -140,10 +158,12 @@ describe("write gate", () => {
         "get_kit",
         "get_plan",
         "get_skill",
+        "get_workflow",
         "list_docs",
         "list_kits",
         "list_plans",
         "list_skills",
+        "list_workflows",
         "pull_kit",
         "pull_skill",
         "search_artifacts",
@@ -151,10 +171,10 @@ describe("write gate", () => {
     );
   });
 
-  it("write:true scope adds the 6 write tools (17 total)", async () => {
+  it("write:true scope adds the 7 write tools (20 total)", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(17);
+    expect(tools).toHaveLength(20);
     const names = new Set(tools.map((t) => t.name));
     for (const n of [
       "update_task_status",
@@ -163,6 +183,7 @@ describe("write gate", () => {
       "delete_plan_task",
       "create_plan",
       "create_doc",
+      "set_workflow_stage_status",
     ]) {
       expect(names.has(n)).toBe(true);
     }
@@ -268,6 +289,90 @@ describe("plan and doc reads", () => {
     const t = text(result);
     expect(t).toContain("Lỗi: phiên đăng nhập hết hạn sau 5 phút");
     expect(t).toContain("session.maxAge");
+  });
+});
+
+describe("workflow tools", () => {
+  it("list_workflows shows progress, active stage, and linked project for eng-member", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    const result = await client.callTool({ name: "list_workflows", arguments: {} });
+    const t = text(result);
+    expect(t).toContain("Session bug fix process");
+    expect(t).toContain("1/3 stages done");
+    expect(t).toContain("now: Build");
+    expect(t).toContain("project: Session bug fix");
+  });
+
+  it("org-admin sees the workflow too (D-016 downward inheritance, no direct team membership)", async () => {
+    const client = await connect({ userId: orgAdmin.id, systemRole: "user" });
+    const result = await client.callTool({ name: "list_workflows", arguments: {} });
+    expect(text(result)).toContain("Session bug fix process");
+  });
+
+  it("outsider sees no workflows (empty cone)", async () => {
+    const client = await connect({ userId: outsider.id, systemRole: "user" });
+    const result = await client.callTool({ name: "list_workflows", arguments: {} });
+    expect(text(result)).toBe("No workflows available.");
+  });
+
+  it("get_workflow returns ordered stages with status markers and artifact references", async () => {
+    const workflow = await mustWorkflow("Session bug fix process");
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    const result = await client.callTool({ name: "get_workflow", arguments: { id: workflow.id } });
+    const t = text(result);
+
+    expect(t).toContain("Progress: 1/3 stages done");
+    expect(t.indexOf("[x] Spec")).toBeGreaterThanOrEqual(0);
+    expect(t.indexOf("[x] Spec")).toBeLessThan(t.indexOf("[~] Build"));
+    expect(t.indexOf("[~] Build")).toBeLessThan(t.indexOf("[ ] Review"));
+
+    // Spec -> doc1, as a reference (kind + usage hint), not full body content
+    expect(t).toContain(`[doc] Lỗi: phiên đăng nhập hết hạn sau 5 phút`);
+    expect(t).toContain(`get_doc('${doc1Slug}')`);
+    expect(t).not.toContain("session.maxAge"); // that's doc1's body — must not leak here
+
+    // Build -> kit1 + skill1 + plan1
+    expect(t).toContain("[kit] Code review starter kit");
+    expect(t).toContain(`get_kit('${kit1Slug}')`);
+    expect(t).toContain("[skill] PR review checklist");
+    expect(t).toContain(`get_skill('${skill1Slug}')`);
+    expect(t).toContain("[plan] Sửa lỗi phiên đăng nhập hết hạn sớm");
+    expect(t).toContain(`get_plan('${plan1Slug}')`);
+
+    // Review -> nothing attached
+    expect(t).toContain("_Nothing attached._");
+  });
+
+  it("returns a friendly message (not a thrown error) for an unknown id", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    const result = await client.callTool({
+      name: "get_workflow",
+      arguments: { id: "00000000-0000-0000-0000-000000000000" },
+    });
+    expect(text(result)).toContain("not found");
+  });
+
+  it("denies access for an outsider (cannot view the owning team's workflow)", async () => {
+    const workflow = await mustWorkflow("Session bug fix process");
+    const client = await connect({ userId: outsider.id, systemRole: "user" });
+    const result = await client.callTool({ name: "get_workflow", arguments: { id: workflow.id } });
+    expect(text(result)).toContain("Access denied");
+  });
+
+  it("scope.tags filters stage artifact references the same way it filters list/get elsewhere", async () => {
+    const workflow = await mustWorkflow("Session bug fix process");
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { tags: ["engineering"] });
+    const result = await client.callTool({ name: "get_workflow", arguments: { id: workflow.id } });
+    const t = text(result);
+
+    // doc1 (tags: bug) and plan1 (tags: bug) fall outside the "engineering" scope
+    expect(t).not.toContain("Lỗi: phiên đăng nhập hết hạn sau 5 phút");
+    expect(t).not.toContain("Sửa lỗi phiên đăng nhập hết hạn sớm");
+    // kit1 (engineering) and skill1 (engineering, review) still pass
+    expect(t).toContain("[kit] Code review starter kit");
+    expect(t).toContain("[skill] PR review checklist");
+    // Spec's only attachment (doc1) was scoped out, so it now reads as empty
+    expect(t).toContain("_Nothing attached._");
   });
 });
 
@@ -536,6 +641,39 @@ describe("write round-trip (scope.write = true)", () => {
     const result = await client.callTool({
       name: "update_task_status",
       arguments: { taskId: tasks[0].id, status: "done" },
+    });
+    expect(text(result)).toContain("Access denied");
+  });
+
+  it("set_workflow_stage_status persists, verified via a fresh get_workflow call", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const workflow = await mustWorkflow("Session bug fix process");
+    const review = await mustStage(workflow.id, "Review");
+
+    const updateResult = await client.callTool({
+      name: "set_workflow_stage_status",
+      arguments: { stageId: review.id, status: "doing" },
+    });
+    expect(text(updateResult)).toContain("Progress: 1/3 stages done");
+
+    const workflowResult = await client.callTool({ name: "get_workflow", arguments: { id: workflow.id } });
+    expect(text(workflowResult)).toContain("[~] Review");
+
+    // Restore fixture state so other tests in this file (and other files
+    // sharing the same seeded DB) see the fixture's original todo/doing/done mix.
+    await db.update(schema.workflowStages).set({ status: "todo" }).where(eq(schema.workflowStages.id, review.id));
+  });
+
+  it("negative: denies set_workflow_stage_status on a workflow outside the caller's access", async () => {
+    // workflow1 is owned by team backend; marketingMember (team content) has
+    // no path to it, same reasoning as the update_task_status negative case above.
+    const client = await connect({ userId: marketingMember.id, systemRole: "user" }, { write: true });
+    const workflow = await mustWorkflow("Session bug fix process");
+    const spec = await mustStage(workflow.id, "Spec");
+
+    const result = await client.callTool({
+      name: "set_workflow_stage_status",
+      arguments: { stageId: spec.id, status: "todo" },
     });
     expect(text(result)).toContain("Access denied");
   });

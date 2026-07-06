@@ -12,6 +12,7 @@ import { shareRouter } from "./share";
 import { notificationRouter } from "./notification";
 import { favoriteRouter } from "./favorite";
 import { projectRouter } from "./project";
+import { workflowRouter } from "./workflow";
 import { auditRouter } from "./audit";
 import { tokenRouter } from "./token";
 import { userRouter } from "./user";
@@ -42,6 +43,7 @@ export const appRouter = router({
   notification: notificationRouter,
   favorite: favoriteRouter,
   project: projectRouter,
+  workflow: workflowRouter,
   audit: auditRouter,
   token: tokenRouter,
   user: userRouter,

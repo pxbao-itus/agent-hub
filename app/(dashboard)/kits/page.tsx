@@ -118,7 +118,7 @@ export default async function KitsPage({ searchParams }: Props) {
           icon={q || tag ? Search : Package}
           variant={q || tag ? "no-results" : "empty"}
           message={q || tag ? "No kits match your search." : "No kits yet."}
-          description={!q && !tag ? "Bundle prompts and skills into a kit." : undefined}
+          description={!q && !tag ? "Toolkits package prompts and skills for reuse across projects and workflows." : undefined}
           action={!q && !tag ? (
             <Button asChild variant="outline">
               <Link href="/kits/new">Create your first kit</Link>

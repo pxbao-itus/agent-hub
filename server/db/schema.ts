@@ -597,6 +597,82 @@ export const projectMembers = pgTable(
 );
 
 /* -------------------------------------------------------------------------- */
+/* Workflows (Phase 47) — named process of ordered stages over the lifecycle  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A workflow is a named process made of ordered stages (e.g. Spec → Build →
+ * Review), owned by a group — same access model as projects, zero new
+ * access-control code (D-016 cone for view, effectiveGroupRole for manage).
+ * Optionally linked to a project (`projectId` nullable) — a workflow can be
+ * a standalone recurring process (e.g. "bug triage") or scoped to one project.
+ */
+export const workflows = pgTable(
+  "workflows",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerGroupType: groupTypeEnum("owner_group_type").notNull(),
+    ownerGroupId: uuid("owner_group_id").notNull(),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("workflows_owner_idx").on(t.ownerGroupType, t.ownerGroupId),
+    index("workflows_project_idx").on(t.projectId),
+  ]
+);
+
+/**
+ * An ordered stage within a workflow. Status reuses task_status (todo/doing/
+ * done) — same vocabulary as plan tasks, no new enum. Multiple stages may be
+ * "doing" at once (not a strict linear gate) — the UI just highlights the
+ * first one still in progress.
+ */
+export const workflowStages = pgTable(
+  "workflow_stages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workflowId: uuid("workflow_id")
+      .notNull()
+      .references(() => workflows.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    position: integer("position").notNull().default(0),
+    status: taskStatusEnum("status").notNull().default("todo"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("workflow_stages_workflow_idx").on(t.workflowId)]
+);
+
+/**
+ * Many-to-many: any artifact kind can attach to a stage (unlike
+ * project_artifacts, which is doc|plan-only) — this is where kit/skill/prompt
+ * participate in the process, alongside doc (spec) and plan (execution).
+ */
+export const workflowStageArtifacts = pgTable(
+  "workflow_stage_artifacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    stageId: uuid("stage_id")
+      .notNull()
+      .references(() => workflowStages.id, { onDelete: "cascade" }),
+    artifactId: uuid("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("workflow_stage_artifacts_stage_artifact_uq").on(t.stageId, t.artifactId),
+    index("workflow_stage_artifacts_artifact_idx").on(t.artifactId),
+  ]
+);
+
+/* -------------------------------------------------------------------------- */
 /* MCP tokens                                                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -759,6 +835,7 @@ export const artifactLinksRelations = relations(artifactLinks, ({ one }) => ({
 
 export const projectsRelations = relations(projects, ({ many }) => ({
   artifacts: many(projectArtifacts),
+  workflows: many(workflows),
   members: many(projectMembers),
 }));
 
@@ -769,6 +846,33 @@ export const projectArtifactsRelations = relations(projectArtifacts, ({ one }) =
   }),
   artifact: one(artifacts, {
     fields: [projectArtifacts.artifactId],
+    references: [artifacts.id],
+  }),
+}));
+
+export const workflowsRelations = relations(workflows, ({ one, many }) => ({
+  project: one(projects, {
+    fields: [workflows.projectId],
+    references: [projects.id],
+  }),
+  stages: many(workflowStages),
+}));
+
+export const workflowStagesRelations = relations(workflowStages, ({ one, many }) => ({
+  workflow: one(workflows, {
+    fields: [workflowStages.workflowId],
+    references: [workflows.id],
+  }),
+  artifacts: many(workflowStageArtifacts),
+}));
+
+export const workflowStageArtifactsRelations = relations(workflowStageArtifacts, ({ one }) => ({
+  stage: one(workflowStages, {
+    fields: [workflowStageArtifacts.stageId],
+    references: [workflowStages.id],
+  }),
+  artifact: one(artifacts, {
+    fields: [workflowStageArtifacts.artifactId],
     references: [artifacts.id],
   }),
 }));

@@ -18,7 +18,8 @@ export type AuditAction =
   | "token.create"
   | "token.revoke"
   | "project.member.add"
-  | "project.member.remove";
+  | "project.member.remove"
+  | "workflow.delete";
 
 export type AuditEntry = {
   actorId: string;

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { LayoutDashboard, BookText, Wrench, Package, ClipboardList, FileText, FolderKanban, Compass, Building2, Key, Sun, Moon, Users, Search, Upload, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, BookText, Wrench, Package, ClipboardList, FileText, FolderKanban, GitBranch, Compass, Building2, Key, Sun, Moon, Users, Search, Upload, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -16,6 +16,7 @@ const MAIN_NAV = [
   { label: "Plans", href: "/plans", icon: ClipboardList },
   { label: "Docs", href: "/docs", icon: FileText },
   { label: "Projects", href: "/projects", icon: FolderKanban },
+  { label: "Workflows", href: "/workflows", icon: GitBranch },
   { label: "Explore", href: "/explore", icon: Compass },
 ];
 

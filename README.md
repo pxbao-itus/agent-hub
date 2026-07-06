@@ -10,7 +10,7 @@ Instead of copy-pasting prompts and instructions between projects, keep them in 
 
 - 📦 **Prompts** — with tags, descriptions, and template variables `{{var}}`.
 - 🛠️ **Skills** — reusable instruction sets (SKILL.md) with bundled files, delivered to agents on demand.
-- 🎒 **Kits** — bundle multiple prompts and skills into one shareable unit; members are resolved recursively.
+- 🎒 **Kits** — toolkits that package multiple prompts and skills into one reusable unit, pulled into any project or workflow stage; members are resolved recursively.
 - ✅ **Plans** — structured task lists (todo / doing / done) that agents can read and update.
 - 📄 **Docs** — free-form markdown docs, linkable to the plans they inform.
 - 🕑 **Versioning** — every save creates an immutable version, with diff and rollback.

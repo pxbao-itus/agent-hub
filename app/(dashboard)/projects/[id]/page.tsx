@@ -3,17 +3,18 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { auth } from "@/auth";
 import { db } from "@/server/db";
-import { projects, projectArtifacts, projectMembers, artifacts, users } from "@/server/db/schema";
-import { eq } from "drizzle-orm";
+import { projects, projectArtifacts, projectMembers, artifacts, users, workflows } from "@/server/db/schema";
+import { eq, desc } from "drizzle-orm";
 import { canAccessArtifact } from "@/server/auth/access";
 import { canViewProject, canManageProject } from "@/server/lib/project-access";
+import { canViewWorkflow, attachWorkflowProgress } from "@/server/lib/workflow-access";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { DeleteProjectButton } from "../_components/delete-project-button";
 import { ProjectDetailPanels } from "../_components/project-detail-panels";
-import { FolderKanban } from "lucide-react";
+import { FolderKanban, GitBranch } from "lucide-react";
 
 async function getProject(id: string) {
   return db.query.projects.findFirst({ where: eq(projects.id, id) });
@@ -62,6 +63,17 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
 
   const spacePath = ownerPaths.get(`${project.ownerGroupType}:${project.ownerGroupId}`) ?? "";
 
+  const linkedWorkflowRows = await db.query.workflows.findMany({
+    where: eq(workflows.projectId, project.id),
+    orderBy: desc(workflows.updatedAt),
+  });
+  const viewableWorkflows = [];
+  for (const w of linkedWorkflowRows) {
+    const ok = await canViewWorkflow(identity, w, db);
+    if (ok) viewableWorkflows.push(w);
+  }
+  const workflowsWithProgress = await attachWorkflowProgress(viewableWorkflows, db);
+
   return (
     <div className="space-y-8">
       <Breadcrumb items={[{ label: "Projects", href: "/projects" }, { label: project.name }]} />
@@ -98,6 +110,29 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
         }))}
         initialMembers={memberRows}
       />
+
+      {workflowsWithProgress.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Workflows ({workflowsWithProgress.length})
+          </h2>
+          <div className="divide-y rounded-md border">
+            {workflowsWithProgress.map((w) => (
+              <Link
+                key={w.id}
+                href={`/workflows/${w.id}`}
+                className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/30 transition-colors"
+              >
+                <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{w.name}</span>
+                {w.stageCount > 0 && (
+                  <span className="shrink-0 text-xs text-muted-foreground">{w.doneCount}/{w.stageCount} done</span>
+                )}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

@@ -1,9 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { eq, desc, and, or, sql, inArray } from "drizzle-orm";
+import { eq, asc, desc, and, or, sql, inArray } from "drizzle-orm";
 import { db } from "@/server/db";
-import { artifacts, artifactVersions, artifactTasks, artifactLinks } from "@/server/db/schema";
+import { artifacts, artifactVersions, artifactTasks, artifactLinks, workflows, workflowStages, workflowStageArtifacts, projects } from "@/server/db/schema";
 import { getAccessibleGroups, getSharedArtifactIds, effectiveGroupRole } from "@/server/auth/access";
+import { canViewWorkflow, attachWorkflowProgress } from "@/server/lib/workflow-access";
 import { renderTemplate } from "@/server/lib/template";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
 import { getCachedVersionContent } from "@/server/lib/version-cache";
@@ -260,7 +261,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
 
   server.tool(
     "list_kits",
-    "List all available kits with their slugs and descriptions.",
+    "List all available toolkits — packaged sets of prompts/skills you can equip for a task or workflow stage — with their slugs and descriptions.",
     {},
     async () => {
       if (!kitRows.length) {
@@ -283,7 +284,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
 
   server.tool(
     "get_kit",
-    "Get a kit's overview and the list of member slugs (prompts + skills) you should fetch next. Kit members are flattened recursively.",
+    "Get a toolkit's overview and the list of member slugs (prompts + skills) you should fetch next — a toolkit equips you with a packaged, reusable capability for a task or workflow stage. Members are flattened recursively.",
     {
       slug: z.string().describe("The kit slug (e.g. 'acme.starter-kit' or 'starter-kit')"),
     },
@@ -368,7 +369,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
 
   server.tool(
     "pull_kit",
-    "Machine-readable kit bundle (JSON): the kit itself plus every recursively-flattened member skill/prompt, fully resolved. For CLI/filesystem sync — not for agent/LLM consumption, use get_kit for that.",
+    "Machine-readable toolkit bundle (JSON): the toolkit itself plus every recursively-flattened member skill/prompt, fully resolved. For CLI/filesystem sync — not for agent/LLM consumption, use get_kit for that.",
     {
       slug: z.string().describe("The kit slug (e.g. 'acme.starter-kit' or 'starter-kit')"),
     },
@@ -511,7 +512,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
 
   const searchMeta = new Map<
     string,
-    { kind: ArtifactKind; fullSlug: string; description: string | null }
+    { kind: ArtifactKind; fullSlug: string; title: string; description: string | null }
   >();
   const indexForSearch = (
     list: { id: string; title: string; slug: string | null; description: string | null; ownerType: string; ownerId: string }[],
@@ -522,7 +523,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
       const spacePath = paths.get(`${r.ownerType}:${r.ownerId}`) ?? "";
       const localSlug = r.slug ?? slugify(r.title);
       const fullSlug = [spacePath, localSlug].filter(Boolean).join(".");
-      searchMeta.set(r.id, { kind, fullSlug, description: r.description });
+      searchMeta.set(r.id, { kind, fullSlug, title: r.title, description: r.description });
     }
   };
   indexForSearch(rows, ownerSlugPaths, "prompt");
@@ -750,6 +751,144 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
     },
   );
 
+  // ── Workflow tools ───────────────────────────────────────────────────────
+  // Workflows aren't artifacts (no kind/visibility/slug) so they sit outside
+  // getArtifactsForIdentity's batch — visibility follows the plain user cone
+  // (D-016), same as the workflow tRPC router. Stage artifact references are
+  // resolved through `searchMeta`, which was built from the already
+  // scope-filtered per-kind rows above: an attachment whose id isn't in that
+  // map is invisible to this identity/token and is silently dropped, so
+  // get_workflow never leaks a reference to something get_doc/get_skill/etc
+  // would then refuse to open.
+
+  const identityUser = { userId: identity.userId, systemRole: identity.systemRole };
+
+  async function listAccessibleWorkflows() {
+    if (identity.systemRole === "superadmin") {
+      return db.query.workflows.findMany({ orderBy: desc(workflows.updatedAt) });
+    }
+    const groups = await getAccessibleGroups(identity.userId, db);
+    if (!groups.length) return [];
+    const where = or(
+      ...groups.map((g) => and(eq(workflows.ownerGroupType, g.groupType), eq(workflows.ownerGroupId, g.groupId))),
+    );
+    return db.query.workflows.findMany({ where, orderBy: desc(workflows.updatedAt) });
+  }
+
+  server.tool(
+    "list_workflows",
+    "List processes/workflows you can see — ordered stages that tie docs, plans, and toolkits together across a lifecycle (spec, build, review, ...). Shows progress and which stage is active.",
+    {},
+    async () => {
+      const rows = await listAccessibleWorkflows();
+      if (!rows.length) {
+        return { content: [{ type: "text" as const, text: "No workflows available." }] };
+      }
+
+      const [withProgress, allStages, projectRows] = await Promise.all([
+        attachWorkflowProgress(rows, db),
+        db.query.workflowStages.findMany({
+          where: inArray(workflowStages.workflowId, rows.map((w) => w.id)),
+          orderBy: asc(workflowStages.position),
+        }),
+        db.query.projects.findMany({
+          where: inArray(projects.id, rows.flatMap((w) => (w.projectId ? [w.projectId] : []))),
+          columns: { id: true, name: true },
+        }),
+      ]);
+      const projectNameById = new Map(projectRows.map((p) => [p.id, p.name]));
+      const doingStageByWorkflow = new Map<string, string>();
+      for (const s of allStages) {
+        if (s.status === "doing" && !doingStageByWorkflow.has(s.workflowId)) {
+          doingStageByWorkflow.set(s.workflowId, s.name);
+        }
+      }
+
+      const lines = withProgress.map((w) => {
+        const project = w.projectId ? projectNameById.get(w.projectId) : undefined;
+        const bits = [`${w.doneCount}/${w.stageCount} stages done`];
+        const doing = doingStageByWorkflow.get(w.id);
+        if (doing) bits.push(`now: ${doing}`);
+        if (project) bits.push(`project: ${project}`);
+        const desc = w.description ? ` — ${w.description}` : "";
+        return `- ${w.name}${desc} (${bits.join(", ")}) (id: ${w.id})`;
+      });
+
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    },
+  );
+
+  server.tool(
+    "get_workflow",
+    "Get a workflow's full stage structure — ordered stages with status, and each stage's attached artifacts as references (kind + slug + title). Call get_doc/get_skill/get_kit/get_plan for the actual content of a reference.",
+    {
+      id: z.string().uuid().describe("The workflow id (from list_workflows output)"),
+    },
+    async ({ id }) => {
+      const workflow = await db.query.workflows.findFirst({ where: eq(workflows.id, id) });
+      if (!workflow) {
+        return { content: [{ type: "text" as const, text: `Workflow '${id}' not found.` }] };
+      }
+      const viewable = await canViewWorkflow(identityUser, workflow, db);
+      if (!viewable) {
+        return { content: [{ type: "text" as const, text: `Access denied: workflow '${id}' is not accessible.` }] };
+      }
+
+      const [stageRows, stageArtifactRows, project] = await Promise.all([
+        db.query.workflowStages.findMany({
+          where: eq(workflowStages.workflowId, workflow.id),
+          orderBy: asc(workflowStages.position),
+        }),
+        db
+          .select({ stageId: workflowStageArtifacts.stageId, artifactId: workflowStageArtifacts.artifactId })
+          .from(workflowStageArtifacts)
+          .innerJoin(workflowStages, eq(workflowStageArtifacts.stageId, workflowStages.id))
+          .where(eq(workflowStages.workflowId, workflow.id))
+          .orderBy(asc(workflowStageArtifacts.position)),
+        workflow.projectId
+          ? db.query.projects.findFirst({ where: eq(projects.id, workflow.projectId), columns: { name: true } })
+          : Promise.resolve(null),
+      ]);
+
+      const artifactIdsByStage = new Map<string, string[]>();
+      for (const row of stageArtifactRows) {
+        if (!artifactIdsByStage.has(row.stageId)) artifactIdsByStage.set(row.stageId, []);
+        artifactIdsByStage.get(row.stageId)!.push(row.artifactId);
+      }
+
+      const parts: string[] = [];
+      parts.push(`# ${workflow.name}`);
+      if (workflow.description) parts.push(`_${workflow.description}_`);
+      if (project) parts.push(`_Project: ${project.name}_`);
+      parts.push("");
+
+      const done = stageRows.filter((s) => s.status === "done").length;
+      parts.push(`**Progress: ${done}/${stageRows.length} stages done**`);
+      parts.push("");
+
+      for (const stage of stageRows) {
+        const check = stage.status === "done" ? "[x]" : stage.status === "doing" ? "[~]" : "[ ]";
+        parts.push(`## ${check} ${stage.name}`);
+        const artifactIds = artifactIdsByStage.get(stage.id) ?? [];
+        const refs = artifactIds.flatMap((aid) => {
+          const meta = searchMeta.get(aid);
+          return meta ? [meta] : [];
+        });
+        if (refs.length === 0) {
+          parts.push("_Nothing attached._");
+        } else {
+          for (const ref of refs) {
+            const desc = ref.description ? ` — ${ref.description}` : "";
+            parts.push(`- [${ref.kind}] ${ref.title}${desc} → ${usageHint(ref.kind, ref.fullSlug)}`);
+          }
+        }
+        parts.push("");
+      }
+
+      return { content: [{ type: "text" as const, text: parts.join("\n").trimEnd() }] };
+    },
+  );
+
   // Write tools are only registered when the token has write=true
   if (scope.write === true) {
     const accessiblePlanIds = new Set(planRows.map((p) => p.id));
@@ -785,6 +924,38 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         });
         return {
           content: [{ type: "text" as const, text: `Updated. Progress: ${done}/${tasks.length} done\n\n${checklist.join("\n")}` }],
+        };
+      },
+    );
+
+    server.tool(
+      "set_workflow_stage_status",
+      "Update the status of a workflow stage — report progress on a process. Only available with a write-enabled token.",
+      {
+        stageId: z.string().uuid().describe("The stage id (from get_workflow output)"),
+        status: z.enum(["todo", "doing", "done"]).describe("New status"),
+      },
+      async ({ stageId, status }) => {
+        const stage = await db.query.workflowStages.findFirst({ where: eq(workflowStages.id, stageId) });
+        if (!stage) {
+          return { content: [{ type: "text" as const, text: `Stage '${stageId}' not found.` }] };
+        }
+        const workflow = await db.query.workflows.findFirst({ where: eq(workflows.id, stage.workflowId) });
+        if (!workflow || !(await canViewWorkflow(identityUser, workflow, db))) {
+          return { content: [{ type: "text" as const, text: `Access denied: stage '${stageId}' is not in an accessible workflow.` }] };
+        }
+        await db.update(workflowStages).set({ status, updatedAt: new Date() }).where(eq(workflowStages.id, stageId));
+        const stages = await db.query.workflowStages.findMany({
+          where: eq(workflowStages.workflowId, workflow.id),
+          orderBy: asc(workflowStages.position),
+        });
+        const done = stages.filter((s) => s.status === "done").length;
+        const checklist = stages.map((s) => {
+          const check = s.status === "done" ? "[x]" : s.status === "doing" ? "[~]" : "[ ]";
+          return `- ${check} ${s.name}`;
+        });
+        return {
+          content: [{ type: "text" as const, text: `Updated. Progress: ${done}/${stages.length} stages done\n\n${checklist.join("\n")}` }],
         };
       },
     );

@@ -23,7 +23,7 @@ export default async function NewKitPage({ searchParams }: Props) {
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
         <h1 className="text-2xl font-bold">New kit</h1>
-        <p className="text-sm text-muted-foreground">Bundle prompts and skills into a reusable kit.</p>
+        <p className="text-sm text-muted-foreground">Package prompts and skills into a toolkit you can reuse across projects and workflows.</p>
       </div>
       <KitForm mode="create" preselectSpace={preselectSpace} />
     </div>

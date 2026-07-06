@@ -49,7 +49,8 @@ async function reset() {
   // actual safety net in case that order ever drifts from the schema.
   await db.execute(sql`
     TRUNCATE TABLE
-      audit_events, project_artifacts, project_members, projects,
+      audit_events, workflow_stage_artifacts, workflow_stages, workflows,
+      project_artifacts, project_members, projects,
       artifact_links, artifact_shares, artifact_tasks, artifact_members,
       artifact_files, artifact_embeddings, artifact_variables, artifact_versions,
       artifacts, mcp_tokens, memberships, teams, departments, orgs,
@@ -481,11 +482,41 @@ async function main() {
     userId: engMember.id,
   });
 
+  // ---- Workflow (Phase 47) — owned by Backend team, linked to project1 ---
+  // Same D-016 visibility cone as the project above. Stages cover the same
+  // lifecycle idea as the plan: Spec (done) → Build (doing) → Review (todo).
+  const [workflow1] = await db
+    .insert(schema.workflows)
+    .values({
+      ownerGroupType: "team",
+      ownerGroupId: backend.id,
+      projectId: project1.id,
+      name: "Session bug fix process",
+      description: "Spec, fix, and review process for the session-expiry bug.",
+      createdBy: engMember.id,
+    })
+    .returning();
+  const [specStage, buildStage] = await db
+    .insert(schema.workflowStages)
+    .values([
+      { workflowId: workflow1.id, name: "Spec", position: 0, status: "done" },
+      { workflowId: workflow1.id, name: "Build", position: 1, status: "doing" },
+      { workflowId: workflow1.id, name: "Review", position: 2, status: "todo" },
+    ])
+    .returning();
+  await db.insert(schema.workflowStageArtifacts).values([
+    { stageId: specStage.id, artifactId: doc1.id, position: 0 },
+    { stageId: buildStage.id, artifactId: kit1.id, position: 0 },
+    { stageId: buildStage.id, artifactId: skill1.id, position: 1 },
+    { stageId: buildStage.id, artifactId: plan1.id, position: 2 },
+  ]);
+
   console.log("Seeded:");
   console.log(`  users: superadmin, org-admin, org-viewer, eng-member, marketing-member, outsider (password: ${PASSWORD})`);
   console.log(`  org "${org.slug}" → dept [engineering, marketing] → team [backend, content]`);
   console.log("  15 artifacts (3 per kind: prompt, skill, kit, plan, doc), 1 cross-team share, 1 nested kit");
   console.log("  1 project (Backend team) with 1 plan + 1 doc assigned, 1 member (eng-member)");
+  console.log("  1 workflow (Backend team, linked to the project) with 3 stages (Spec done, Build doing, Review todo)");
 }
 
 main()
