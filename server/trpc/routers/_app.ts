@@ -12,6 +12,7 @@ import { shareRouter } from "./share";
 import { notificationRouter } from "./notification";
 import { favoriteRouter } from "./favorite";
 import { projectRouter } from "./project";
+import { auditRouter } from "./audit";
 import { tokenRouter } from "./token";
 import { userRouter } from "./user";
 import { searchRouter } from "./search";
@@ -41,6 +42,7 @@ export const appRouter = router({
   notification: notificationRouter,
   favorite: favoriteRouter,
   project: projectRouter,
+  audit: auditRouter,
   token: tokenRouter,
   user: userRouter,
   search: searchRouter,

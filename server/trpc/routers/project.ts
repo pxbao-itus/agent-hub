@@ -12,6 +12,7 @@ import {
   type GroupType,
   type SessionUser,
 } from "@/server/lib/project-access";
+import { recordAudit } from "@/server/services/audit";
 import type { DbClient } from "@/server/db/types";
 
 const groupTypeSchema = z.enum(["org", "department", "team"]);
@@ -295,6 +296,11 @@ export const projectRouter = router({
         .onConflictDoNothing()
         .returning();
 
+      await recordAudit(
+        { actorId: userId, action: "project.member.add", targetType: "project", targetId: input.projectId, metadata: { memberUserId: input.userId } },
+        ctx.db,
+      );
+
       return row ?? null;
     }),
 
@@ -308,5 +314,10 @@ export const projectRouter = router({
       await ctx.db
         .delete(projectMembers)
         .where(and(eq(projectMembers.projectId, input.projectId), eq(projectMembers.userId, input.userId)));
+
+      await recordAudit(
+        { actorId: userId, action: "project.member.remove", targetType: "project", targetId: input.projectId, metadata: { memberUserId: input.userId } },
+        ctx.db,
+      );
     }),
 });

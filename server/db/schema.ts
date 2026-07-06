@@ -488,6 +488,42 @@ export const artifactEmbeddings = pgTable(
 );
 
 /* -------------------------------------------------------------------------- */
+/* Audit log (Phase 46) — security-relevant mutations                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Append-only audit trail for destructive + permission-changing events —
+ * deletes, shares, membership/role changes, token issuance/revocation. It
+ * deliberately does NOT log ordinary create/update of artifact content: that
+ * is already traceable via artifact_versions (each carries createdBy), so
+ * audit_events covers only what version history can't. `targetId` is
+ * polymorphic (no FK) — the target may have been deleted, which is often
+ * exactly the event being recorded.
+ */
+export const auditEvents = pgTable(
+  "audit_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Who did it. Null if the actor's user row was later deleted. */
+    actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+    /** Dotted action key, e.g. "artifact.delete", "share.grant", "membership.role". */
+    action: text("action").notNull(),
+    /** Primary entity acted on, e.g. "artifact" | "org" | "team" | "user" | "token" | "project". */
+    targetType: text("target_type").notNull(),
+    /** Id of that entity (polymorphic, no FK). Null for actions without a single target. */
+    targetId: uuid("target_id"),
+    /** Extra context: role old→new, grantee, group, title snapshot, etc. */
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("audit_events_target_idx").on(t.targetType, t.targetId),
+    index("audit_events_actor_idx").on(t.actorId),
+    index("audit_events_created_idx").on(t.createdAt),
+  ]
+);
+
+/* -------------------------------------------------------------------------- */
 /* Projects (Phase 44) — organizational grouping of doc/plan artifacts        */
 /* -------------------------------------------------------------------------- */
 
@@ -744,6 +780,13 @@ export const projectMembersRelations = relations(projectMembers, ({ one }) => ({
   }),
   user: one(users, {
     fields: [projectMembers.userId],
+    references: [users.id],
+  }),
+}));
+
+export const auditEventsRelations = relations(auditEvents, ({ one }) => ({
+  actor: one(users, {
+    fields: [auditEvents.actorId],
     references: [users.id],
   }),
 }));

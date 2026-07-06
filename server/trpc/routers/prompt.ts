@@ -9,6 +9,7 @@ import { getEmbedder } from "@/server/embedder";
 import { parseVariables } from "@/server/lib/template";
 import { rollbackVersion } from "@/server/services/version";
 import { notifyVersionChange } from "@/server/services/notification";
+import { recordAudit } from "@/server/services/audit";
 import type { DbClient } from "@/server/db/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -309,6 +310,10 @@ export const promptRouter = router({
       if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
 
       await ctx.db.delete(artifacts).where(eq(artifacts.id, input.id));
+      await recordAudit(
+        { actorId: userId, action: "artifact.delete", targetType: "artifact", targetId: input.id, metadata: { kind: prompt.kind, title: prompt.title } },
+        ctx.db,
+      );
     }),
 
   versions: router({

@@ -3,6 +3,8 @@ import { db, schema } from "@/server/db";
 import { hashPassword } from "@/server/auth/password";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { getRateLimiter, getClientIp } from "@/server/lib/rate-limit";
+import { rateLimitConfig } from "@/server/lib/rate-limit/config";
 
 const registerSchema = z.object({
   name: z.string().min(1).max(100),
@@ -11,6 +13,15 @@ const registerSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  const { max, windowMs } = rateLimitConfig.register;
+  const { ok, retryAfterMs } = await getRateLimiter().consume(`register:${getClientIp(req)}`, { max, windowMs });
+  if (!ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(Math.ceil(retryAfterMs / 1000)) } },
+    );
+  }
+
   const body = await req.json().catch(() => null);
   const parsed = registerSchema.safeParse(body);
   if (!parsed.success) {

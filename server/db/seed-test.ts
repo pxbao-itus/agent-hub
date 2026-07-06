@@ -49,7 +49,7 @@ async function reset() {
   // actual safety net in case that order ever drifts from the schema.
   await db.execute(sql`
     TRUNCATE TABLE
-      project_artifacts, project_members, projects,
+      audit_events, project_artifacts, project_members, projects,
       artifact_links, artifact_shares, artifact_tasks, artifact_members,
       artifact_files, artifact_embeddings, artifact_variables, artifact_versions,
       artifacts, mcp_tokens, memberships, teams, departments, orgs,

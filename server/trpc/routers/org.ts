@@ -7,6 +7,7 @@ import type { DbClient } from "@/server/db/types";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
 import { clearSlugPathCache } from "@/server/lib/slug-path-cache";
 import { effectiveGroupRole } from "@/server/auth/access";
+import { recordAudit } from "@/server/services/audit";
 
 const slugSchema = z
   .string()
@@ -478,6 +479,17 @@ export const orgRouter = router({
             set: { role: input.role },
           })
           .returning();
+
+        await recordAudit(
+          {
+            actorId: ctx.session.userId,
+            action: "membership.add",
+            targetType: input.groupType,
+            targetId: input.groupId,
+            metadata: { memberUserId: target.id, role: input.role },
+          },
+          ctx.db,
+        );
         return membership;
       }),
 
@@ -506,6 +518,17 @@ export const orgRouter = router({
           .set({ role: input.role })
           .where(eq(memberships.id, input.membershipId))
           .returning();
+
+        await recordAudit(
+          {
+            actorId: ctx.session.userId,
+            action: "membership.role",
+            targetType: m.groupType,
+            targetId: m.groupId,
+            metadata: { memberUserId: m.userId, role: input.role },
+          },
+          ctx.db,
+        );
         return updated;
       }),
 

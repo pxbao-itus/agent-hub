@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import { artifacts, artifactShares, users } from "@/server/db/schema";
 import { canShareArtifact } from "@/server/auth/access";
+import { recordAudit } from "@/server/services/audit";
 
 const shareRoleSchema = z.enum(["viewer", "editor"]);
 
@@ -75,6 +76,17 @@ export const shareRouter = router({
         })
         .returning();
 
+      await recordAudit(
+        {
+          actorId: granterId,
+          action: "share.grant",
+          targetType: "artifact",
+          targetId: input.artifactId,
+          metadata: { granteeUserId: input.userId, role: input.role },
+        },
+        ctx.db,
+      );
+
       return row;
     }),
 
@@ -142,6 +154,17 @@ export const shareRouter = router({
             eq(artifactShares.userId, input.userId),
           ),
         );
+
+      await recordAudit(
+        {
+          actorId: granterId,
+          action: "share.revoke",
+          targetType: "artifact",
+          targetId: input.artifactId,
+          metadata: { granteeUserId: input.userId },
+        },
+        ctx.db,
+      );
     }),
 
   /** List all artifacts shared with the current user. */

@@ -4,6 +4,7 @@ import { router, protectedProcedure } from "../trpc";
 import { users, memberships, artifacts } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { hashPassword } from "@/server/auth/password";
+import { recordAudit } from "@/server/services/audit";
 import type { DbClient } from "@/server/db/types";
 
 // ── Guards ────────────────────────────────────────────────────────────────────
@@ -239,5 +240,9 @@ export const userRouter = router({
         .update(users)
         .set({ systemRole: input.role })
         .where(eq(users.id, input.userId));
+      await recordAudit(
+        { actorId: ctx.session.userId, action: "user.role", targetType: "user", targetId: input.userId, metadata: { role: input.role } },
+        ctx.db,
+      );
     }),
 });

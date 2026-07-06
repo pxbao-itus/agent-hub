@@ -9,6 +9,7 @@ import { hybridSearch } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import { rollbackVersion } from "@/server/services/version";
 import { notifyVersionChange } from "@/server/services/notification";
+import { recordAudit } from "@/server/services/audit";
 import type { DbClient } from "@/server/db/types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -340,6 +341,10 @@ export const kitRouter = router({
       if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
 
       await ctx.db.delete(artifacts).where(eq(artifacts.id, input.id));
+      await recordAudit(
+        { actorId: userId, action: "artifact.delete", targetType: "artifact", targetId: input.id, metadata: { kind: kit.kind, title: kit.title } },
+        ctx.db,
+      );
     }),
 
   rollback: protectedProcedure

@@ -5,14 +5,8 @@ import GitHub from "next-auth/providers/github";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
-import { verifyPassword } from "@/server/auth/password";
 import { authConfig } from "@/auth.config";
-import { z } from "zod";
-
-const credentialsSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
-});
+import { authorizeCredentials } from "@/server/auth/credentials";
 
 const providers = [
   Credentials({
@@ -20,20 +14,7 @@ const providers = [
       email: { label: "Email", type: "email" },
       password: { label: "Password", type: "password" },
     },
-    async authorize(credentials) {
-      const parsed = credentialsSchema.safeParse(credentials);
-      if (!parsed.success) return null;
-
-      const user = await db.query.users.findFirst({
-        where: eq(schema.users.email, parsed.data.email),
-      });
-      if (!user?.passwordHash) return null;
-
-      const valid = await verifyPassword(parsed.data.password, user.passwordHash);
-      if (!valid) return null;
-
-      return { id: user.id, email: user.email, name: user.name, systemRole: user.systemRole };
-    },
+    authorize: (credentials, request) => authorizeCredentials(credentials, request as Request | undefined),
   }),
   // OAuth providers are only registered when env vars are present.
   ...(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET

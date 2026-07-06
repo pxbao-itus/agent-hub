@@ -6,6 +6,7 @@ import { mcpTokens } from "@/server/db/schema";
 import { generateRawToken, hashToken, tokenPrefix } from "@/server/mcp/token";
 import { tokenScopeSchema, validateScopeAgainstAccess } from "@/server/mcp/scope";
 import { getAccessibleGroups } from "@/server/auth/access";
+import { recordAudit } from "@/server/services/audit";
 
 export const tokenRouter = router({
   create: protectedProcedure
@@ -45,6 +46,11 @@ export const tokenRouter = router({
         })
         .returning();
 
+      await recordAudit(
+        { actorId: ctx.session.userId, action: "token.create", targetType: "token", targetId: token.id, metadata: { name: token.name } },
+        ctx.db,
+      );
+
       // Return the raw token ONCE — never stored again
       return { ...token, rawToken: raw };
     }),
@@ -76,5 +82,9 @@ export const tokenRouter = router({
       });
       if (!token) throw new TRPCError({ code: "NOT_FOUND" });
       await ctx.db.delete(mcpTokens).where(eq(mcpTokens.id, input.id));
+      await recordAudit(
+        { actorId: ctx.session.userId, action: "token.revoke", targetType: "token", targetId: input.id, metadata: { name: token.name } },
+        ctx.db,
+      );
     }),
 });
