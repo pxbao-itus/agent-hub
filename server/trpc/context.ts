@@ -1,5 +1,8 @@
 import { db } from "@/server/db";
 import { auth } from "@/auth";
+import { resolveSession } from "./resolve-session";
+
+export type { RequestSession } from "./resolve-session";
 
 /**
  * Context injected into every tRPC request.
@@ -8,9 +11,7 @@ export async function createContext() {
   const session = await auth();
   return {
     db,
-    session: session?.user?.id
-      ? { userId: session.user.id, systemRole: session.user.systemRole ?? ("user" as const) }
-      : null,
+    session: await resolveSession(session?.user, db),
   };
 }
 
