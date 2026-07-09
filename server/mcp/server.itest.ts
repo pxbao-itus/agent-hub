@@ -1380,3 +1380,83 @@ describe("get_prompt / create_prompt / update_prompt / delete_prompt (Phase 51 M
     expect(afterAudit).toHaveLength(1);
   });
 });
+
+describe("slug rename via update_* tools (newSlug)", () => {
+  it("update_skill renames the slug; the new slug resolves and the old one no longer does", async () => {
+    const createClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    await createClient.callTool({
+      name: "create_skill",
+      arguments: { title: "Itest skill rename source", body: "# body" },
+    });
+    const oldSlug = slugify("Itest skill rename source");
+    const createdSkill = await mustArtifact("Itest skill rename source");
+
+    const renameClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const renameResult = await renameClient.callTool({
+      name: "update_skill",
+      arguments: { slug: oldSlug, newSlug: "itest-renamed" },
+    });
+    expect(text(renameResult)).toContain("slug is now 'itest-renamed'");
+
+    const [row] = await db.select().from(schema.artifacts).where(eq(schema.artifacts.id, createdSkill.id));
+    expect(row.slug).toBe("itest-renamed");
+
+    // Fresh connection: skillBySlug is a per-connection snapshot, so it now
+    // indexes the new slug and no longer the old one.
+    const readClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    expect(text(await readClient.callTool({ name: "get_skill", arguments: { slug: "itest-renamed" } }))).toContain("body");
+    expect(text(await readClient.callTool({ name: "get_skill", arguments: { slug: oldSlug } }))).toContain("not found");
+
+    await readClient.callTool({ name: "delete_skill", arguments: { slug: "itest-renamed" } });
+  });
+
+  it("update_prompt rejects a newSlug already taken by another artifact in the same space, leaving the slug unchanged", async () => {
+    // MCP-created artifacts start with a NULL stored slug (their display slug
+    // is derived from the title), so a collision only exists once an artifact
+    // has been given a concrete stored slug — same semantics as the DB's
+    // partial-unique index and the router's checkSlug. So rename A to a fixed
+    // slug first, then confirm B can't take it.
+    const createClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    await createClient.callTool({ name: "create_prompt", arguments: { title: "Itest prompt slug A", body: "a" } });
+    await createClient.callTool({ name: "create_prompt", arguments: { title: "Itest prompt slug B", body: "b" } });
+    const slugB = slugify("Itest prompt slug B");
+    const promptB = await mustArtifact("Itest prompt slug B");
+
+    const renameAClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    await renameAClient.callTool({
+      name: "update_prompt",
+      arguments: { slug: slugify("Itest prompt slug A"), newSlug: "itest-taken-slug" },
+    });
+
+    const renameBClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const result = await renameBClient.callTool({
+      name: "update_prompt",
+      arguments: { slug: slugB, newSlug: "itest-taken-slug" },
+    });
+    expect(text(result)).toContain("already taken");
+
+    const [row] = await db.select().from(schema.artifacts).where(eq(schema.artifacts.id, promptB.id));
+    expect(row.slug).toBeNull(); // unchanged — B never got a stored slug
+
+    const cleanupClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    await cleanupClient.callTool({ name: "delete_prompt", arguments: { slug: "itest-taken-slug" } });
+    await cleanupClient.callTool({ name: "delete_prompt", arguments: { slug: slugB } });
+  });
+
+  it("update_doc rejects a malformed newSlug at the input-validation layer", async () => {
+    const createClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    await createClient.callTool({ name: "create_doc", arguments: { title: "Itest doc bad slug", body: "x" } });
+    const docSlug = slugify("Itest doc bad slug");
+
+    const renameClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const result = await renameClient.callTool({
+      name: "update_doc",
+      arguments: { slug: docSlug, newSlug: "Not Valid Slug!" },
+    });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("validation error");
+
+    const cleanupClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    await cleanupClient.callTool({ name: "delete_doc", arguments: { slug: docSlug } });
+  });
+});

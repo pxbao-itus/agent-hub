@@ -29,6 +29,15 @@ type Identity = { userId: string; systemRole: "user" | "superadmin" };
  */
 const ALL_KINDS: ArtifactKind[] = ["prompt", "skill", "kit", "plan", "doc"];
 
+// Reusable input schema for renaming an artifact's slug via the update_* tools.
+// Same rule as the tRPC router's slugSchema: lowercase alphanumeric + hyphens.
+const newSlugSchema = z
+  .string()
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug must be lowercase alphanumeric with hyphens")
+  .max(100)
+  .optional()
+  .describe("Rename the artifact's slug (lowercase, alphanumeric + hyphens). Must be unique within its owner space. Omit to leave unchanged.");
+
 const SERVER_INSTRUCTIONS =
   "Agent Hub is a shared library of prompts, skills, kits, plans, docs, and workflows. " +
   "Prompts are exposed as native prompts/slash-commands; everything else is fetched with get_skill/get_kit/get_plan/get_doc/get_workflow. " +
@@ -1395,11 +1404,12 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
       {
         slug: z.string().describe("The plan slug (e.g. 'acme.sprint-1' or 'sprint-1')"),
         title: z.string().min(1).max(200).optional().describe("New title"),
+        newSlug: newSlugSchema,
         body: z.string().min(1).optional().describe("New overview/background markdown (creates a new version)"),
         description: z.string().max(500).optional().describe("New short description"),
         tags: z.array(z.string()).optional().describe("Replace the tag list entirely"),
       },
-      async ({ slug, title, body, description, tags }) => {
+      async ({ slug, title, newSlug, body, description, tags }) => {
         const plan = planBySlug.get(slug);
         if (!plan) {
           return { content: [{ type: "text" as const, text: `Plan '${slug}' not found.` }] };
@@ -1408,9 +1418,13 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         if (!allowed) {
           return { content: [{ type: "text" as const, text: `Access denied: cannot edit plan '${slug}'.` }] };
         }
+        if (newSlug !== undefined && (await isSlugTaken(newSlug, plan))) {
+          return { content: [{ type: "text" as const, text: `Slug '${newSlug}' is already taken in this space.` }] };
+        }
 
-        await updateArtifact(plan.id, { title, description, tags, body, updatedBy: identity.userId }, db);
-        return { content: [{ type: "text" as const, text: `Plan '${slug}' updated.` }] };
+        await updateArtifact(plan.id, { title, slug: newSlug, description, tags, body, updatedBy: identity.userId }, db);
+        const suffix = newSlug !== undefined ? ` (slug is now '${newSlug}')` : "";
+        return { content: [{ type: "text" as const, text: `Plan '${slug}' updated${suffix}.` }] };
       },
     );
 
@@ -1481,11 +1495,12 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
       {
         slug: z.string().describe("The doc slug (e.g. 'acme.auth-bug' or 'auth-bug')"),
         title: z.string().min(1).max(200).optional().describe("New title"),
+        newSlug: newSlugSchema,
         body: z.string().min(1).optional().describe("New full markdown content (creates a new version)"),
         description: z.string().max(500).optional().describe("New short one-line summary"),
         tags: z.array(z.string()).optional().describe("Replace the tag list entirely"),
       },
-      async ({ slug, title, body, description, tags }) => {
+      async ({ slug, title, newSlug, body, description, tags }) => {
         const doc = docBySlug.get(slug);
         if (!doc) {
           return { content: [{ type: "text" as const, text: `Doc '${slug}' not found.` }] };
@@ -1494,9 +1509,13 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         if (!allowed) {
           return { content: [{ type: "text" as const, text: `Access denied: cannot edit doc '${slug}'.` }] };
         }
+        if (newSlug !== undefined && (await isSlugTaken(newSlug, doc))) {
+          return { content: [{ type: "text" as const, text: `Slug '${newSlug}' is already taken in this space.` }] };
+        }
 
-        await updateArtifact(doc.id, { title, description, tags, body, updatedBy: identity.userId }, db);
-        return { content: [{ type: "text" as const, text: `Doc '${slug}' updated.` }] };
+        await updateArtifact(doc.id, { title, slug: newSlug, description, tags, body, updatedBy: identity.userId }, db);
+        const suffix = newSlug !== undefined ? ` (slug is now '${newSlug}')` : "";
+        return { content: [{ type: "text" as const, text: `Doc '${slug}' updated${suffix}.` }] };
       },
     );
 
@@ -1596,6 +1615,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
       {
         slug: z.string().describe("The skill slug (e.g. 'acme.code-review' or 'code-review')"),
         title: z.string().min(1).max(200).optional().describe("New title"),
+        newSlug: newSlugSchema,
         body: z.string().min(1).optional().describe("New SKILL.md instructions body (creates a new version)"),
         description: z.string().max(500).optional().describe("New short one-line summary"),
         tags: z.array(z.string()).optional().describe("Replace the tag list entirely"),
@@ -1610,7 +1630,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
           .optional()
           .describe("Replace the entire bundled-file set (only applied when body is also provided)"),
       },
-      async ({ slug, title, body, description, tags, files }) => {
+      async ({ slug, title, newSlug, body, description, tags, files }) => {
         const skill = skillBySlug.get(slug);
         if (!skill) {
           return { content: [{ type: "text" as const, text: `Skill '${slug}' not found.` }] };
@@ -1618,6 +1638,9 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         const allowed = await canMutatePrompt(identityUser, skill, db);
         if (!allowed) {
           return { content: [{ type: "text" as const, text: `Access denied: cannot edit skill '${slug}'.` }] };
+        }
+        if (newSlug !== undefined && (await isSlugTaken(newSlug, skill))) {
+          return { content: [{ type: "text" as const, text: `Slug '${newSlug}' is already taken in this space.` }] };
         }
 
         if (files?.length) {
@@ -1627,8 +1650,9 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
           }
         }
 
-        await updateArtifact(skill.id, { title, description, tags, body, files, updatedBy: identity.userId }, db);
-        return { content: [{ type: "text" as const, text: `Skill '${slug}' updated.` }] };
+        await updateArtifact(skill.id, { title, slug: newSlug, description, tags, body, files, updatedBy: identity.userId }, db);
+        const suffix = newSlug !== undefined ? ` (slug is now '${newSlug}')` : "";
+        return { content: [{ type: "text" as const, text: `Skill '${slug}' updated${suffix}.` }] };
       },
     );
 
@@ -1711,11 +1735,12 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
       {
         slug: z.string().describe("The prompt slug (e.g. 'acme.code-review' or 'code-review')"),
         title: z.string().min(1).max(200).optional().describe("New title"),
+        newSlug: newSlugSchema,
         body: z.string().min(1).optional().describe("New template body (creates a new version, re-syncs variables)"),
         description: z.string().max(500).optional().describe("New short one-line summary"),
         tags: z.array(z.string()).optional().describe("Replace the tag list entirely"),
       },
-      async ({ slug, title, body, description, tags }) => {
+      async ({ slug, title, newSlug, body, description, tags }) => {
         const prompt = promptBySlug.get(slug);
         if (!prompt) {
           return { content: [{ type: "text" as const, text: `Prompt '${slug}' not found.` }] };
@@ -1724,12 +1749,16 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         if (!allowed) {
           return { content: [{ type: "text" as const, text: `Access denied: cannot edit prompt '${slug}'.` }] };
         }
+        if (newSlug !== undefined && (await isSlugTaken(newSlug, prompt))) {
+          return { content: [{ type: "text" as const, text: `Slug '${newSlug}' is already taken in this space.` }] };
+        }
 
-        await updateArtifact(prompt.id, { title, description, tags, body, updatedBy: identity.userId }, db);
+        await updateArtifact(prompt.id, { title, slug: newSlug, description, tags, body, updatedBy: identity.userId }, db);
         if (body !== undefined) {
           await syncVariables(db, prompt.id, body);
         }
-        return { content: [{ type: "text" as const, text: `Prompt '${slug}' updated.` }] };
+        const suffix = newSlug !== undefined ? ` (slug is now '${newSlug}')` : "";
+        return { content: [{ type: "text" as const, text: `Prompt '${slug}' updated${suffix}.` }] };
       },
     );
 
@@ -1784,6 +1813,28 @@ function assertSafeFilePaths(files: { path: string }[]): string | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * True if `newSlug` is already used by a *different* artifact in the same
+ * owner space (the artifacts_owner_slug_uniq partial index). Checked in the
+ * update_* tools before renaming so a collision returns a friendly message
+ * instead of the DB throwing a raw unique-violation (23505). Slugs are stored
+ * as the local segment (no space-path prefix), same as what these tools accept.
+ */
+async function isSlugTaken(
+  newSlug: string,
+  artifact: { id: string; ownerType: string; ownerId: string },
+): Promise<boolean> {
+  const existing = await db.query.artifacts.findFirst({
+    where: and(
+      eq(artifacts.ownerType, artifact.ownerType as "user" | "org" | "department" | "team"),
+      eq(artifacts.ownerId, artifact.ownerId),
+      eq(artifacts.slug, newSlug),
+    ),
+    columns: { id: true },
+  });
+  return !!existing && existing.id !== artifact.id;
 }
 
 /**

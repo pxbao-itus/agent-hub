@@ -111,6 +111,7 @@ export async function createArtifact(input: CreateArtifactInput, db: DbClient) {
 
 export type UpdateArtifactInput = {
   title?: string;
+  slug?: string | null;
   description?: string | null;
   tags?: string[];
   body?: string;
@@ -132,6 +133,7 @@ export async function updateArtifact(artifactId: string, input: UpdateArtifactIn
   const { updated, newVersionId } = await db.transaction(async (tx) => {
     const metaUpdates: Record<string, unknown> = {};
     if (input.title !== undefined) metaUpdates.title = input.title;
+    if (input.slug !== undefined) metaUpdates.slug = input.slug;
     if (input.description !== undefined) metaUpdates.description = input.description;
     if (input.tags !== undefined) metaUpdates.tags = input.tags;
 
