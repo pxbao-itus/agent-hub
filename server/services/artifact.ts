@@ -1,8 +1,9 @@
-import { eq, sql } from "drizzle-orm";
-import { artifacts, artifactVersions, artifactFiles, artifactMembers, artifactTasks } from "@/server/db/schema";
+import { eq, inArray, sql } from "drizzle-orm";
+import { artifacts, artifactVersions, artifactFiles, artifactMembers, artifactTasks, artifactVariables } from "@/server/db/schema";
 import type { ArtifactKind, TaskStatus } from "@/server/db/schema";
 import type { DbClient } from "@/server/db/types";
 import { notifyVersionChange } from "@/server/services/notification";
+import { parseVariables } from "@/server/lib/template";
 
 type OwnerType = "user" | "org" | "department" | "team";
 type Visibility = "private" | "group" | "public";
@@ -183,4 +184,29 @@ export async function updateArtifact(artifactId: string, input: UpdateArtifactIn
   }
 
   return updated;
+}
+
+/**
+ * Sync artifactVariables to whatever {{var}} placeholders currently appear in
+ * a prompt's body — prompt only, but lives here (not prompt.ts's router)
+ * since MCP's create_prompt/update_prompt (Phase 51) need the same logic and
+ * can't import from a route file. Preserves existing variable rows that are
+ * still referenced; only adds/removes what changed.
+ */
+export async function syncVariables(db: DbClient, artifactId: string, body: string) {
+  const names = parseVariables(body);
+  const existing = await db.query.artifactVariables.findMany({
+    where: eq(artifactVariables.artifactId, artifactId),
+  });
+  const existingNames = new Set(existing.map((v) => v.name));
+
+  const toDelete = existing.filter((v) => !names.includes(v.name)).map((v) => v.id);
+  if (toDelete.length > 0) {
+    await db.delete(artifactVariables).where(inArray(artifactVariables.id, toDelete));
+  }
+
+  const toAdd = names.filter((n) => !existingNames.has(n));
+  if (toAdd.length > 0) {
+    await db.insert(artifactVariables).values(toAdd.map((name) => ({ artifactId, name })));
+  }
 }

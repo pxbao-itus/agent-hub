@@ -1,16 +1,15 @@
 import { z } from "zod";
-import { eq, and, or, desc, sql, inArray, not } from "drizzle-orm";
+import { eq, and, or, desc, sql, not } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../trpc";
-import { artifacts, artifactVersions, artifactVariables } from "@/server/db/schema";
+import { artifacts, artifactVersions } from "@/server/db/schema";
 import { artifactAccessCondition, canAccessArtifact, canMutatePrompt, effectiveGroupRole } from "@/server/auth/access";
 import { hybridSearch, fetchArtifactsByIds } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
-import { parseVariables } from "@/server/lib/template";
 import { rollbackVersion } from "@/server/services/version";
 import { notifyVersionChange } from "@/server/services/notification";
 import { recordAudit } from "@/server/services/audit";
-import type { DbClient } from "@/server/db/types";
+import { syncVariables } from "@/server/services/artifact";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -22,30 +21,6 @@ function assertGroupVisibility(ownerType: string, visibility: string | undefined
     });
   }
 }
-
-/** Sync prompt_variables after body changes. Preserves existing var metadata. */
-async function syncVariables(db: DbClient, promptId: string, body: string) {
-  const names = parseVariables(body);
-  const existing = await db.query.artifactVariables.findMany({
-    where: eq(artifactVariables.artifactId, promptId),
-  });
-  const existingNames = new Set(existing.map((v) => v.name));
-
-  // Remove vars that no longer appear in body
-  const toDelete = existing.filter((v) => !names.includes(v.name)).map((v) => v.id);
-  if (toDelete.length > 0) {
-    await db.delete(artifactVariables).where(inArray(artifactVariables.id, toDelete));
-  }
-
-  // Insert new vars
-  const toAdd = names.filter((n) => !existingNames.has(n));
-  if (toAdd.length > 0) {
-    await db.insert(artifactVariables).values(
-      toAdd.map((name) => ({ artifactId: promptId, name })),
-    );
-  }
-}
-
 
 // ── Router ───────────────────────────────────────────────────────────────────
 

@@ -156,7 +156,7 @@ describe("prompts primitive", () => {
 });
 
 describe("write gate", () => {
-  it("read-only scope exposes exactly the 16 read tools", async () => {
+  it("read-only scope exposes exactly the 17 read tools", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" }, {});
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
@@ -166,6 +166,7 @@ describe("write gate", () => {
         "get_kit",
         "get_plan",
         "get_project",
+        "get_prompt",
         "get_skill",
         "get_workflow",
         "list_docs",
@@ -182,10 +183,10 @@ describe("write gate", () => {
     );
   });
 
-  it("write:true scope adds the 15 write tools (31 total)", async () => {
+  it("write:true scope adds the 18 write tools (35 total)", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(31);
+    expect(tools).toHaveLength(35);
     const names = new Set(tools.map((t) => t.name));
     for (const n of [
       "update_task_status",
@@ -201,6 +202,9 @@ describe("write gate", () => {
       "create_skill",
       "update_skill",
       "delete_skill",
+      "create_prompt",
+      "update_prompt",
+      "delete_prompt",
       "set_workflow_stage_status",
       "attach_artifact_to_workflow_stage",
     ]) {
@@ -1223,5 +1227,156 @@ describe("create_skill / update_skill / delete_skill (Phase 50 M2)", () => {
       arguments: { slug: "does-not-exist" },
     });
     expect(text(deleteResult)).toContain("not found");
+  });
+});
+
+describe("get_prompt / create_prompt / update_prompt / delete_prompt (Phase 51 M0)", () => {
+  it("creates a personal prompt with a {{variable}}, retrievable via get_prompt, then re-syncs variables on update and deletes it", async () => {
+    const createClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const createResult = await createClient.callTool({
+      name: "create_prompt",
+      arguments: {
+        title: "Itest prompt with variable",
+        body: "Summarize {{topic}} for a general audience.",
+      },
+    });
+    expect(text(createResult)).toContain("Prompt created");
+    const createdSlug = slugify("Itest prompt with variable");
+    const createdPrompt = await mustArtifact("Itest prompt with variable");
+
+    // Fresh connection: promptBySlug is a per-connection snapshot taken at
+    // createMcpServer() time (same reasoning as update_doc/update_skill above).
+    const readClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const getText = text(await readClient.callTool({ name: "get_prompt", arguments: { slug: createdSlug } }));
+    expect(getText).toContain("Summarize {{topic}} for a general audience.");
+    expect(getText).toContain("Variables: {{topic}}");
+
+    const updateResult = await readClient.callTool({
+      name: "update_prompt",
+      arguments: { slug: createdSlug, body: "Summarize {{topic}} in a {{tone}} tone." },
+    });
+    expect(text(updateResult)).toContain("updated");
+
+    const updateReadClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const getAfterUpdate = text(
+      await updateReadClient.callTool({ name: "get_prompt", arguments: { slug: createdSlug } }),
+    );
+    expect(getAfterUpdate).toContain("Summarize {{topic}} in a {{tone}} tone.");
+    expect(getAfterUpdate).toContain("{{topic}}");
+    expect(getAfterUpdate).toContain("{{tone}}");
+
+    // Drop {{topic}} entirely — variable sync must remove it, not just add.
+    const dropResult = await updateReadClient.callTool({
+      name: "update_prompt",
+      arguments: { slug: createdSlug, body: "Keep it {{tone}}." },
+    });
+    expect(text(dropResult)).toContain("updated");
+
+    const dropReadClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const getAfterDrop = text(
+      await dropReadClient.callTool({ name: "get_prompt", arguments: { slug: createdSlug } }),
+    );
+    expect(getAfterDrop).toContain("Variables: {{tone}}");
+    expect(getAfterDrop).not.toContain("{{topic}}");
+
+    const deleteResult = await dropReadClient.callTool({ name: "delete_prompt", arguments: { slug: createdSlug } });
+    expect(text(deleteResult)).toContain("deleted");
+    const remaining = await db.select().from(schema.artifacts).where(eq(schema.artifacts.id, createdPrompt.id));
+    expect(remaining).toHaveLength(0);
+  });
+
+  it("negative: denies update_prompt/delete_prompt for a viewer who can read but not manage (role only on a descendant team)", async () => {
+    // Create a department-owned prompt as orgAdmin (admin on the ancestor
+    // org qa-org — same manage-capable identity as doc2/plan2/skill2 above),
+    // then confirm engMember's editor role on descendant team backend
+    // doesn't count for it (effectiveGroupRole only walks upward).
+    const [engDept] = await db.select().from(schema.departments).where(eq(schema.departments.slug, "engineering"));
+    const adminClient = await connect({ userId: orgAdmin.id, systemRole: "user" }, { write: true });
+    const createResult = await adminClient.callTool({
+      name: "create_prompt",
+      arguments: { title: "Itest dept prompt", body: "Draft a {{summary}}.", ownerType: "department", ownerId: engDept.id },
+    });
+    expect(text(createResult)).toContain("Prompt created");
+    const createdSlug = slugify("Itest dept prompt");
+    const createdPrompt = await mustArtifact("Itest dept prompt");
+
+    const memberClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const updateResult = await memberClient.callTool({
+      name: "update_prompt",
+      arguments: { slug: createdSlug, body: "Should not apply." },
+    });
+    expect(text(updateResult)).toContain("Access denied");
+
+    const deleteResult = await memberClient.callTool({ name: "delete_prompt", arguments: { slug: createdSlug } });
+    expect(text(deleteResult)).toContain("Access denied");
+
+    // Clean up with the identity that can actually manage it.
+    const adminReadClient = await connect({ userId: orgAdmin.id, systemRole: "user" }, { write: true });
+    await adminReadClient.callTool({ name: "delete_prompt", arguments: { slug: createdSlug } });
+    const remaining = await db.select().from(schema.artifacts).where(eq(schema.artifacts.id, createdPrompt.id));
+    expect(remaining).toHaveLength(0);
+  });
+
+  it("negative: create_prompt in a group space denies a user with no role on that group or its ancestors", async () => {
+    const [engDept] = await db.select().from(schema.departments).where(eq(schema.departments.slug, "engineering"));
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+
+    const result = await client.callTool({
+      name: "create_prompt",
+      arguments: { title: "Itest prompt denied group create", body: "body", ownerType: "department", ownerId: engDept.id },
+    });
+    expect(text(result)).toContain("Permission denied");
+
+    const row = await db.select().from(schema.artifacts).where(eq(schema.artifacts.title, "Itest prompt denied group create"));
+    expect(row).toHaveLength(0);
+  });
+
+  it("negative: get_prompt/update_prompt/delete_prompt on an unknown slug return a friendly message", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+
+    const getResult = await client.callTool({ name: "get_prompt", arguments: { slug: "does-not-exist" } });
+    expect(text(getResult)).toContain("not found");
+
+    const updateResult = await client.callTool({
+      name: "update_prompt",
+      arguments: { slug: "does-not-exist", body: "x" },
+    });
+    expect(text(updateResult)).toContain("not found");
+
+    const deleteResult = await client.callTool({
+      name: "delete_prompt",
+      arguments: { slug: "does-not-exist" },
+    });
+    expect(text(deleteResult)).toContain("not found");
+  });
+
+  it("delete_prompt removes the artifact and records exactly one audit row", async () => {
+    const createClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const createResult = await createClient.callTool({
+      name: "create_prompt",
+      arguments: { title: "Itest prompt for delete_prompt", body: "Throwaway." },
+    });
+    const createdSlug = slugify("Itest prompt for delete_prompt");
+    expect(text(createResult)).toContain("Prompt created");
+    const createdPrompt = await mustArtifact("Itest prompt for delete_prompt");
+
+    const beforeAudit = await db
+      .select()
+      .from(schema.auditEvents)
+      .where(and(eq(schema.auditEvents.action, "artifact.delete"), eq(schema.auditEvents.targetId, createdPrompt.id)));
+    expect(beforeAudit).toHaveLength(0);
+
+    const deleteClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const deleteResult = await deleteClient.callTool({ name: "delete_prompt", arguments: { slug: createdSlug } });
+    expect(text(deleteResult)).toContain("deleted");
+
+    const remaining = await db.select().from(schema.artifacts).where(eq(schema.artifacts.id, createdPrompt.id));
+    expect(remaining).toHaveLength(0);
+
+    const afterAudit = await db
+      .select()
+      .from(schema.auditEvents)
+      .where(and(eq(schema.auditEvents.action, "artifact.delete"), eq(schema.auditEvents.targetId, createdPrompt.id)));
+    expect(afterAudit).toHaveLength(1);
   });
 });

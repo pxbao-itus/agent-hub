@@ -6,7 +6,7 @@ import { artifacts, artifactVersions, artifactTasks, artifactLinks, workflows, w
 import { getAccessibleGroups, getSharedArtifactIds, effectiveGroupRole, canMutatePrompt } from "@/server/auth/access";
 import { canViewWorkflow, canManageWorkflow, attachWorkflowProgress } from "@/server/lib/workflow-access";
 import { canViewProject, attachProjectCounts } from "@/server/lib/project-access";
-import { createArtifact, updateArtifact } from "@/server/services/artifact";
+import { createArtifact, updateArtifact, syncVariables } from "@/server/services/artifact";
 import { posix } from "node:path";
 import { recordAudit } from "@/server/services/audit";
 import { renderTemplate } from "@/server/lib/template";
@@ -76,6 +76,11 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
     }
   }
 
+  // slug → prompt map (Phase 51) — mirrors skillBySlug/docBySlug/planBySlug,
+  // reusing the slug this same loop already computes for registerPrompt()
+  // instead of resolving it a second time.
+  const promptBySlug = new Map<string, typeof rows[number]>();
+
   for (const p of rows) {
     const body = p.versions[0]?.body ?? "";
     if (!body) continue;
@@ -83,6 +88,9 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
     const spacePath = ownerSlugPaths.get(`${p.ownerType}:${p.ownerId}`) ?? "";
     const localSlug = p.slug ?? uniqueSlug(p.title, p.id, seen);
     const slug = [spacePath, localSlug].filter(Boolean).join(".");
+
+    promptBySlug.set(slug, p);
+    if (slug !== localSlug) promptBySlug.set(localSlug, p);
 
     // Build argsSchema from template variables (all optional — unset vars keep {{placeholder}})
     const argsShape: Record<string, z.ZodOptional<z.ZodString>> = {};
@@ -110,6 +118,46 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
       },
     );
   }
+
+  // ── Tool: get_prompt ──────────────────────────────────────────────────────
+  // Raw body + variable names, no rendering/substitution — that's the native
+  // `prompts` primitive's job (getPrompt). This is a fallback for clients
+  // that don't surface prompts well, and for reading a template before
+  // forking/editing it (Phase 51).
+
+  server.tool(
+    "get_prompt",
+    "Get a prompt template's raw body and {{variable}} names by slug. Does NOT render or substitute variables — for that, invoke the prompt through the native `prompts` primitive (getPrompt). Use this to read a template's source before forking/editing it, or when a client doesn't surface prompts well.",
+    {
+      slug: z.string().describe("The prompt slug (e.g. 'acme.code-review' or 'code-review')"),
+    },
+    async ({ slug }) => {
+      const prompt = promptBySlug.get(slug);
+      if (!prompt) {
+        const available = [...promptBySlug.keys()].slice(0, 10).join(", ");
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Prompt '${slug}' not found.${available ? ` Available prompts: ${available}` : ""}`,
+          }],
+        };
+      }
+
+      bumpUsage(prompt.id);
+      const version = prompt.versions[0];
+      const parts: string[] = [];
+      parts.push(`# ${prompt.title}`);
+      if (prompt.description) parts.push(`_${prompt.description}_`);
+      parts.push("");
+      if (version?.body) parts.push(version.body);
+      if (prompt.variables.length > 0) {
+        parts.push("");
+        parts.push(`Variables: ${prompt.variables.map((v) => `{{${v.name}}}`).join(", ")}`);
+      }
+
+      return { content: [{ type: "text" as const, text: parts.join("\n") }] };
+    },
+  );
 
   // ── Tool: get_skill ───────────────────────────────────────────────────────
   // Fetch a skill's instructions (SKILL.md body) and bundled files by slug.
@@ -1305,7 +1353,13 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
             body,
             description,
             tags,
-            visibility: "private",
+            // Group owners can't be "private" (assertGroupVisibility in the
+            // tRPC router rejects that combination; more fundamentally, a
+            // private group-owned artifact would be invisible to everyone
+            // via getArtifactsForIdentity's read cone — even its own creator
+            // on a later connection, since that cone only grants group
+            // access when visibility is "group").
+            visibility: ownerType === "user" ? "private" : "group",
             tasks: tasks.map((c) => ({ content: c })),
             createdBy: identity.userId,
           },
@@ -1520,7 +1574,8 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
             title,
             description,
             tags,
-            visibility: "private",
+            // See create_plan's comment above — group owners can't be "private".
+            visibility: ownerType === "user" ? "private" : "group",
             body,
             files,
             createdBy: identity.userId,
@@ -1599,6 +1654,107 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
           db,
         );
         return { content: [{ type: "text" as const, text: `Skill '${slug}' deleted.` }] };
+      },
+    );
+
+    server.tool(
+      "create_prompt",
+      "Create a new reusable prompt template. Any {{variable}} placeholder in the body becomes a fillable argument when the prompt is invoked. In your personal space by default.",
+      {
+        title: z.string().min(1).max(200).describe("Prompt title"),
+        body: z.string().min(1).describe("The template body, e.g. 'Summarize {{topic}} in {{tone}} tone.'"),
+        description: z.string().max(500).optional().describe("Short one-line summary"),
+        tags: z.array(z.string()).default([]).describe("Tags e.g. ['writing', 'summary']"),
+        ownerType: z.enum(["user", "org", "department", "team"]).default("user").describe("Owner space. 'user' = personal (default). For group spaces the token user must have editor/admin role in that group."),
+        ownerId: z.string().uuid().optional().describe("Group ID when ownerType is not 'user'. Omit for personal space."),
+      },
+      async ({ title, body, description, tags, ownerType, ownerId }) => {
+        const ownerIdResolved = ownerType === "user" ? identity.userId : (ownerId ?? identity.userId);
+
+        if (ownerType !== "user") {
+          const role = await effectiveGroupRole(
+            identity.userId,
+            ownerType as "org" | "department" | "team",
+            ownerIdResolved,
+            db,
+          );
+          if (role !== "editor" && role !== "admin") {
+            return { content: [{ type: "text" as const, text: `Permission denied: you need editor or admin role in that group space.` }] };
+          }
+        }
+
+        const prompt = await createArtifact(
+          {
+            kind: "prompt",
+            ownerType,
+            ownerId: ownerIdResolved,
+            title,
+            description,
+            tags,
+            // See create_plan's comment above — group owners can't be "private".
+            visibility: ownerType === "user" ? "private" : "group",
+            body,
+            createdBy: identity.userId,
+          },
+          db,
+        );
+        await syncVariables(db, prompt.id, body);
+
+        const promptSlug = prompt.slug ?? slugify(title);
+        return { content: [{ type: "text" as const, text: `Prompt created: '${promptSlug}' (id: ${prompt.id})` }] };
+      },
+    );
+
+    server.tool(
+      "update_prompt",
+      "Update an existing prompt's template or metadata. Omitted fields are left unchanged. Providing body creates a new version and re-syncs its {{variable}} placeholders.",
+      {
+        slug: z.string().describe("The prompt slug (e.g. 'acme.code-review' or 'code-review')"),
+        title: z.string().min(1).max(200).optional().describe("New title"),
+        body: z.string().min(1).optional().describe("New template body (creates a new version, re-syncs variables)"),
+        description: z.string().max(500).optional().describe("New short one-line summary"),
+        tags: z.array(z.string()).optional().describe("Replace the tag list entirely"),
+      },
+      async ({ slug, title, body, description, tags }) => {
+        const prompt = promptBySlug.get(slug);
+        if (!prompt) {
+          return { content: [{ type: "text" as const, text: `Prompt '${slug}' not found.` }] };
+        }
+        const allowed = await canMutatePrompt(identityUser, prompt, db);
+        if (!allowed) {
+          return { content: [{ type: "text" as const, text: `Access denied: cannot edit prompt '${slug}'.` }] };
+        }
+
+        await updateArtifact(prompt.id, { title, description, tags, body, updatedBy: identity.userId }, db);
+        if (body !== undefined) {
+          await syncVariables(db, prompt.id, body);
+        }
+        return { content: [{ type: "text" as const, text: `Prompt '${slug}' updated.` }] };
+      },
+    );
+
+    server.tool(
+      "delete_prompt",
+      "Delete a prompt. This cannot be undone.",
+      {
+        slug: z.string().describe("The prompt slug (e.g. 'acme.code-review' or 'code-review')"),
+      },
+      async ({ slug }) => {
+        const prompt = promptBySlug.get(slug);
+        if (!prompt) {
+          return { content: [{ type: "text" as const, text: `Prompt '${slug}' not found.` }] };
+        }
+        const allowed = await canMutatePrompt(identityUser, prompt, db);
+        if (!allowed) {
+          return { content: [{ type: "text" as const, text: `Access denied: cannot delete prompt '${slug}'.` }] };
+        }
+
+        await db.delete(artifacts).where(eq(artifacts.id, prompt.id));
+        await recordAudit(
+          { actorId: identity.userId, action: "artifact.delete", targetType: "artifact", targetId: prompt.id, metadata: { kind: "prompt", title: prompt.title } },
+          db,
+        );
+        return { content: [{ type: "text" as const, text: `Prompt '${slug}' deleted.` }] };
       },
     );
   }
