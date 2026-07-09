@@ -58,6 +58,30 @@ export function SetupGuide({ endpoint, token }: Props) {
     2,
   );
 
+  // Claude Desktop's local config only accepts stdio servers (command/args/env) —
+  // no "type"/"url"/"headers" fields, unlike Claude Code's .mcp.json above. mcp-remote
+  // bridges stdio to this HTTP endpoint, forwarding the bearer token as a header.
+  const desktopConfig = JSON.stringify(
+    {
+      mcpServers: {
+        "agent-hub": {
+          command: "npx",
+          args: [
+            "-y",
+            "mcp-remote",
+            endpoint,
+            ...(endpoint.startsWith("http://") ? ["--allow-http"] : []),
+            "--header",
+            "Authorization:${AUTH_HEADER}",
+          ],
+          env: { AUTH_HEADER: `Bearer ${t}` },
+        },
+      },
+    },
+    null,
+    2,
+  );
+
   return (
     <div className="space-y-3">
       {/* Tab bar */}
@@ -119,7 +143,9 @@ export function SetupGuide({ endpoint, token }: Props) {
       {tab === "Claude Desktop" && (
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">
-            Edit your Claude Desktop config file, then restart the app.
+            Edit your Claude Desktop config file, then restart the app. Claude Desktop only
+            supports local (stdio) MCP servers, so this uses{" "}
+            <code className="font-mono">mcp-remote</code> to bridge to the HTTP endpoint above.
           </p>
           <div className="rounded-md bg-muted/60 px-3 py-2 text-[11px] font-mono space-y-1">
             <p className="text-muted-foreground not-italic">macOS</p>
@@ -129,9 +155,9 @@ export function SetupGuide({ endpoint, token }: Props) {
           </div>
           <Snippet
             id="json-desktop"
-            text={jsonConfig}
+            text={desktopConfig}
             copied={copied === "json-desktop"}
-            onCopy={() => copy(jsonConfig, "json-desktop")}
+            onCopy={() => copy(desktopConfig, "json-desktop")}
           />
         </div>
       )}
