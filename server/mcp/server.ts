@@ -3,9 +3,12 @@ import { z } from "zod";
 import { eq, asc, desc, and, or, sql, inArray } from "drizzle-orm";
 import { db } from "@/server/db";
 import { artifacts, artifactVersions, artifactTasks, artifactLinks, workflows, workflowStages, workflowStageArtifacts, projects, projectArtifacts } from "@/server/db/schema";
-import { getAccessibleGroups, getSharedArtifactIds, effectiveGroupRole } from "@/server/auth/access";
+import { getAccessibleGroups, getSharedArtifactIds, effectiveGroupRole, canMutatePrompt } from "@/server/auth/access";
 import { canViewWorkflow, canManageWorkflow, attachWorkflowProgress } from "@/server/lib/workflow-access";
 import { canViewProject, attachProjectCounts } from "@/server/lib/project-access";
+import { createArtifact, updateArtifact } from "@/server/services/artifact";
+import { posix } from "node:path";
+import { recordAudit } from "@/server/services/audit";
 import { renderTemplate } from "@/server/lib/template";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
 import { getCachedVersionContent } from "@/server/lib/version-cache";
@@ -1333,6 +1336,56 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
     );
 
     server.tool(
+      "update_plan",
+      "Update an existing plan's overview or metadata. Omitted fields are left unchanged. Providing body creates a new version. Does not touch tasks — use add_plan_task/update_plan_task/delete_plan_task/update_task_status for those.",
+      {
+        slug: z.string().describe("The plan slug (e.g. 'acme.sprint-1' or 'sprint-1')"),
+        title: z.string().min(1).max(200).optional().describe("New title"),
+        body: z.string().min(1).optional().describe("New overview/background markdown (creates a new version)"),
+        description: z.string().max(500).optional().describe("New short description"),
+        tags: z.array(z.string()).optional().describe("Replace the tag list entirely"),
+      },
+      async ({ slug, title, body, description, tags }) => {
+        const plan = planBySlug.get(slug);
+        if (!plan) {
+          return { content: [{ type: "text" as const, text: `Plan '${slug}' not found.` }] };
+        }
+        const allowed = await canMutatePrompt(identityUser, plan, db);
+        if (!allowed) {
+          return { content: [{ type: "text" as const, text: `Access denied: cannot edit plan '${slug}'.` }] };
+        }
+
+        await updateArtifact(plan.id, { title, description, tags, body, updatedBy: identity.userId }, db);
+        return { content: [{ type: "text" as const, text: `Plan '${slug}' updated.` }] };
+      },
+    );
+
+    server.tool(
+      "delete_plan",
+      "Delete a plan (and its tasks). This cannot be undone.",
+      {
+        slug: z.string().describe("The plan slug (e.g. 'acme.sprint-1' or 'sprint-1')"),
+      },
+      async ({ slug }) => {
+        const plan = planBySlug.get(slug);
+        if (!plan) {
+          return { content: [{ type: "text" as const, text: `Plan '${slug}' not found.` }] };
+        }
+        const allowed = await canMutatePrompt(identityUser, plan, db);
+        if (!allowed) {
+          return { content: [{ type: "text" as const, text: `Access denied: cannot delete plan '${slug}'.` }] };
+        }
+
+        await db.delete(artifacts).where(eq(artifacts.id, plan.id));
+        await recordAudit(
+          { actorId: identity.userId, action: "artifact.delete", targetType: "artifact", targetId: plan.id, metadata: { kind: "plan", title: plan.title } },
+          db,
+        );
+        return { content: [{ type: "text" as const, text: `Plan '${slug}' deleted.` }] };
+      },
+    );
+
+    server.tool(
       "create_doc",
       "Create a new doc (business requirement, bug description, domain knowledge) in your personal space.",
       {
@@ -1367,12 +1420,215 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         return { content: [{ type: "text" as const, text: `Doc created: '${docSlug}' (id: ${doc.id})` }] };
       },
     );
+
+    server.tool(
+      "update_doc",
+      "Update an existing doc's content or metadata. Omitted fields are left unchanged. Providing body creates a new version.",
+      {
+        slug: z.string().describe("The doc slug (e.g. 'acme.auth-bug' or 'auth-bug')"),
+        title: z.string().min(1).max(200).optional().describe("New title"),
+        body: z.string().min(1).optional().describe("New full markdown content (creates a new version)"),
+        description: z.string().max(500).optional().describe("New short one-line summary"),
+        tags: z.array(z.string()).optional().describe("Replace the tag list entirely"),
+      },
+      async ({ slug, title, body, description, tags }) => {
+        const doc = docBySlug.get(slug);
+        if (!doc) {
+          return { content: [{ type: "text" as const, text: `Doc '${slug}' not found.` }] };
+        }
+        const allowed = await canMutatePrompt(identityUser, doc, db);
+        if (!allowed) {
+          return { content: [{ type: "text" as const, text: `Access denied: cannot edit doc '${slug}'.` }] };
+        }
+
+        await updateArtifact(doc.id, { title, description, tags, body, updatedBy: identity.userId }, db);
+        return { content: [{ type: "text" as const, text: `Doc '${slug}' updated.` }] };
+      },
+    );
+
+    server.tool(
+      "delete_doc",
+      "Delete a doc. This cannot be undone.",
+      {
+        slug: z.string().describe("The doc slug (e.g. 'acme.auth-bug' or 'auth-bug')"),
+      },
+      async ({ slug }) => {
+        const doc = docBySlug.get(slug);
+        if (!doc) {
+          return { content: [{ type: "text" as const, text: `Doc '${slug}' not found.` }] };
+        }
+        const allowed = await canMutatePrompt(identityUser, doc, db);
+        if (!allowed) {
+          return { content: [{ type: "text" as const, text: `Access denied: cannot delete doc '${slug}'.` }] };
+        }
+
+        await db.delete(artifacts).where(eq(artifacts.id, doc.id));
+        await recordAudit(
+          { actorId: identity.userId, action: "artifact.delete", targetType: "artifact", targetId: doc.id, metadata: { kind: "doc", title: doc.title } },
+          db,
+        );
+        return { content: [{ type: "text" as const, text: `Doc '${slug}' deleted.` }] };
+      },
+    );
+
+    server.tool(
+      "create_skill",
+      "Create a new skill (reusable instructions an agent can follow), optionally with bundled files. In your personal space by default.",
+      {
+        title: z.string().min(1).max(200).describe("Skill title"),
+        body: z.string().min(1).describe("The SKILL.md instructions body (markdown)"),
+        description: z.string().max(500).optional().describe("Short one-line summary"),
+        tags: z.array(z.string()).default([]).describe("Tags e.g. ['gitlab', 'review']"),
+        files: z
+          .array(
+            z.object({
+              path: z.string().min(1).max(500).describe("Relative file path, e.g. 'scripts/check.sh'"),
+              content: z.string(),
+              mimeType: z.string().optional(),
+            }),
+          )
+          .default([])
+          .describe("Bundled files attached to this skill"),
+        ownerType: z.enum(["user", "org", "department", "team"]).default("user").describe("Owner space. 'user' = personal (default). For group spaces the token user must have editor/admin role in that group."),
+        ownerId: z.string().uuid().optional().describe("Group ID when ownerType is not 'user'. Omit for personal space."),
+      },
+      async ({ title, body, description, tags, files, ownerType, ownerId }) => {
+        const ownerIdResolved = ownerType === "user" ? identity.userId : (ownerId ?? identity.userId);
+
+        if (ownerType !== "user") {
+          const role = await effectiveGroupRole(
+            identity.userId,
+            ownerType as "org" | "department" | "team",
+            ownerIdResolved,
+            db,
+          );
+          if (role !== "editor" && role !== "admin") {
+            return { content: [{ type: "text" as const, text: `Permission denied: you need editor or admin role in that group space.` }] };
+          }
+        }
+
+        const pathError = assertSafeFilePaths(files);
+        if (pathError) {
+          return { content: [{ type: "text" as const, text: pathError }] };
+        }
+
+        const skill = await createArtifact(
+          {
+            kind: "skill",
+            ownerType,
+            ownerId: ownerIdResolved,
+            title,
+            description,
+            tags,
+            visibility: "private",
+            body,
+            files,
+            createdBy: identity.userId,
+          },
+          db,
+        );
+
+        const skillSlug = skill.slug ?? slugify(title);
+        let msg = `Skill created: '${skillSlug}' (id: ${skill.id})`;
+        if (files.length > 0) msg += `\nFiles attached: ${files.length}`;
+        return { content: [{ type: "text" as const, text: msg }] };
+      },
+    );
+
+    server.tool(
+      "update_skill",
+      "Update an existing skill's content or metadata. Omitted fields are left unchanged. Providing body creates a new version; files (if provided) replace the entire bundled-file set on that new version — files are only applied together with a new body, since files live on a specific version.",
+      {
+        slug: z.string().describe("The skill slug (e.g. 'acme.code-review' or 'code-review')"),
+        title: z.string().min(1).max(200).optional().describe("New title"),
+        body: z.string().min(1).optional().describe("New SKILL.md instructions body (creates a new version)"),
+        description: z.string().max(500).optional().describe("New short one-line summary"),
+        tags: z.array(z.string()).optional().describe("Replace the tag list entirely"),
+        files: z
+          .array(
+            z.object({
+              path: z.string().min(1).max(500).describe("Relative file path, e.g. 'scripts/check.sh'"),
+              content: z.string(),
+              mimeType: z.string().optional(),
+            }),
+          )
+          .optional()
+          .describe("Replace the entire bundled-file set (only applied when body is also provided)"),
+      },
+      async ({ slug, title, body, description, tags, files }) => {
+        const skill = skillBySlug.get(slug);
+        if (!skill) {
+          return { content: [{ type: "text" as const, text: `Skill '${slug}' not found.` }] };
+        }
+        const allowed = await canMutatePrompt(identityUser, skill, db);
+        if (!allowed) {
+          return { content: [{ type: "text" as const, text: `Access denied: cannot edit skill '${slug}'.` }] };
+        }
+
+        if (files?.length) {
+          const pathError = assertSafeFilePaths(files);
+          if (pathError) {
+            return { content: [{ type: "text" as const, text: pathError }] };
+          }
+        }
+
+        await updateArtifact(skill.id, { title, description, tags, body, files, updatedBy: identity.userId }, db);
+        return { content: [{ type: "text" as const, text: `Skill '${slug}' updated.` }] };
+      },
+    );
+
+    server.tool(
+      "delete_skill",
+      "Delete a skill (and its bundled files). This cannot be undone.",
+      {
+        slug: z.string().describe("The skill slug (e.g. 'acme.code-review' or 'code-review')"),
+      },
+      async ({ slug }) => {
+        const skill = skillBySlug.get(slug);
+        if (!skill) {
+          return { content: [{ type: "text" as const, text: `Skill '${slug}' not found.` }] };
+        }
+        const allowed = await canMutatePrompt(identityUser, skill, db);
+        if (!allowed) {
+          return { content: [{ type: "text" as const, text: `Access denied: cannot delete skill '${slug}'.` }] };
+        }
+
+        await db.delete(artifacts).where(eq(artifacts.id, skill.id));
+        await recordAudit(
+          { actorId: identity.userId, action: "artifact.delete", targetType: "artifact", targetId: skill.id, metadata: { kind: "skill", title: skill.title } },
+          db,
+        );
+        return { content: [{ type: "text" as const, text: `Skill '${slug}' deleted.` }] };
+      },
+    );
   }
 
   return server;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Path-safety for agent-supplied skill files (Phase 50 M2) — mirrors the Go
+ * CLI's AssertSafeRelativePath (src/cli/internal/fsio/fsio.go): reject
+ * absolute paths and any path that escapes its directory via "..". Unlike
+ * the tRPC skill router (trusted, UI-authenticated input only), this reaches
+ * an MCP tool call, so it must be validated here before it ever lands in
+ * artifactFiles — the same content a human later `pull`s onto a real
+ * filesystem via the CLI.
+ */
+function assertSafeFilePaths(files: { path: string }[]): string | undefined {
+  for (const f of files) {
+    if (f.path.startsWith("/") || f.path.startsWith("\\") || /^[a-zA-Z]:[\\/]/.test(f.path)) {
+      return `Refusing to write absolute path: '${f.path}'.`;
+    }
+    const normalized = posix.normalize(f.path.replace(/\\/g, "/"));
+    if (normalized === ".." || normalized.startsWith("../")) {
+      return `Refusing to write path that escapes its directory: '${f.path}'.`;
+    }
+  }
+  return undefined;
+}
 
 /**
  * Usage analytics (Phase 41) — fire-and-forget, deliberately not awaited on

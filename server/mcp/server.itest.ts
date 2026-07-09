@@ -182,10 +182,10 @@ describe("write gate", () => {
     );
   });
 
-  it("write:true scope adds the 8 write tools (24 total)", async () => {
+  it("write:true scope adds the 15 write tools (31 total)", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(24);
+    expect(tools).toHaveLength(31);
     const names = new Set(tools.map((t) => t.name));
     for (const n of [
       "update_task_status",
@@ -193,7 +193,14 @@ describe("write gate", () => {
       "update_plan_task",
       "delete_plan_task",
       "create_plan",
+      "update_plan",
+      "delete_plan",
       "create_doc",
+      "update_doc",
+      "delete_doc",
+      "create_skill",
+      "update_skill",
+      "delete_skill",
       "set_workflow_stage_status",
       "attach_artifact_to_workflow_stage",
     ]) {
@@ -877,5 +884,344 @@ describe("write round-trip (scope.write = true)", () => {
       arguments: { stageId: "00000000-0000-0000-0000-000000000000", slug: skill2Slug },
     });
     expect(text(result)).toContain("not found");
+  });
+});
+
+describe("update_doc / delete_doc (Phase 50 M0)", () => {
+  it("update_doc creates a new version, reflected in a fresh get_doc call", async () => {
+    // orgAdmin's org membership is an *ancestor* of doc2's owning department
+    // (engineering) — canMutatePrompt walks up the chain, so this is the
+    // manage-capable identity for a department-owned artifact here.
+    const client = await connect({ userId: orgAdmin.id, systemRole: "user" }, { write: true });
+    const doc2 = await mustArtifact("Next.js 16 migration notes");
+    const doc2Slug = `${ENG_PATH}.${slugify(doc2.title)}`;
+
+    const updateResult = await client.callTool({
+      name: "update_doc",
+      arguments: { slug: doc2Slug, body: "Updated notes via MCP itest." },
+    });
+    expect(text(updateResult)).toContain("updated");
+
+    // Fresh connection: get_doc's docBySlug map caches version content at
+    // createMcpServer() time, so re-reading on the same client that just
+    // wrote the update would see stale pre-update content.
+    const readClient = await connect({ userId: orgAdmin.id, systemRole: "user" }, { write: true });
+    const docResult = await readClient.callTool({ name: "get_doc", arguments: { slug: doc2Slug } });
+    expect(text(docResult)).toContain("Updated notes via MCP itest.");
+
+    // Restore fixture body so other tests reading this doc aren't affected.
+    await readClient.callTool({
+      name: "update_doc",
+      arguments: { slug: doc2Slug, body: "Notes on breaking changes encountered while upgrading from Next.js 15 to 16." },
+    });
+  });
+
+  it("negative: denies update_doc for a viewer who can read but not manage (role only on a descendant team)", async () => {
+    // engMember is editor on team backend, a *descendant* of doc2's owning
+    // department (engineering) — effectiveGroupRole only walks upward from
+    // the owning group, so this role doesn't count. engMember can still
+    // read doc2 (D-016 cone includes descendants-of-ancestors), just not edit it.
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const doc2 = await mustArtifact("Next.js 16 migration notes");
+    const doc2Slug = `${ENG_PATH}.${slugify(doc2.title)}`;
+
+    const result = await client.callTool({
+      name: "update_doc",
+      arguments: { slug: doc2Slug, body: "Should not apply." },
+    });
+    expect(text(result)).toContain("Access denied");
+  });
+
+  it("negative: update_doc/delete_doc on an unknown slug returns a friendly message", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const updateResult = await client.callTool({
+      name: "update_doc",
+      arguments: { slug: "does-not-exist", body: "x" },
+    });
+    expect(text(updateResult)).toContain("not found");
+
+    const deleteResult = await client.callTool({
+      name: "delete_doc",
+      arguments: { slug: "does-not-exist" },
+    });
+    expect(text(deleteResult)).toContain("not found");
+  });
+
+  it("delete_doc removes the artifact and records exactly one audit row", async () => {
+    const createClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+
+    const createResult = await createClient.callTool({
+      name: "create_doc",
+      arguments: { title: "Itest doc for delete_doc", body: "Throwaway." },
+    });
+    const createdSlug = slugify("Itest doc for delete_doc");
+    expect(text(createResult)).toContain("Doc created");
+
+    const createdDoc = await mustArtifact("Itest doc for delete_doc");
+    const beforeAudit = await db
+      .select()
+      .from(schema.auditEvents)
+      .where(and(eq(schema.auditEvents.action, "artifact.delete"), eq(schema.auditEvents.targetId, createdDoc.id)));
+    expect(beforeAudit).toHaveLength(0);
+
+    // Fresh connection: docBySlug is a per-connection snapshot taken at
+    // createMcpServer() time, so the doc just created above isn't visible on
+    // the client that created it — a new connection re-fetches from the DB.
+    const deleteClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const deleteResult = await deleteClient.callTool({ name: "delete_doc", arguments: { slug: createdSlug } });
+    expect(text(deleteResult)).toContain("deleted");
+
+    const remaining = await db.select().from(schema.artifacts).where(eq(schema.artifacts.id, createdDoc.id));
+    expect(remaining).toHaveLength(0);
+
+    const afterAudit = await db
+      .select()
+      .from(schema.auditEvents)
+      .where(and(eq(schema.auditEvents.action, "artifact.delete"), eq(schema.auditEvents.targetId, createdDoc.id)));
+    expect(afterAudit).toHaveLength(1);
+  });
+});
+
+describe("update_plan / delete_plan (Phase 50 M1)", () => {
+  it("update_plan creates a new version, reflected in a fresh get_plan call, without touching tasks", async () => {
+    // plan2 is owned by department engineering, same access boundary as doc2
+    // above: orgAdmin (admin on the ancestor org) can manage it.
+    const client = await connect({ userId: orgAdmin.id, systemRole: "user" }, { write: true });
+    const plan2 = await mustArtifact("Migrate to Next.js 16");
+    const taskCountBefore = (
+      await db.query.artifactTasks.findMany({ where: eq(schema.artifactTasks.artifactId, plan2.id) })
+    ).length;
+
+    const updateResult = await client.callTool({
+      name: "update_plan",
+      arguments: { slug: plan2Slug, body: "## Overview\n\nUpdated via MCP itest." },
+    });
+    expect(text(updateResult)).toContain("updated");
+
+    // Fresh connection: get_plan's planBySlug map caches version content at
+    // createMcpServer() time (same reasoning as update_doc above).
+    const readClient = await connect({ userId: orgAdmin.id, systemRole: "user" }, { write: true });
+    const planResult = await readClient.callTool({ name: "get_plan", arguments: { slug: plan2Slug } });
+    const planText = text(planResult);
+    expect(planText).toContain("Updated via MCP itest.");
+
+    const taskCountAfter = (
+      await db.query.artifactTasks.findMany({ where: eq(schema.artifactTasks.artifactId, plan2.id) })
+    ).length;
+    expect(taskCountAfter).toBe(taskCountBefore);
+
+    // Restore fixture body so other tests reading this plan aren't affected.
+    await readClient.callTool({
+      name: "update_plan",
+      arguments: { slug: plan2Slug, body: "## Overview\n\nTrack the upgrade path and verification steps." },
+    });
+  });
+
+  it("negative: denies update_plan for a viewer who can read but not manage (role only on a descendant team)", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const result = await client.callTool({
+      name: "update_plan",
+      arguments: { slug: plan2Slug, body: "Should not apply." },
+    });
+    expect(text(result)).toContain("Access denied");
+  });
+
+  it("negative: update_plan/delete_plan on an unknown slug returns a friendly message", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const updateResult = await client.callTool({
+      name: "update_plan",
+      arguments: { slug: "does-not-exist", body: "x" },
+    });
+    expect(text(updateResult)).toContain("not found");
+
+    const deleteResult = await client.callTool({
+      name: "delete_plan",
+      arguments: { slug: "does-not-exist" },
+    });
+    expect(text(deleteResult)).toContain("not found");
+  });
+
+  it("delete_plan removes the artifact + its tasks and records exactly one audit row", async () => {
+    const createClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+
+    const createResult = await createClient.callTool({
+      name: "create_plan",
+      arguments: { title: "Itest plan for delete_plan", body: "Throwaway.", tasks: ["a task"] },
+    });
+    const createdSlug = slugify("Itest plan for delete_plan");
+    expect(text(createResult)).toContain("Plan created");
+
+    const createdPlan = await mustArtifact("Itest plan for delete_plan");
+    const tasksBefore = await db.query.artifactTasks.findMany({ where: eq(schema.artifactTasks.artifactId, createdPlan.id) });
+    expect(tasksBefore).toHaveLength(1);
+
+    const deleteClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const deleteResult = await deleteClient.callTool({ name: "delete_plan", arguments: { slug: createdSlug } });
+    expect(text(deleteResult)).toContain("deleted");
+
+    const remainingArtifact = await db.select().from(schema.artifacts).where(eq(schema.artifacts.id, createdPlan.id));
+    expect(remainingArtifact).toHaveLength(0);
+    const remainingTasks = await db.query.artifactTasks.findMany({ where: eq(schema.artifactTasks.artifactId, createdPlan.id) });
+    expect(remainingTasks).toHaveLength(0);
+
+    const afterAudit = await db
+      .select()
+      .from(schema.auditEvents)
+      .where(and(eq(schema.auditEvents.action, "artifact.delete"), eq(schema.auditEvents.targetId, createdPlan.id)));
+    expect(afterAudit).toHaveLength(1);
+  });
+});
+
+describe("create_skill / update_skill / delete_skill (Phase 50 M2)", () => {
+  it("creates a personal skill with bundled files, retrievable via get_skill and pull_skill, then updates and deletes it", async () => {
+    const createClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const createResult = await createClient.callTool({
+      name: "create_skill",
+      arguments: {
+        title: "Itest skill with files",
+        body: "# Itest skill\n\nDo the thing.",
+        files: [{ path: "scripts/check.sh", content: "#!/bin/sh\necho ok" }],
+      },
+    });
+    expect(text(createResult)).toContain("Skill created");
+    expect(text(createResult)).toContain("Files attached: 1");
+    const createdSlug = slugify("Itest skill with files");
+    const createdSkill = await mustArtifact("Itest skill with files");
+
+    // Fresh connection: skillBySlug is a per-connection snapshot taken at
+    // createMcpServer() time (same reasoning as update_doc/update_plan above).
+    const readClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const getText = text(await readClient.callTool({ name: "get_skill", arguments: { slug: createdSlug } }));
+    expect(getText).toContain("Do the thing.");
+    expect(getText).toContain("scripts/check.sh");
+    expect(getText).toContain("echo ok");
+
+    const bundle = JSON.parse(text(await readClient.callTool({ name: "pull_skill", arguments: { slug: createdSlug } })));
+    expect(bundle.files).toEqual([expect.objectContaining({ path: "scripts/check.sh", content: "#!/bin/sh\necho ok" })]);
+
+    const updateResult = await readClient.callTool({
+      name: "update_skill",
+      arguments: {
+        slug: createdSlug,
+        body: "# Itest skill\n\nDo the updated thing.",
+        files: [{ path: "scripts/other.sh", content: "#!/bin/sh\necho updated" }],
+      },
+    });
+    expect(text(updateResult)).toContain("updated");
+
+    const updateReadClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const bundleAfterUpdate = JSON.parse(
+      text(await updateReadClient.callTool({ name: "pull_skill", arguments: { slug: createdSlug } })),
+    );
+    expect(bundleAfterUpdate.body).toContain("Do the updated thing.");
+    // Files are replaced wholesale, not merged — the old file is gone.
+    expect(bundleAfterUpdate.files).toEqual([
+      expect.objectContaining({ path: "scripts/other.sh", content: "#!/bin/sh\necho updated" }),
+    ]);
+
+    const deleteResult = await updateReadClient.callTool({ name: "delete_skill", arguments: { slug: createdSlug } });
+    expect(text(deleteResult)).toContain("deleted");
+    const remaining = await db.select().from(schema.artifacts).where(eq(schema.artifacts.id, createdSkill.id));
+    expect(remaining).toHaveLength(0);
+  });
+
+  it("rejects an absolute path and a directory-escaping path in create_skill's files, writing nothing", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+
+    const absoluteResult = await client.callTool({
+      name: "create_skill",
+      arguments: {
+        title: "Itest skill absolute path",
+        body: "body",
+        files: [{ path: "/etc/passwd", content: "x" }],
+      },
+    });
+    expect(text(absoluteResult)).toContain("Refusing to write absolute path");
+
+    const escapeResult = await client.callTool({
+      name: "create_skill",
+      arguments: {
+        title: "Itest skill escaping path",
+        body: "body",
+        files: [{ path: "../../etc/passwd", content: "x" }],
+      },
+    });
+    expect(text(escapeResult)).toContain("Refusing to write path that escapes its directory");
+
+    const absoluteRow = await db.select().from(schema.artifacts).where(eq(schema.artifacts.title, "Itest skill absolute path"));
+    expect(absoluteRow).toHaveLength(0);
+    const escapeRow = await db.select().from(schema.artifacts).where(eq(schema.artifacts.title, "Itest skill escaping path"));
+    expect(escapeRow).toHaveLength(0);
+  });
+
+  it("rejects a directory-escaping path in update_skill's files without creating a new version", async () => {
+    // orgAdmin's org membership is an ancestor of skill2's owning department
+    // (engineering) — same manage-capable identity as update_doc/update_plan above.
+    const client = await connect({ userId: orgAdmin.id, systemRole: "user" }, { write: true });
+    const skill2 = await mustArtifact("Hướng dẫn viết test tự động");
+    const versionCountBefore = (
+      await db.query.artifactVersions.findMany({ where: eq(schema.artifactVersions.artifactId, skill2.id) })
+    ).length;
+
+    const result = await client.callTool({
+      name: "update_skill",
+      arguments: { slug: skill2Slug, body: "Should not apply.", files: [{ path: "..", content: "x" }] },
+    });
+    expect(text(result)).toContain("Refusing to write path that escapes its directory");
+
+    const versionCountAfter = (
+      await db.query.artifactVersions.findMany({ where: eq(schema.artifactVersions.artifactId, skill2.id) })
+    ).length;
+    expect(versionCountAfter).toBe(versionCountBefore);
+  });
+
+  it("negative: denies update_skill/delete_skill for a viewer who can read but not manage (role only on a descendant team)", async () => {
+    // skill2 is owned by department engineering, same access boundary as
+    // doc2/plan2 above: engMember's editor role on descendant team backend
+    // doesn't count (effectiveGroupRole only walks upward from the owning group).
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+
+    const updateResult = await client.callTool({
+      name: "update_skill",
+      arguments: { slug: skill2Slug, body: "Should not apply." },
+    });
+    expect(text(updateResult)).toContain("Access denied");
+
+    const deleteResult = await client.callTool({ name: "delete_skill", arguments: { slug: skill2Slug } });
+    expect(text(deleteResult)).toContain("Access denied");
+  });
+
+  it("negative: create_skill in a group space denies a user with no role on that group or its ancestors", async () => {
+    const [engDept] = await db.select().from(schema.departments).where(eq(schema.departments.slug, "engineering"));
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+
+    const result = await client.callTool({
+      name: "create_skill",
+      arguments: {
+        title: "Itest skill denied group create",
+        body: "body",
+        ownerType: "department",
+        ownerId: engDept.id,
+      },
+    });
+    expect(text(result)).toContain("Permission denied");
+
+    const row = await db.select().from(schema.artifacts).where(eq(schema.artifacts.title, "Itest skill denied group create"));
+    expect(row).toHaveLength(0);
+  });
+
+  it("negative: update_skill/delete_skill on an unknown slug returns a friendly message", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const updateResult = await client.callTool({
+      name: "update_skill",
+      arguments: { slug: "does-not-exist", body: "x" },
+    });
+    expect(text(updateResult)).toContain("not found");
+
+    const deleteResult = await client.callTool({
+      name: "delete_skill",
+      arguments: { slug: "does-not-exist" },
+    });
+    expect(text(deleteResult)).toContain("not found");
   });
 });

@@ -1,7 +1,8 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { artifacts, artifactVersions, artifactFiles, artifactMembers, artifactTasks } from "@/server/db/schema";
 import type { ArtifactKind, TaskStatus } from "@/server/db/schema";
 import type { DbClient } from "@/server/db/types";
+import { notifyVersionChange } from "@/server/services/notification";
 
 type OwnerType = "user" | "org" | "department" | "team";
 type Visibility = "private" | "group" | "public";
@@ -105,4 +106,81 @@ export async function createArtifact(input: CreateArtifactInput, db: DbClient) {
 
     return updated;
   });
+}
+
+export type UpdateArtifactInput = {
+  title?: string;
+  description?: string | null;
+  tags?: string[];
+  body?: string;
+  changelog?: string;
+  /** skill only — replaces the entire file set on the new version (undefined = carry no files, not "keep old ones": the new version needs its own row set). */
+  files?: { path: string; content: string; mimeType?: string | null }[];
+  updatedBy: string;
+};
+
+/**
+ * Core artifact update: optional metadata patch + optional new version (body
+ * bump, replacing bundled files for skills). Generalizes what doc.ts/plan.ts/
+ * skill.ts/kit.ts/prompt.ts's own `update` mutations each duplicate inline —
+ * added here so MCP's update_doc/update_plan/update_skill have one path to
+ * call (Phase 50) without a mandate to migrate the existing tRPC call sites
+ * in the same phase (same reasoning as createArtifact, Phase 40).
+ */
+export async function updateArtifact(artifactId: string, input: UpdateArtifactInput, db: DbClient) {
+  const { updated, newVersionId } = await db.transaction(async (tx) => {
+    const metaUpdates: Record<string, unknown> = {};
+    if (input.title !== undefined) metaUpdates.title = input.title;
+    if (input.description !== undefined) metaUpdates.description = input.description;
+    if (input.tags !== undefined) metaUpdates.tags = input.tags;
+
+    let newVersionId: string | undefined;
+    if (input.body !== undefined) {
+      const [{ maxNo }] = await tx
+        .select({ maxNo: sql<number>`coalesce(max(version_no), 0)` })
+        .from(artifactVersions)
+        .where(eq(artifactVersions.artifactId, artifactId));
+
+      const [version] = await tx
+        .insert(artifactVersions)
+        .values({
+          artifactId,
+          versionNo: maxNo + 1,
+          body: input.body,
+          changelog: input.changelog ?? `Version ${maxNo + 1}`,
+          createdBy: input.updatedBy,
+        })
+        .returning();
+      newVersionId = version.id;
+
+      if (input.files?.length) {
+        await tx.insert(artifactFiles).values(
+          input.files.map((f) => ({
+            artifactVersionId: version.id,
+            path: f.path,
+            content: f.content,
+            mimeType: f.mimeType ?? null,
+          })),
+        );
+      }
+
+      metaUpdates.currentVersionId = version.id;
+    }
+
+    const [updated] = await tx
+      .update(artifacts)
+      .set({ ...metaUpdates, updatedAt: new Date() })
+      .where(eq(artifacts.id, artifactId))
+      .returning();
+
+    return { updated, newVersionId };
+  });
+
+  // Outside the transaction, matching rollbackVersion (version.ts): a failure
+  // to notify shares shouldn't roll back an otherwise-successful version write.
+  if (newVersionId) {
+    await notifyVersionChange(artifactId, newVersionId, input.updatedBy, db);
+  }
+
+  return updated;
 }
