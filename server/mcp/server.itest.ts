@@ -5,6 +5,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createTestDb } from "@/server/test-support/test-db";
 import * as schema from "@/server/db/schema";
 import { slugify } from "@/lib/slug";
+import { createArtifact } from "@/server/services/artifact";
 import { createMcpServer } from "./server";
 import type { TokenScope } from "./scope";
 
@@ -156,7 +157,7 @@ describe("prompts primitive", () => {
 });
 
 describe("write gate", () => {
-  it("read-only scope exposes exactly the 17 read tools", async () => {
+  it("read-only scope exposes exactly the 18 read tools", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" }, {});
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
@@ -170,6 +171,7 @@ describe("write gate", () => {
         "get_skill",
         "get_workflow",
         "list_docs",
+        "list_groups",
         "list_kits",
         "list_plans",
         "list_projects",
@@ -183,10 +185,10 @@ describe("write gate", () => {
     );
   });
 
-  it("write:true scope adds the 18 write tools (35 total)", async () => {
+  it("write:true scope adds the 20 write tools (38 total)", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(35);
+    expect(tools).toHaveLength(38);
     const names = new Set(tools.map((t) => t.name));
     for (const n of [
       "update_task_status",
@@ -207,6 +209,8 @@ describe("write gate", () => {
       "delete_prompt",
       "set_workflow_stage_status",
       "attach_artifact_to_workflow_stage",
+      "add_artifact_to_project",
+      "remove_artifact_from_project",
     ]) {
       expect(names.has(n)).toBe(true);
     }
@@ -512,6 +516,164 @@ describe("project tools", () => {
     expect(t).not.toContain("Lỗi: phiên đăng nhập hết hạn sau 5 phút");
     expect(t).not.toContain("Sửa lỗi phiên đăng nhập hết hạn sớm");
     expect(t).toContain("_Nothing assigned._");
+  });
+});
+
+describe("list_groups (Phase 52)", () => {
+  it("returns eng-member's read cone with canWrite reflecting downward mutate authority", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    const t = text(await client.callTool({ name: "list_groups", arguments: {} }));
+    // Read cone inherits upward: backend (own, editor) + engineering + qa-org.
+    expect(t).toContain(`[team] Backend (${BACKEND_PATH})`);
+    expect(t).toContain(`[department] Engineering (${ENG_PATH})`);
+    expect(t).toContain(`[org] QA Org (${ORG_PATH})`);
+    // Mutate authority inherits downward only: editor on backend, nothing above.
+    expect(t).toMatch(/\[team\] Backend .*canWrite: true/);
+    expect(t).toMatch(/\[department\] Engineering .*canWrite: false/);
+    expect(t).toMatch(/\[org\] QA Org .*canWrite: false/);
+  });
+
+  it("writableOnly filters to groups eng-member can actually create in", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    const t = text(await client.callTool({ name: "list_groups", arguments: { writableOnly: true } }));
+    expect(t).toContain("[team] Backend");
+    expect(t).not.toContain("Engineering");
+    expect(t).not.toContain("QA Org");
+  });
+
+  it("tells an outsider there are no group spaces (personal still available)", async () => {
+    const client = await connect({ userId: outsider.id, systemRole: "user" });
+    const t = text(await client.callTool({ name: "list_groups", arguments: {} }));
+    expect(t).toContain("No group spaces available");
+    expect(t).toContain("personal space");
+  });
+
+  it("superadmin sees every group, all writable", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "superadmin" });
+    const t = text(await client.callTool({ name: "list_groups", arguments: {} }));
+    for (const name of ["QA Org", "Engineering", "Marketing", "Backend", "Content"]) {
+      expect(t).toContain(name);
+    }
+    expect(t).not.toMatch(/canWrite: false/);
+  });
+});
+
+describe("add/remove_artifact_to_project (Phase 52)", () => {
+  it("assigns then removes a plan (round trip), reporting no-op on a second remove", async () => {
+    const project = await mustProject("Session bug fix");
+
+    // Assign plan2 (owned by Engineering, readable by eng-member; not yet in the project).
+    const assign = text(
+      await (await connect({ userId: engMember.id, systemRole: "user" }, { write: true })).callTool({
+        name: "add_artifact_to_project",
+        arguments: { projectId: project.id, slug: plan2Slug },
+      }),
+    );
+    expect(assign).toContain("assigned to project 'Session bug fix'");
+
+    // A fresh connection's get_project now lists it.
+    const view = text(
+      await (await connect({ userId: engMember.id, systemRole: "user" })).callTool({
+        name: "get_project",
+        arguments: { id: project.id },
+      }),
+    );
+    expect(view).toContain("Migrate to Next.js 16");
+
+    // Remove it, then a second remove is a reported no-op.
+    const remove = text(
+      await (await connect({ userId: engMember.id, systemRole: "user" }, { write: true })).callTool({
+        name: "remove_artifact_from_project",
+        arguments: { projectId: project.id, slug: plan2Slug },
+      }),
+    );
+    expect(remove).toContain("removed from project 'Session bug fix'");
+
+    const removeAgain = text(
+      await (await connect({ userId: engMember.id, systemRole: "user" }, { write: true })).callTool({
+        name: "remove_artifact_from_project",
+        arguments: { projectId: project.id, slug: plan2Slug },
+      }),
+    );
+    expect(removeAgain).toContain("(no-op)");
+  });
+
+  it("reports 'already in' when assigning an artifact the project already has", async () => {
+    const project = await mustProject("Session bug fix");
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const t = text(
+      await client.callTool({ name: "add_artifact_to_project", arguments: { projectId: project.id, slug: plan1Slug } }),
+    );
+    expect(t).toContain("already in project 'Session bug fix'");
+  });
+
+  it("denies a viewer (can see the project but not manage it)", async () => {
+    const project = await mustProject("Session bug fix");
+    const client = await connect({ userId: orgViewer.id, systemRole: "user" }, { write: true });
+    const t = text(
+      await client.callTool({ name: "add_artifact_to_project", arguments: { projectId: project.id, slug: plan2Slug } }),
+    );
+    expect(t).toContain("Permission denied");
+  });
+
+  it("rejects a non-doc/plan slug and honours the kind disambiguator", async () => {
+    const project = await mustProject("Session bug fix");
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+
+    // A skill is neither doc nor plan → not resolvable.
+    const skill = text(
+      await client.callTool({ name: "add_artifact_to_project", arguments: { projectId: project.id, slug: skill1Slug } }),
+    );
+    expect(skill).toContain("No doc or plan found");
+
+    // Passing the wrong kind for a real plan slug fails cleanly.
+    const wrongKind = text(
+      await client.callTool({
+        name: "add_artifact_to_project",
+        arguments: { projectId: project.id, slug: plan2Slug, kind: "doc" },
+      }),
+    );
+    expect(wrongKind).toContain("not found");
+  });
+
+  it("asks for kind when a slug matches both a doc and a plan", async () => {
+    // The (owner_type, owner_id, slug) unique constraint forbids a doc+plan
+    // sharing a slug under the SAME owner, so ambiguity only arises across
+    // spaces via the bare-localSlug alias the maps register: a personal plan
+    // and a backend-team doc that share the local slug "dup-ambig-52".
+    const dupSlug = "dup-ambig-52";
+    const ambigPlan = await createArtifact(
+      { kind: "plan", ownerType: "user", ownerId: engMember.id, title: "Ambig plan 52", slug: dupSlug, visibility: "private", createdBy: engMember.id, body: "x" },
+      db,
+    );
+    const ambigDoc = await createArtifact(
+      { kind: "doc", ownerType: "team", ownerId: backend.id, title: "Ambig doc 52", slug: dupSlug, visibility: "group", createdBy: engMember.id, body: "y" },
+      db,
+    );
+    try {
+      const project = await mustProject("Session bug fix");
+      const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+      const t = text(
+        await client.callTool({ name: "add_artifact_to_project", arguments: { projectId: project.id, slug: dupSlug } }),
+      );
+      expect(t).toContain("matches both a doc and a plan");
+    } finally {
+      // Keep the shared fixture set intact for other integration files (they
+      // assert on the seeded artifact count).
+      await db.delete(schema.artifacts).where(eq(schema.artifacts.id, ambigPlan.id));
+      await db.delete(schema.artifacts).where(eq(schema.artifacts.id, ambigDoc.id));
+    }
+  });
+
+  it("returns a friendly message for an unknown project id", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const t = text(
+      await client.callTool({
+        name: "add_artifact_to_project",
+        arguments: { projectId: "00000000-0000-0000-0000-000000000000", slug: plan2Slug },
+      }),
+    );
+    expect(t).toContain("not found");
   });
 });
 

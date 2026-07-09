@@ -2,10 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { eq, asc, desc, and, or, sql, inArray } from "drizzle-orm";
 import { db } from "@/server/db";
-import { artifacts, artifactVersions, artifactTasks, artifactLinks, workflows, workflowStages, workflowStageArtifacts, projects, projectArtifacts } from "@/server/db/schema";
+import { artifacts, artifactVersions, artifactTasks, artifactLinks, workflows, workflowStages, workflowStageArtifacts, projects, projectArtifacts, orgs, departments, teams } from "@/server/db/schema";
 import { getAccessibleGroups, getSharedArtifactIds, effectiveGroupRole, canMutatePrompt } from "@/server/auth/access";
 import { canViewWorkflow, canManageWorkflow, attachWorkflowProgress } from "@/server/lib/workflow-access";
-import { canViewProject, attachProjectCounts } from "@/server/lib/project-access";
+import { canViewProject, canManageProject, attachProjectCounts } from "@/server/lib/project-access";
 import { createArtifact, updateArtifact, syncVariables } from "@/server/services/artifact";
 import { posix } from "node:path";
 import { recordAudit } from "@/server/services/audit";
@@ -1144,6 +1144,113 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
     },
   );
 
+  // ── Group tools ───────────────────────────────────────────────────────────
+  // Groups (org/department/team) are the non-personal owner spaces. This tool
+  // lets an agent discover the (ownerType, ownerId) pairs it needs to create an
+  // artifact in a group space via create_plan/create_skill/create_doc/create_prompt.
+  server.tool(
+    "list_groups",
+    "List the org/department/team group spaces you can access, each with id, type, name, path, and whether you can write to it (canWrite). To create an artifact in a group space, pass groupType as `ownerType` and id as `ownerId` to create_plan/create_skill/create_doc/create_prompt. Your personal space (ownerType: 'user') is always available and is not listed here.",
+    {
+      writableOnly: z
+        .boolean()
+        .default(false)
+        .describe("Only return groups where you have editor/admin (canWrite=true)."),
+    },
+    async ({ writableOnly }) => {
+      // Superadmin sees every group (mirrors listAccessibleProjects); everyone
+      // else gets their D-016 read cone.
+      let groupRefs: { groupType: "org" | "department" | "team"; groupId: string }[];
+      if (identity.systemRole === "superadmin") {
+        const [orgRows, deptRows, teamRows] = await Promise.all([
+          db.query.orgs.findMany({ columns: { id: true } }),
+          db.query.departments.findMany({ columns: { id: true } }),
+          db.query.teams.findMany({ columns: { id: true } }),
+        ]);
+        groupRefs = [
+          ...orgRows.map((o) => ({ groupType: "org" as const, groupId: o.id })),
+          ...deptRows.map((d) => ({ groupType: "department" as const, groupId: d.id })),
+          ...teamRows.map((t) => ({ groupType: "team" as const, groupId: t.id })),
+        ];
+      } else {
+        groupRefs = await getAccessibleGroups(identity.userId, db);
+      }
+
+      if (!groupRefs.length) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "No group spaces available. You can still create artifacts in your personal space (ownerType: 'user').",
+            },
+          ],
+        };
+      }
+
+      // Cap output (no pagination in v1 — self-host scale). Note truncation so
+      // the agent knows the list is incomplete rather than assuming it's whole.
+      const CAP = 200;
+      const truncated = groupRefs.length > CAP;
+      const capped = groupRefs.slice(0, CAP);
+
+      const orgIds = capped.filter((g) => g.groupType === "org").map((g) => g.groupId);
+      const deptIds = capped.filter((g) => g.groupType === "department").map((g) => g.groupId);
+      const teamIds = capped.filter((g) => g.groupType === "team").map((g) => g.groupId);
+
+      const [orgRows, deptRows, teamRows, paths] = await Promise.all([
+        orgIds.length ? db.query.orgs.findMany({ where: inArray(orgs.id, orgIds), columns: { id: true, name: true } }) : [],
+        deptIds.length ? db.query.departments.findMany({ where: inArray(departments.id, deptIds), columns: { id: true, name: true } }) : [],
+        teamIds.length ? db.query.teams.findMany({ where: inArray(teams.id, teamIds), columns: { id: true, name: true } }) : [],
+        resolveOwnerSlugPaths(capped.map((g) => ({ ownerType: g.groupType, ownerId: g.groupId })), db),
+      ]);
+      const nameByKey = new Map<string, string>();
+      for (const o of orgRows) nameByKey.set(`org:${o.id}`, o.name);
+      for (const d of deptRows) nameByKey.set(`department:${d.id}`, d.name);
+      for (const t of teamRows) nameByKey.set(`team:${t.id}`, t.name);
+
+      // canWrite mirrors the create_* group-role gate: editor/admin can write.
+      const roleByKey = new Map<string, string | null>();
+      await Promise.all(
+        capped.map(async (g) => {
+          const key = `${g.groupType}:${g.groupId}`;
+          if (identity.systemRole === "superadmin") {
+            roleByKey.set(key, "admin");
+            return;
+          }
+          roleByKey.set(key, await effectiveGroupRole(identity.userId, g.groupType, g.groupId, db));
+        }),
+      );
+
+      let items = capped.map((g) => {
+        const key = `${g.groupType}:${g.groupId}`;
+        const role = roleByKey.get(key);
+        return {
+          groupType: g.groupType,
+          id: g.groupId,
+          name: nameByKey.get(key) ?? "(unknown)",
+          path: paths.get(key) ?? "",
+          canWrite: role === "editor" || role === "admin",
+        };
+      });
+      if (writableOnly) items = items.filter((i) => i.canWrite);
+
+      if (!items.length) {
+        return {
+          content: [
+            { type: "text" as const, text: "No writable group spaces (you have viewer-only access to the groups you can see)." },
+          ],
+        };
+      }
+
+      const lines = items.map(
+        (i) =>
+          `- [${i.groupType}] ${i.name}${i.path ? ` (${i.path})` : ""} — canWrite: ${i.canWrite} (ownerType: ${i.groupType}, ownerId: ${i.id})`,
+      );
+      if (truncated) lines.push(`\n_…truncated to ${CAP} of ${groupRefs.length} groups._`);
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    },
+  );
+
   // Write tools are only registered when the token has write=true
   if (scope.write === true) {
     const accessiblePlanIds = new Set(planRows.map((p) => p.id));
@@ -1784,6 +1891,95 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
           db,
         );
         return { content: [{ type: "text" as const, text: `Prompt '${slug}' deleted.` }] };
+      },
+    );
+
+    // ── Project assignment ───────────────────────────────────────────────────
+    // Projects are a many-to-many grouping over doc|plan artifacts (orthogonal
+    // to ownership) — mirror project.assignArtifact/unassignArtifact exactly:
+    // manage-rights on the project's owning group + doc|plan kind. Presence in
+    // planBySlug/docBySlug already implies the artifact is readable by this
+    // token, so no extra read check is needed.
+    const resolveDocOrPlan = (
+      slug: string,
+      kind?: "doc" | "plan",
+    ): { ok: true; id: string; kind: "doc" | "plan"; title: string } | { ok: false; message: string } => {
+      const plan = planBySlug.get(slug);
+      const doc = docBySlug.get(slug);
+      if (kind === "plan") {
+        return plan ? { ok: true, id: plan.id, kind: "plan", title: plan.title } : { ok: false, message: `Plan '${slug}' not found or not accessible.` };
+      }
+      if (kind === "doc") {
+        return doc ? { ok: true, id: doc.id, kind: "doc", title: doc.title } : { ok: false, message: `Doc '${slug}' not found or not accessible.` };
+      }
+      if (plan && doc) {
+        return { ok: false, message: `Slug '${slug}' matches both a doc and a plan — pass kind ("doc" or "plan") to disambiguate.` };
+      }
+      if (plan) return { ok: true, id: plan.id, kind: "plan", title: plan.title };
+      if (doc) return { ok: true, id: doc.id, kind: "doc", title: doc.title };
+      return { ok: false, message: `No doc or plan found with slug '${slug}' (or not accessible).` };
+    };
+
+    server.tool(
+      "add_artifact_to_project",
+      "Assign a doc or plan to a project. A doc/plan can belong to multiple projects (this is grouping, not ownership — it does not change the artifact's owner). Requires editor/admin on the project's owning group. Get the projectId from list_projects and the slug from create_plan/create_doc.",
+      {
+        projectId: z.string().uuid().describe("Project id (from list_projects output)"),
+        slug: z.string().describe("Slug of the doc or plan to assign"),
+        kind: z.enum(["doc", "plan"]).optional().describe("Disambiguate when a doc and a plan share the same slug"),
+      },
+      async ({ projectId, slug, kind }) => {
+        const project = await db.query.projects.findFirst({ where: eq(projects.id, projectId) });
+        if (!project) {
+          return { content: [{ type: "text" as const, text: `Project '${projectId}' not found.` }] };
+        }
+        const manageable = await canManageProject(identityUser, project.ownerGroupType, project.ownerGroupId, db);
+        if (!manageable) {
+          return { content: [{ type: "text" as const, text: `Permission denied: you need editor or admin role in the project's owning group.` }] };
+        }
+        const resolved = resolveDocOrPlan(slug, kind);
+        if (!resolved.ok) {
+          return { content: [{ type: "text" as const, text: resolved.message }] };
+        }
+        const [row] = await db
+          .insert(projectArtifacts)
+          .values({ projectId, artifactId: resolved.id })
+          .onConflictDoNothing()
+          .returning();
+        const verb = row ? "assigned to" : "already in";
+        return { content: [{ type: "text" as const, text: `[${resolved.kind}] '${slug}' ${verb} project '${project.name}'.` }] };
+      },
+    );
+
+    server.tool(
+      "remove_artifact_from_project",
+      "Remove a doc or plan from a project (does not delete the artifact). Requires editor/admin on the project's owning group.",
+      {
+        projectId: z.string().uuid().describe("Project id (from list_projects output)"),
+        slug: z.string().describe("Slug of the doc or plan to remove"),
+        kind: z.enum(["doc", "plan"]).optional().describe("Disambiguate when a doc and a plan share the same slug"),
+      },
+      async ({ projectId, slug, kind }) => {
+        const project = await db.query.projects.findFirst({ where: eq(projects.id, projectId) });
+        if (!project) {
+          return { content: [{ type: "text" as const, text: `Project '${projectId}' not found.` }] };
+        }
+        const manageable = await canManageProject(identityUser, project.ownerGroupType, project.ownerGroupId, db);
+        if (!manageable) {
+          return { content: [{ type: "text" as const, text: `Permission denied: you need editor or admin role in the project's owning group.` }] };
+        }
+        const resolved = resolveDocOrPlan(slug, kind);
+        if (!resolved.ok) {
+          return { content: [{ type: "text" as const, text: resolved.message }] };
+        }
+        const deleted = await db
+          .delete(projectArtifacts)
+          .where(and(eq(projectArtifacts.projectId, projectId), eq(projectArtifacts.artifactId, resolved.id)))
+          .returning();
+        const msg = deleted.length
+          ? `[${resolved.kind}] '${slug}' removed from project '${project.name}'.`
+          : `[${resolved.kind}] '${slug}' was not assigned to project '${project.name}' (no-op).`;
+        return { content: [{ type: "text" as const, text: msg }] };
       },
     );
   }
