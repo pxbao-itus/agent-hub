@@ -44,6 +44,14 @@ export const shareRoleEnum = pgEnum("share_role", ["viewer", "editor"]);
 export type ShareRole = "viewer" | "editor";
 export type TaskStatus = "todo" | "doing" | "done";
 
+/** Role within a doc/plan assignment: one assigner, many assignees (Phase 53). */
+export const assignmentRoleEnum = pgEnum("assignment_role", ["assigner", "assignee"]);
+export type AssignmentRole = "assigner" | "assignee";
+
+/** What triggered an in-app notification (Phase 53 generalizes beyond version bumps). */
+export const notificationTypeEnum = pgEnum("notification_type", ["version", "assignment"]);
+export type NotificationType = "version" | "assignment";
+
 /** Visibility scope of a prompt. */
 export const visibilityEnum = pgEnum("visibility", [
   "private", // owner only (user)
@@ -383,9 +391,46 @@ export const artifactShares = pgTable(
 );
 
 /**
- * In-app notification: fired when an artifact shared with `userId` (per
- * `artifactShares`, not group-membership) gets a new version. One row per
- * (recipient, version) — append-only, only `isRead` ever changes.
+ * Assigner/assignee for a doc or plan (Phase 53) — mirrors `artifactShares`'
+ * shape (one table, `role` discriminates). Assignee is many-per-artifact;
+ * assigner is at most one (enforced by the partial unique index below) and is
+ * an override — when absent, the *effective* assigner is resolved at read
+ * time (owner-user, else `createdBy` for group-owned artifacts; see
+ * `resolveAssigner()` in server/services/assignment.ts) rather than
+ * backfilled here, so existing docs/plans need no migration.
+ */
+export const artifactAssignments = pgTable(
+  "artifact_assignments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    artifactId: uuid("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: assignmentRoleEnum("role").notNull(),
+    assignedBy: uuid("assigned_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("artifact_assignments_artifact_user_role_uq").on(t.artifactId, t.userId, t.role),
+    uniqueIndex("artifact_assignments_one_assigner_uniq")
+      .on(t.artifactId)
+      .where(sql`${t.role} = 'assigner'`),
+    index("artifact_assignments_user_idx").on(t.userId),
+    index("artifact_assignments_artifact_idx").on(t.artifactId),
+  ]
+);
+
+/**
+ * In-app notification. `type` discriminates the trigger: 'version' (an
+ * artifact shared with `userId` per `artifactShares` got a new version —
+ * `artifactVersionId` set, the original Phase 41 shape) or 'assignment'
+ * (Phase 53 — assigner/assignee changed; `artifactVersionId` null,
+ * `metadata` carries the event). One row per (recipient, event) —
+ * append-only, only `isRead` ever changes.
  */
 export const notifications = pgTable(
   "notifications",
@@ -394,13 +439,13 @@ export const notifications = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    type: notificationTypeEnum("type").notNull().default("version"),
     artifactId: uuid("artifact_id")
       .notNull()
       .references(() => artifacts.id, { onDelete: "cascade" }),
-    artifactVersionId: uuid("artifact_version_id")
-      .notNull()
-      .references(() => artifactVersions.id, { onDelete: "cascade" }),
+    artifactVersionId: uuid("artifact_version_id").references(() => artifactVersions.id, { onDelete: "cascade" }),
     actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+    metadata: jsonb("metadata"),
     isRead: boolean("is_read").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -784,6 +829,23 @@ export const artifactSharesRelations = relations(artifactShares, ({ one }) => ({
   grantedByUser: one(users, {
     relationName: "shareGrantor",
     fields: [artifactShares.grantedBy],
+    references: [users.id],
+  }),
+}));
+
+export const artifactAssignmentsRelations = relations(artifactAssignments, ({ one }) => ({
+  artifact: one(artifacts, {
+    fields: [artifactAssignments.artifactId],
+    references: [artifacts.id],
+  }),
+  user: one(users, {
+    relationName: "assignmentUser",
+    fields: [artifactAssignments.userId],
+    references: [users.id],
+  }),
+  assignedByUser: one(users, {
+    relationName: "assignmentAssignedBy",
+    fields: [artifactAssignments.assignedBy],
     references: [users.id],
   }),
 }));

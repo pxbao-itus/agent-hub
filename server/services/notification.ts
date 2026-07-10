@@ -31,3 +31,33 @@ export async function notifyVersionChange(
     })),
   );
 }
+
+/**
+ * Fan out an in-app notification of type 'assignment' (Phase 53) — assigner
+ * changed or an assignee was added/removed. `metadata` is a plain bag (mirrors
+ * `recordAudit`'s convention) carrying whatever the caller already resolved
+ * (ids + name snapshots) so rendering never needs a follow-up join for a user
+ * who may since have been renamed or deleted. `recipientIds` may contain
+ * duplicates or the actor themselves — both are filtered here so callers
+ * don't have to dedupe/exclude at every call site.
+ */
+export async function notifyAssignmentChange(
+  artifactId: string,
+  recipientIds: string[],
+  actorId: string,
+  metadata: Record<string, unknown>,
+  db: DbClient,
+): Promise<void> {
+  const recipients = [...new Set(recipientIds)].filter((id) => id !== actorId);
+  if (recipients.length === 0) return;
+
+  await db.insert(notifications).values(
+    recipients.map((userId) => ({
+      userId,
+      type: "assignment" as const,
+      artifactId,
+      actorId,
+      metadata,
+    })),
+  );
+}
