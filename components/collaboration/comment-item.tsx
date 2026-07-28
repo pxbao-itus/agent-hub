@@ -26,6 +26,7 @@ import {
   replaceActiveMention,
   type ActiveMention,
 } from "./mention-autocomplete";
+import { UserIdentityLink } from "@/components/ui/user-identity-link";
 
 type CommentRow = inferRouterOutputs<AppRouter>["comment"]["list"]["items"][number];
 
@@ -65,8 +66,6 @@ export function CommentItem({ comment }: { comment: CommentRow }) {
     onError: (error) => toast({ title: "Could not delete comment", description: error.message, variant: "destructive" }),
   });
 
-  const authorLabel = comment.author?.name ?? comment.author?.username ?? "Deleted user";
-  const initial = authorLabel[0]?.toUpperCase() ?? "?";
   const edited = !comment.deletedAt && comment.updatedAt.getTime() !== comment.createdAt.getTime();
 
   function insertMention(username: string) {
@@ -96,15 +95,15 @@ export function CommentItem({ comment }: { comment: CommentRow }) {
   return (
     <article id={`comment-${comment.id}`} className="scroll-mt-20 rounded-lg border bg-card p-4">
       <div className="flex items-start gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">
-          {initial}
-        </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="text-sm font-medium">{authorLabel}</span>
-            {comment.author?.username && (
-              <span className="text-xs text-muted-foreground">@{comment.author.username}</span>
-            )}
+            <UserIdentityLink
+              userId={comment.author?.id ?? null}
+              name={comment.author?.name ?? null}
+              username={comment.author?.username}
+              compact
+              className="text-sm"
+            />
             {comment.source === "mcp" && <Badge variant="outline" className="text-[10px]">via MCP</Badge>}
             <span className="text-xs text-muted-foreground">
               {formatRelativeTime(comment.createdAt)}

@@ -11,6 +11,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { toast } from "@/hooks/use-toast";
 import { MoreHorizontal, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { EditUserDialog } from "./edit-user-dialog";
+import { UserIdentityLink } from "@/components/ui/user-identity-link";
 
 export type UserRow = {
   id: string;
@@ -116,16 +117,14 @@ export function UserTable({ users, currentUserId, query, offset, limit, hasMore 
             {users.map((u) => (
               <tr key={u.id} className="hover:bg-muted/30">
                 <td className="px-4 py-3">
-                  <div className="flex items-center gap-2.5">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium">
-                      {((u.name ?? u.email)[0] ?? "?").toUpperCase()}
-                    </span>
-                    <div className="min-w-0">
-                      {u.name && <p className="truncate font-medium">{u.name}</p>}
-                      {u.username && <p className="truncate text-xs text-muted-foreground">@{u.username}</p>}
-                      <p className="truncate text-xs text-muted-foreground">{u.email}</p>
-                    </div>
-                  </div>
+                  <UserIdentityLink
+                    userId={u.id}
+                    name={u.name}
+                    username={u.username}
+                    email={u.email}
+                    image={u.image}
+                  />
+                  <p className="ml-11 truncate text-xs text-muted-foreground">{u.email}</p>
                 </td>
                 <td className="px-4 py-3 hidden sm:table-cell">
                   <Badge variant={u.systemRole === "superadmin" ? "default" : "outline"}>

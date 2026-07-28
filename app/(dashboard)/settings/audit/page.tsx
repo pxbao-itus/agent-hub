@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { formatRelativeTime } from "@/lib/relative-time";
 import { ShieldCheck } from "lucide-react";
+import { UserIdentityLink } from "@/components/ui/user-identity-link";
 
 export const metadata: Metadata = { title: "Audit log" };
 
@@ -44,8 +45,11 @@ export default async function AuditPage() {
       targetId: auditEvents.targetId,
       metadata: auditEvents.metadata,
       createdAt: auditEvents.createdAt,
+      actorId: users.id,
       actorName: users.name,
+      actorUsername: users.username,
       actorEmail: users.email,
+      actorImage: users.image,
     })
     .from(auditEvents)
     .leftJoin(users, eq(auditEvents.actorId, users.id))
@@ -82,7 +86,14 @@ export default async function AuditPage() {
                     {formatRelativeTime(r.createdAt)}
                   </td>
                   <td className="px-3 py-2">
-                    {r.actorName ?? r.actorEmail ?? <span className="text-muted-foreground">(deleted user)</span>}
+                    <UserIdentityLink
+                      userId={r.actorId}
+                      name={r.actorName}
+                      username={r.actorUsername}
+                      email={r.actorEmail}
+                      image={r.actorImage}
+                      compact
+                    />
                   </td>
                   <td className="px-3 py-2">
                     <Badge variant={ACTION_VARIANT[r.action] ?? "secondary"} className="font-mono text-[10px]">

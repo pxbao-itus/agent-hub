@@ -7,24 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UserPicker, type PickedUser } from "@/components/ui/user-picker";
+import { UserIdentityLink } from "@/components/ui/user-identity-link";
 import { toast } from "@/hooks/use-toast";
 import { UserCog, UserPlus, X } from "lucide-react";
-
-type UserRow = { id: string; name: string | null; email: string; image: string | null };
 
 type Props = {
   artifactId: string;
   canEdit: boolean;
 };
-
-function Avatar({ user }: { user: UserRow }) {
-  const initial = ((user.name ?? user.email)[0] ?? "?").toUpperCase();
-  return (
-    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium">
-      {initial}
-    </span>
-  );
-}
 
 /**
  * Returns a `useSearch` hook (for UserPicker) scoped to users who can already
@@ -168,10 +158,14 @@ export function AssignmentPanel({ artifactId, canEdit }: Props) {
           {isLoading ? (
             <span className="text-sm text-muted-foreground">Loading…</span>
           ) : assigner ? (
-            <span className="flex items-center gap-1.5">
-              <Avatar user={assigner} />
-              <span className="text-sm">{assigner.name ?? assigner.email}</span>
-            </span>
+            <UserIdentityLink
+              userId={assigner.id}
+              name={assigner.name}
+              email={assigner.email}
+              image={assigner.image}
+              compact
+              className="text-sm"
+            />
           ) : (
             <span className="text-sm text-muted-foreground">Unassigned</span>
           )}
@@ -258,8 +252,13 @@ export function AssignmentPanel({ artifactId, canEdit }: Props) {
                 key={u.id}
                 className="flex items-center gap-1.5 rounded-full border bg-muted/30 py-1 pl-1 pr-2 text-sm"
               >
-                <Avatar user={u} />
-                <span>{u.name ?? u.email}</span>
+                <UserIdentityLink
+                  userId={u.id}
+                  name={u.name}
+                  email={u.email}
+                  image={u.image}
+                  compact
+                />
                 {canManage && (
                   <button
                     type="button"

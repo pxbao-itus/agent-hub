@@ -13,6 +13,7 @@ import { EditWorkflowStageDialog } from "./edit-workflow-stage-dialog";
 import { KIND_ICON, kindRoute } from "@/lib/kind";
 import { MarkdownView } from "@/components/ui/markdown";
 import { ChevronUp, ChevronDown, Trash2, Plus, FileText, CalendarDays, UserRound } from "lucide-react";
+import { UserIdentityLink } from "@/components/ui/user-identity-link";
 
 type StageArtifact = { id: string; kind: string; title: string; description: string | null };
 type Stage = {
@@ -140,7 +141,12 @@ export function WorkflowPipeline({ workflowId, canManage, initialStages }: Props
                   {stage.assignee && (
                     <span className="inline-flex items-center gap-1">
                       <UserRound className="h-3.5 w-3.5" />
-                      {stage.assignee.name ?? `@${stage.assignee.username}`}
+                      <UserIdentityLink
+                        userId={stage.assignee.id}
+                        name={stage.assignee.name}
+                        username={stage.assignee.username}
+                        compact
+                      />
                     </span>
                   )}
                   {stage.dueDate && (

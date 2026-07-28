@@ -4,6 +4,7 @@ import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatRelativeTime } from "@/lib/relative-time";
+import { UserIdentityLink } from "@/components/ui/user-identity-link";
 
 const LABELS: Record<string, string> = {
   "workflow.created": "created the workflow",
@@ -43,7 +44,13 @@ export function WorkflowActivity({ workflowId }: { workflowId: string }) {
           return (
             <li key={event.id} className="border-l-2 pl-3 text-sm">
               <p>
-                <span className="font-medium">{event.actor?.name ?? event.actor?.username ?? "Deleted user"}</span>{" "}
+                <UserIdentityLink
+                  userId={event.actor?.id ?? null}
+                  name={event.actor?.name ?? null}
+                  username={event.actor?.username}
+                  compact
+                  className="mr-1"
+                />{" "}
                 <span className="text-muted-foreground">{LABELS[event.type] ?? event.type}</span>
                 {stageName && <> “{stageName}”</>}
               </p>

@@ -50,7 +50,7 @@ function mentionPlugin(mentions: ResolvedMention[]) {
             }
             nextChildren.push({
               type: "link",
-              url: `#mention-${encodeURIComponent(username)}`,
+              url: `/users/${mention.id}`,
               title: `@${username}`,
               children: [{ type: "text", value: `@${mention.name ?? username}` }],
             });
@@ -92,20 +92,15 @@ export function MarkdownView({
         remarkPlugins={[remarkGfm, mentionPlugin(mentions)]}
         components={{
           a: ({ href, children: linkChildren, ...props }: ComponentPropsWithoutRef<"a">) => {
-            if (href?.startsWith("#mention-")) {
-              return (
-                <span
-                  className="rounded bg-primary/10 px-1 font-medium text-primary"
-                  title={props.title ?? undefined}
-                >
-                  {linkChildren}
-                </span>
-              );
-            }
             const external = !!href && /^https?:\/\//.test(href);
             return (
               <a
                 href={href}
+                className={
+                  href?.startsWith("/users/")
+                    ? "rounded bg-primary/10 px-1 font-medium text-primary"
+                    : undefined
+                }
                 {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                 {...props}
               >

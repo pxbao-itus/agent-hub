@@ -507,6 +507,16 @@ export const orgRouter = router({
         await ensureNotLastOrgAdmin(ctx.db, input.membershipId);
 
         await ctx.db.delete(memberships).where(eq(memberships.id, input.membershipId));
+        await recordAudit(
+          {
+            actorId: ctx.session.userId,
+            action: "membership.remove",
+            targetType: m.groupType,
+            targetId: m.groupId,
+            metadata: { memberUserId: m.userId, role: m.role },
+          },
+          ctx.db,
+        );
       }),
 
     listForGroup: protectedProcedure

@@ -7,6 +7,12 @@ import { hashPassword } from "@/server/auth/password";
 import { recordAudit } from "@/server/services/audit";
 import type { DbClient } from "@/server/db/types";
 import { usernameSchema } from "@/server/lib/username";
+import { getUserProfile } from "@/server/services/user-profile";
+import { listUserResponsibilities } from "@/server/services/user-responsibility";
+import {
+  listUserActivity,
+  userActivityFilters,
+} from "@/server/services/user-activity";
 
 // ── Guards ────────────────────────────────────────────────────────────────────
 
@@ -23,6 +29,72 @@ async function countOtherSuperAdmins(db: DbClient, excludeUserId: string): Promi
 }
 
 export const userRouter = router({
+  getProfile: protectedProcedure
+    .input(z.object({ userId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const profile = await getUserProfile(
+        input.userId,
+        { userId: ctx.session.userId, systemRole: ctx.session.systemRole },
+        ctx.db,
+      );
+      if (!profile) throw new TRPCError({ code: "NOT_FOUND" });
+      return profile;
+    }),
+
+  listResponsibilities: protectedProcedure
+    .input(
+      z.object({
+        userId: z.string().uuid(),
+        limit: z.number().int().min(1).max(50).default(20),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const target = await ctx.db.query.users.findFirst({
+        where: eq(users.id, input.userId),
+        columns: { id: true },
+      });
+      if (!target) throw new TRPCError({ code: "NOT_FOUND" });
+      return listUserResponsibilities(
+        input.userId,
+        { userId: ctx.session.userId, systemRole: ctx.session.systemRole },
+        input,
+        ctx.db,
+      );
+    }),
+
+  listActivity: protectedProcedure
+    .input(
+      z.object({
+        userId: z.string().uuid(),
+        filter: z.enum(userActivityFilters).default("all"),
+        cursor: z.string().optional(),
+        limit: z.number().int().min(1).max(50).default(20),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const target = await ctx.db.query.users.findFirst({
+        where: eq(users.id, input.userId),
+        columns: { id: true },
+      });
+      if (!target) throw new TRPCError({ code: "NOT_FOUND" });
+      if (input.filter === "administration" && ctx.session.systemRole !== "superadmin") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      try {
+        return await listUserActivity(
+          input.userId,
+          { userId: ctx.session.userId, systemRole: ctx.session.systemRole },
+          input,
+          ctx.db,
+        );
+      } catch (error) {
+        if (error instanceof Error && error.message === "INVALID_ACTIVITY_CURSOR") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid activity cursor" });
+        }
+        throw error;
+      }
+    }),
+
   /**
    * Search users by name or email.
    * Gate: any authenticated user — needed so any artifact owner can find a

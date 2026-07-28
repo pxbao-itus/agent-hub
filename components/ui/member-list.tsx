@@ -11,6 +11,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { toast } from "@/hooks/use-toast";
 import { MoreHorizontal } from "lucide-react";
 import type { BadgeProps } from "./badge";
+import { UserIdentityLink } from "./user-identity-link";
 
 export type Member = {
   id: string;
@@ -65,7 +66,12 @@ export function MemberList({ members, isAdmin, currentUserId }: Props) {
         {members.map((m) => (
           <div key={m.id} className="flex items-center justify-between px-4 py-3">
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium">{m.userName ?? m.userEmail}</p>
+              <UserIdentityLink
+                userId={m.userId}
+                name={m.userName}
+                email={m.userEmail}
+                compact
+              />
               <p className="truncate text-xs text-muted-foreground">{m.userEmail}</p>
             </div>
             <div className="ml-4 flex shrink-0 items-center gap-2">

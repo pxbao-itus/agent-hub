@@ -296,7 +296,9 @@ export const assignmentRouter = router({
           createdAt: auditEvents.createdAt,
           actorId: auditEvents.actorId,
           actorName: users.name,
+          actorUsername: users.username,
           actorEmail: users.email,
+          actorImage: users.image,
         })
         .from(auditEvents)
         .leftJoin(users, eq(auditEvents.actorId, users.id))

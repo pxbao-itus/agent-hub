@@ -7,6 +7,7 @@ import { trpc } from "@/lib/trpc/client";
 import { formatRelativeTime } from "@/lib/relative-time";
 import type { AppRouter } from "@/server/trpc/routers/_app";
 import { Button } from "@/components/ui/button";
+import { UserIdentityLink } from "@/components/ui/user-identity-link";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +21,19 @@ type ActivityItem = inferRouterOutputs<AppRouter>["comment"]["activity"]["items"
 
 function actorName(item: ActivityItem): string {
   return item.actor?.name ?? (item.actor?.username ? `@${item.actor.username}` : "Someone");
+}
+
+function ActorIdentity({ item }: { item: ActivityItem }) {
+  if (!item.actor) return <>Someone</>;
+  return (
+    <UserIdentityLink
+      userId={item.actor.id}
+      name={item.actor.name}
+      username={item.actor.username}
+      compact
+      className="align-middle"
+    />
+  );
 }
 
 function systemDescription(item: Extract<ActivityItem, { source: "system" }>): string {
@@ -63,14 +77,20 @@ function ActivityRow({ item }: { item: ActivityItem }) {
       <div className="min-w-0 flex-1">
         {item.source === "comment" ? (
           <>
-            <p className="text-sm font-medium">{actorName(item)} commented</p>
+            <div className="flex flex-wrap items-center gap-1 text-sm">
+              <ActorIdentity item={item} />
+              <span>commented</span>
+            </div>
             <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap break-words text-sm text-muted-foreground">
               {item.comment.deletedAt ? "This comment was deleted." : item.comment.body}
             </p>
           </>
         ) : item.source === "version" ? (
           <>
-            <p className="text-sm">{actorName(item)} created version {item.version.versionNo}</p>
+            <div className="flex flex-wrap items-center gap-1 text-sm">
+              <ActorIdentity item={item} />
+              <span>created version {item.version.versionNo}</span>
+            </div>
             {item.version.changelog && (
               <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">{item.version.changelog}</p>
             )}
