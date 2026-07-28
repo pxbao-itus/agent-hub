@@ -71,7 +71,7 @@ export function PromptForm(props: Props) {
   );
 
   // Pre-load spaces in create mode so they're ready when user picks "Group"
-  const mySpaces = trpc.org.mySpaces.useQuery(undefined, { enabled: props.mode === "create" && !preselect });
+  const mySpaces = trpc.org.manageableSpaces.useQuery(undefined, { enabled: props.mode === "create" && !preselect });
 
   // Auto-select first available space when user switches to group visibility (no preselect)
   useEffect(() => {
@@ -341,10 +341,11 @@ export function PromptForm(props: Props) {
               </p>
             ) : mySpaces.isLoading ? (
               <p className="text-xs text-muted-foreground">Loading spaces…</p>
+            ) : mySpaces.error ? (
+              <p className="text-xs text-destructive">Could not load manageable spaces. Try again.</p>
             ) : !mySpaces.data?.length ? (
               <p className="text-xs text-destructive">
-                You don&apos;t belong to any org or team yet.{" "}
-                <a href="/settings/orgs" className="underline">Create one first.</a>
+                You don&apos;t have permission to create group content in any space.
               </p>
             ) : (
               <Select

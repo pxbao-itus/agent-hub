@@ -61,7 +61,7 @@ export function DocForm(props: Props) {
     preselect ? `${preselect.ownerType}:${preselect.ownerId}` : "",
   );
 
-  const mySpaces = trpc.org.mySpaces.useQuery(undefined, {
+  const mySpaces = trpc.org.manageableSpaces.useQuery(undefined, {
     enabled: props.mode === "create" && !preselect,
   });
 
@@ -221,6 +221,10 @@ export function DocForm(props: Props) {
           <Label>Space</Label>
           {mySpaces.isLoading ? (
             <p className="text-sm text-muted-foreground">Loading spaces…</p>
+          ) : mySpaces.error ? (
+            <p className="text-sm text-destructive">Could not load manageable spaces. Try again.</p>
+          ) : !mySpaces.data?.length ? (
+            <p className="text-sm text-muted-foreground">You don&apos;t have permission to create group content in any space.</p>
           ) : (
             <Select value={selectedSpaceKey} onValueChange={setSelectedSpaceKey}>
               <SelectTrigger className="w-full"><SelectValue placeholder="Select a group space" /></SelectTrigger>

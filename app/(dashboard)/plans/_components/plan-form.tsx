@@ -72,7 +72,7 @@ export function PlanForm(props: Props) {
     preselect ? `${preselect.ownerType}:${preselect.ownerId}` : "",
   );
 
-  const mySpaces = trpc.org.mySpaces.useQuery(undefined, {
+  const mySpaces = trpc.org.manageableSpaces.useQuery(undefined, {
     enabled: props.mode === "create" && !preselect,
   });
 
@@ -307,19 +307,27 @@ export function PlanForm(props: Props) {
         {props.mode === "create" && visibility === "group" && !preselect && (
           <div className="space-y-2">
             <Label>Space</Label>
-            <Select value={selectedSpaceKey} onValueChange={setSelectedSpaceKey}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select a space…" />
-              </SelectTrigger>
-              <SelectContent>
-                {mySpaces.data?.map((s) => (
-                  <SelectItem key={`${s.type}:${s.id}`} value={`${s.type}:${s.id}`}>
-                    {s.name}
-                    <span className="ml-1 text-xs text-muted-foreground capitalize">({s.type})</span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {mySpaces.isLoading ? (
+              <p className="text-sm text-muted-foreground">Loading spaces…</p>
+            ) : mySpaces.error ? (
+              <p className="text-sm text-destructive">Could not load manageable spaces. Try again.</p>
+            ) : !mySpaces.data?.length ? (
+              <p className="text-sm text-muted-foreground">You don&apos;t have permission to create group content in any space.</p>
+            ) : (
+              <Select value={selectedSpaceKey} onValueChange={setSelectedSpaceKey}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a space…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {mySpaces.data.map((s) => (
+                    <SelectItem key={`${s.type}:${s.id}`} value={`${s.type}:${s.id}`}>
+                      {s.name}
+                      <span className="ml-1 text-xs text-muted-foreground capitalize">({s.type})</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         )}
       </div>

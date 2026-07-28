@@ -25,7 +25,7 @@ export function ProjectForm(props: Props) {
   );
   const [selectedSpaceKey, setSelectedSpaceKey] = useState("");
 
-  const mySpaces = trpc.org.mySpaces.useQuery(undefined, { enabled: props.mode === "create" });
+  const mySpaces = trpc.org.manageableSpaces.useQuery(undefined, { enabled: props.mode === "create" });
 
   const create = trpc.project.create.useMutation({
     onSuccess: (p) => {
@@ -92,6 +92,10 @@ export function ProjectForm(props: Props) {
           <Label>Owning group</Label>
           {mySpaces.isLoading ? (
             <p className="text-sm text-muted-foreground">Loading groups…</p>
+          ) : mySpaces.error ? (
+            <p className="text-sm text-destructive">Could not load manageable groups. Try again.</p>
+          ) : !mySpaces.data?.length ? (
+            <p className="text-sm text-muted-foreground">You don&apos;t have permission to create a project in any group.</p>
           ) : (
             <Select value={selectedSpaceKey} onValueChange={setSelectedSpaceKey}>
               <SelectTrigger className="w-full"><SelectValue placeholder="Select org/department/team" /></SelectTrigger>

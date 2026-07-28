@@ -4,7 +4,7 @@ import { router, protectedProcedure } from "../trpc";
 import { orgs, departments, teams, memberships, users, artifacts } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import type { DbClient } from "@/server/db/types";
-import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
+import { listGroupSpaces } from "@/server/lib/group-spaces";
 import { clearSlugPathCache } from "@/server/lib/slug-path-cache";
 import { effectiveGroupRole } from "@/server/auth/access";
 import { recordAudit } from "@/server/services/audit";
@@ -133,53 +133,14 @@ export const orgRouter = router({
     return rows.map((r) => r.org);
   }),
 
-  /**
-   * All spaces (orgs/depts/teams) the current user directly belongs to,
-   * with their pre-resolved hierarchical slug paths.
-   */
+  /** Every space in the caller's D-016 read cone, used by read/scope pickers. */
   mySpaces: protectedProcedure.query(async ({ ctx }) => {
-    const { userId } = ctx.session;
+    return listGroupSpaces(ctx.session, "viewable", ctx.db);
+  }),
 
-    const mships = await ctx.db.query.memberships.findMany({
-      where: eq(memberships.userId, userId),
-      columns: { groupType: true, groupId: true, role: true },
-    });
-    if (!mships.length) return [];
-
-    const orgIds = mships.filter((m) => m.groupType === "org").map((m) => m.groupId);
-    const deptIds = mships.filter((m) => m.groupType === "department").map((m) => m.groupId);
-    const teamIds = mships.filter((m) => m.groupType === "team").map((m) => m.groupId);
-
-    const [orgRows, deptRows, teamRows] = await Promise.all([
-      orgIds.length
-        ? ctx.db.select({ id: orgs.id, name: orgs.name }).from(orgs).where(inArray(orgs.id, orgIds))
-        : [],
-      deptIds.length
-        ? ctx.db
-            .select({ id: departments.id, name: departments.name })
-            .from(departments)
-            .where(inArray(departments.id, deptIds))
-        : [],
-      teamIds.length
-        ? ctx.db.select({ id: teams.id, name: teams.name }).from(teams).where(inArray(teams.id, teamIds))
-        : [],
-    ]);
-
-    const nameMap = new Map<string, string>();
-    for (const r of [...orgRows, ...deptRows, ...teamRows]) nameMap.set(r.id, r.name);
-
-    const slugPaths = await resolveOwnerSlugPaths(
-      mships.map((m) => ({ ownerType: m.groupType, ownerId: m.groupId })),
-      ctx.db,
-    );
-
-    return mships.map((m) => ({
-      type: m.groupType as "org" | "department" | "team",
-      id: m.groupId,
-      name: nameMap.get(m.groupId) ?? m.groupId,
-      slugPath: slugPaths.get(`${m.groupType}:${m.groupId}`) ?? "",
-      role: m.role,
-    }));
+  /** Spaces where the caller has effective editor/admin authority. */
+  manageableSpaces: protectedProcedure.query(async ({ ctx }) => {
+    return listGroupSpaces(ctx.session, "manageable", ctx.db);
   }),
 
   delete: protectedProcedure
