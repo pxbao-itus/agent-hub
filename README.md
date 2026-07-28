@@ -23,7 +23,7 @@ Instead of copy-pasting prompts and instructions between projects, keep them in 
 - 🕑 **Versioning** — every save creates an immutable version, with diff and rollback.
 - 🔎 **Semantic + hybrid search** — full-text (BM25) fused with vector similarity (bge-m3 + pgvector) via Reciprocal Rank Fusion, across every artifact kind. A global search page and a `Cmd/Ctrl-K` command palette. Degrades gracefully to keyword-only when embeddings are disabled.
 - 🏢 **Org-based access control** — an artifact's owner can be a user, team, department, or org; permissions inherit upward. Plus per-user sharing for one-off grants.
-- 🔌 **MCP server** — plug into Claude Code, Cursor, or any MCP-compatible agent using a scoped token. Prompts appear as slash commands; skills, plans, and docs are fetched via tools.
+- 🔌 **MCP server** — plug into Codex, Claude Code, Cursor, or any MCP-compatible agent using a scoped token. Prompts appear as slash commands; skills, plans, and docs are fetched via tools.
 - 🔐 **Multiple auth providers** — basic auth (Credentials), Google, and GitHub, all pluggable via env.
 - 🌗 **Markdown rendering** with light/dark themes.
 
@@ -139,6 +139,22 @@ When embeddings are enabled, a background reconciler backfills vectors for exist
   }
 }
 ```
+
+**Codex CLI** (Codex Desktop and CLI share `~/.codex/config.toml`):
+
+```shell
+export AGENT_HUB_TOKEN="mcp_<your-token>"
+
+codex mcp add agent-hub \
+  --url "http://localhost:3000/api/mcp" \
+  --bearer-token-env-var AGENT_HUB_TOKEN
+
+codex mcp list
+```
+
+In Codex Desktop, you can instead open **Settings → Configuration →
+Open config.toml** and use the generated TOML from the MCP Tokens page. Verify
+the connection under **Settings → MCP servers** or with `/mcp` inside Codex.
 
 Once connected:
 

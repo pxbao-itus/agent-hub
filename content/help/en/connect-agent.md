@@ -23,6 +23,19 @@ Use the setup example shown on the MCP Tokens page for your client. Clients may
 use different configuration formats even when they connect to the same HTTP
 endpoint, so do not reuse one client's JSON blindly.
 
+For Codex:
+
+- **Codex Desktop:** open **Settings → Configuration → Open config.toml**, add
+  the generated TOML, restart the app, then verify the server under
+  **Settings → MCP servers**.
+- **Codex CLI:** use the generated `codex mcp add` command. Keep the token in
+  the `AGENT_HUB_TOKEN` environment variable, run `codex mcp list`, and use
+  `/mcp` inside Codex to check the connection.
+
+Codex Desktop and Codex CLI share `~/.codex/config.toml`. Prefer an environment
+variable for CLI use; if you use the Desktop TOML example, keep the file private
+because its authorization header contains the token.
+
 After configuration:
 
 1. Restart or reload the client.

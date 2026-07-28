@@ -23,6 +23,19 @@ Dùng example hiển thị trên trang MCP Tokens cho đúng client. Các client
 dùng format cấu hình khác nhau dù kết nối cùng HTTP endpoint, vì vậy không copy
 JSON của client này sang client khác một cách máy móc.
 
+Với Codex:
+
+- **Codex Desktop:** mở **Settings → Configuration → Open config.toml**, thêm
+  đoạn TOML được tạo sẵn, restart ứng dụng, sau đó kiểm tra server tại
+  **Settings → MCP servers**.
+- **Codex CLI:** dùng lệnh `codex mcp add` được tạo sẵn. Giữ token trong biến
+  môi trường `AGENT_HUB_TOKEN`, chạy `codex mcp list`, và dùng `/mcp` bên trong
+  Codex để kiểm tra kết nối.
+
+Codex Desktop và Codex CLI dùng chung `~/.codex/config.toml`. Nên ưu tiên biến
+môi trường khi dùng CLI; nếu dùng example TOML của Desktop, hãy giữ file ở chế
+độ private vì authorization header chứa token.
+
 Sau khi cấu hình:
 
 1. Restart hoặc reload client.

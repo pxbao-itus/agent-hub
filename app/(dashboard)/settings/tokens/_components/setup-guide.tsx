@@ -3,8 +3,15 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
-const TABS = ["Claude Code", "Claude Desktop", "Cursor"] as const;
+const TABS = [
+  "Claude Code",
+  "Claude Desktop",
+  "Cursor",
+  "Codex Desktop",
+  "Codex CLI",
+] as const;
 type Tab = (typeof TABS)[number];
+type SnippetFormat = "shell" | "json" | "toml";
 
 const PLACEHOLDER = "YOUR_TOKEN_HERE";
 
@@ -82,23 +89,45 @@ export function SetupGuide({ endpoint, token }: Props) {
     2,
   );
 
+  // Codex Desktop and Codex CLI share ~/.codex/config.toml. The Desktop UI can
+  // open this file from Settings → Configuration, while the CLI can manage it
+  // through `codex mcp`.
+  const codexDesktopConfig = [
+    "[mcp_servers.agent-hub]",
+    `url = ${JSON.stringify(endpoint)}`,
+    `http_headers = { Authorization = ${JSON.stringify(`Bearer ${t}`)} }`,
+  ].join("\n");
+
+  const codexCliAdd = [
+    `export AGENT_HUB_TOKEN=${JSON.stringify(t)}`,
+    "",
+    "codex mcp add agent-hub \\",
+    `  --url ${JSON.stringify(endpoint)} \\`,
+    "  --bearer-token-env-var AGENT_HUB_TOKEN",
+    "",
+    "codex mcp list",
+  ].join("\n");
+
   return (
     <div className="space-y-3">
       {/* Tab bar */}
-      <div className="flex gap-1 rounded-lg border bg-muted/40 p-1 w-fit">
-        {TABS.map((name) => (
-          <button
-            key={name}
-            onClick={() => setTab(name)}
-            className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-              tab === name
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {name}
-          </button>
-        ))}
+      <div className="max-w-full overflow-x-auto pb-1">
+        <div className="flex w-max gap-1 rounded-lg border bg-muted/40 p-1">
+          {TABS.map((name) => (
+            <button
+              key={name}
+              type="button"
+              onClick={() => setTab(name)}
+              className={`whitespace-nowrap rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                tab === name
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Claude Code */}
@@ -113,7 +142,7 @@ export function SetupGuide({ endpoint, token }: Props) {
               Run once in your terminal. Registers the server for all your projects.
             </p>
             <Snippet
-              id="cli"
+              format="shell"
               text={cliAdd}
               copied={copied === "cli"}
               onCopy={() => copy(cliAdd, "cli")}
@@ -130,7 +159,7 @@ export function SetupGuide({ endpoint, token }: Props) {
               Add to <code className="font-mono">.gitignore</code> if your token is in the file.
             </p>
             <Snippet
-              id="json-cc"
+              format="json"
               text={jsonConfig}
               copied={copied === "json-cc"}
               onCopy={() => copy(jsonConfig, "json-cc")}
@@ -154,7 +183,7 @@ export function SetupGuide({ endpoint, token }: Props) {
             <p>%APPDATA%\Claude\claude_desktop_config.json</p>
           </div>
           <Snippet
-            id="json-desktop"
+            format="json"
             text={desktopConfig}
             copied={copied === "json-desktop"}
             onCopy={() => copy(desktopConfig, "json-desktop")}
@@ -170,11 +199,56 @@ export function SetupGuide({ endpoint, token }: Props) {
             <code className="font-mono">.cursor/mcp.json</code> in your project root, then restart Cursor.
           </p>
           <Snippet
-            id="json-cursor"
+            format="json"
             text={cursorConfig}
             copied={copied === "json-cursor"}
             onCopy={() => copy(cursorConfig, "json-cursor")}
           />
+        </div>
+      )}
+
+      {/* Codex Desktop */}
+      {tab === "Codex Desktop" && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Open <strong>Settings → Configuration → Open config.toml</strong>, add the
+            server below, then restart Codex Desktop.
+          </p>
+          <div className="rounded-md bg-muted/60 px-3 py-2 text-[11px] font-mono">
+            ~/.codex/config.toml
+          </div>
+          <Snippet
+            format="toml"
+            text={codexDesktopConfig}
+            copied={copied === "toml-codex-desktop"}
+            onCopy={() => copy(codexDesktopConfig, "toml-codex-desktop")}
+          />
+          <p className="text-xs text-muted-foreground">
+            Verify the connection under <strong>Settings → MCP servers</strong>. This
+            configuration stores the token as plain text, so keep the file private.
+          </p>
+        </div>
+      )}
+
+      {/* Codex CLI */}
+      {tab === "Codex CLI" && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Run these commands in your terminal. Codex stores the server in{" "}
+            <code className="font-mono">~/.codex/config.toml</code> and reads the token
+            from <code className="font-mono">AGENT_HUB_TOKEN</code>.
+          </p>
+          <Snippet
+            format="shell"
+            text={codexCliAdd}
+            copied={copied === "cli-codex"}
+            onCopy={() => copy(codexCliAdd, "cli-codex")}
+          />
+          <p className="text-xs text-muted-foreground">
+            Persist the environment variable securely for future sessions. Do not commit
+            the token to your shell configuration or repository. Use{" "}
+            <code className="font-mono">/mcp</code> inside Codex to check the connection.
+          </p>
         </div>
       )}
 
@@ -188,22 +262,22 @@ export function SetupGuide({ endpoint, token }: Props) {
 }
 
 function Snippet({
-  id,
+  format,
   text,
   copied,
   onCopy,
 }: {
-  id: string;
+  format: SnippetFormat;
   text: string;
   copied: boolean;
   onCopy: () => void;
 }) {
-  void id;
   return (
     <div className="rounded-md border bg-muted/60 overflow-hidden">
       <div className="flex items-center justify-between px-3 py-1.5 border-b bg-muted/80">
-        <span className="text-[10px] text-muted-foreground select-none">shell</span>
+        <span className="text-[10px] text-muted-foreground select-none">{format}</span>
         <Button
+          type="button"
           size="sm"
           variant="ghost"
           className="h-5 px-2 text-[10px] font-medium"
