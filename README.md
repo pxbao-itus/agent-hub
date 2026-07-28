@@ -20,6 +20,8 @@ Instead of copy-pasting prompts and instructions between projects, keep them in 
 - 💬 **Collaboration** — Markdown discussions on Docs and Plans, stable
   `@username` mentions, follow preferences, notifications, and a unified
   activity timeline across comments, versions, assignments, and projects.
+- 👤 **User profiles** — inspect memberships, current responsibilities,
+  access-safe activity, and last-login recency from collaboration surfaces.
 - 🕑 **Versioning** — every save creates an immutable version, with diff and rollback.
 - 🔎 **Semantic + hybrid search** — full-text (BM25) fused with vector similarity (bge-m3 + pgvector) via Reciprocal Rank Fusion, across every artifact kind. A global search page and a `Cmd/Ctrl-K` command palette. Degrades gracefully to keyword-only when embeddings are disabled.
 - 🏢 **Org-based access control** — an artifact's owner can be a user, team, department, or org; permissions inherit upward. Plus per-user sharing for one-off grants.

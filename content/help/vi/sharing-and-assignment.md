@@ -66,7 +66,9 @@ user đó không xem được artifact, comment vẫn được lưu nhưng menti
 thường và không tạo notification.
 
 Gõ `@` để mở danh sách user có thể mention. Editor vẫn giữ `@username` ổn định;
-sau khi đăng, comment hiển thị display name và cho xem username khi hover.
+sau khi đăng, comment hiển thị display name và cho xem username khi hover. Chọn
+author, mention, assigner hoặc assignee đã được resolve để mở profile và xem
+membership, trách nhiệm cùng activity mà bạn có quyền xem.
 
 Bạn có thể sửa hoặc xóa comment của mình. Người quản lý artifact cũng có thể
 moderate comment. Comment đã xóa vẫn để lại tombstone để timeline không mất ngữ

@@ -55,6 +55,8 @@ membership, visibility hoặc chia sẻ.
 
 Xóa membership có thể làm mất quyền kế thừa. Hãy kiểm tra project, assignment và
 công việc dùng chung trước khi đổi role hoặc xóa user.
+Profile user hiển thị đầy đủ cây membership trực tiếp của người đó. Tên group
+chỉ có link khi bạn được phép mở trang quản trị của group tương ứng.
 
 Xem [User và role](/help/users-and-roles) để quản lý membership và
 [Chia sẻ và phân công](/help/sharing-and-assignment) để hiểu quy tắc cộng tác.

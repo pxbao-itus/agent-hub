@@ -58,6 +58,8 @@ artifact through membership, visibility, or sharing.
 
 Removing a membership can also remove inherited access. Check projects,
 assignments, and shared work before changing a role or removing a user.
+User profiles list the person's full direct membership hierarchy. A group name
+is linked only when you are allowed to open that group's administration page.
 
 See [Users and roles](/help/users-and-roles) for membership operations and
 [Sharing and assignment](/help/sharing-and-assignment) for collaboration rules.

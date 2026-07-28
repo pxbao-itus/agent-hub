@@ -67,6 +67,7 @@ describe("contextual guide routes", () => {
     ["/settings/tokens", "connect-agent"],
     ["/settings/orgs/id", "spaces-and-permissions"],
     ["/settings/users", "users-and-roles"],
+    ["/users/id", "users-and-roles"],
     ["/settings/audit", "audit-log"],
     ["/help/prompts", null],
   ] as const)("maps %s to %s", (pathname, topic) => {

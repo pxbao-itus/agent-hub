@@ -191,12 +191,12 @@ export const HELP_TOPICS = [
     section: "admin",
     title: { en: "Users and roles", vi: "User và role" },
     summary: {
-      en: "Manage membership and distinguish system roles from group roles.",
-      vi: "Quản lý thành viên và phân biệt system role với group role.",
+      en: "View user profiles and understand memberships, responsibilities, activity, and roles.",
+      vi: "Xem hồ sơ user và hiểu membership, trách nhiệm, activity và role.",
     },
-    audience: ["admin", "superadmin"],
+    audience: ["user", "admin", "superadmin"],
     related: ["spaces-and-permissions", "audit-log"],
-    lastReviewed: "2026-07-27",
+    lastReviewed: "2026-07-28",
   },
   {
     slug: "audit-log",

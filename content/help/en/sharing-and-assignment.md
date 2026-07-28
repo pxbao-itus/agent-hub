@@ -68,7 +68,9 @@ a plain mention and no notification is sent.
 
 Typing `@` opens a list of users who can be mentioned. The editor keeps the
 stable `@username`; after posting, the comment shows the user's display name
-and exposes the username on hover.
+and exposes the username on hover. Select a resolved author, mention, assigner,
+or assignee to open that person's profile and review their visible memberships,
+responsibilities, and activity.
 
 You can edit your own comments. You can delete your own comments; artifact
 managers can also moderate them. Deleted comments remain as tombstones so the

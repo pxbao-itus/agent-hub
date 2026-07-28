@@ -23,10 +23,31 @@ A user can have different roles in different groups. A role held on an ancestor
 group may apply to descendant groups, while a lower-level role does not grant
 authority over its parent.
 
+## View a user profile
+
+Select a user from a member list, comment, assignment, Workflow, or another
+collaboration surface to open their profile.
+
+The profile shows:
+
+- account identity and last successful login;
+- direct Organization, Department, and Team memberships;
+- inherited parent groups;
+- current Doc, Plan, and Workflow responsibilities that you can access;
+- actions performed by the user and events that affected them.
+
+Membership names and direct roles act as an internal directory. A group is
+linked only when you can open it. Artifact, Project, and Workflow activity is
+filtered by your own access, so a profile does not grant access to private
+work.
+
+`Last login` records only the latest successful sign-in. `Never signed in`
+usually means an administrator created the account but it has not been used.
+
 ## Manage platform users
 
-Superadmins can create and maintain platform accounts. Before deleting or
-changing a user:
+Superadmins also see authentication methods and account actions on a profile.
+Before deleting or changing a user:
 
 1. Identify memberships, owned artifacts, projects, and assignments.
 2. Transfer responsibility where necessary.
