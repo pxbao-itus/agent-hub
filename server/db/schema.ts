@@ -99,6 +99,8 @@ export const users = pgTable(
     passwordHash: text("password_hash"),
     /** Platform-level role. superadmin bypasses all org/group access checks. */
     systemRole: systemRoleEnum("system_role").notNull().default("user"),
+    /** Most recent successful Auth.js sign-in. Null until the first login. */
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -313,6 +315,7 @@ export const artifactVersions = pgTable(
   (t) => [
     unique("artifact_versions_artifact_version_uq").on(t.artifactId, t.versionNo),
     index("artifact_versions_artifact_idx").on(t.artifactId),
+    index("artifact_versions_creator_created_idx").on(t.createdBy, t.createdAt, t.id),
   ]
 );
 
@@ -846,6 +849,7 @@ export const workflowEvents = pgTable(
   },
   (t) => [
     index("workflow_events_workflow_created_idx").on(t.workflowId, t.createdAt, t.id),
+    index("workflow_events_actor_created_idx").on(t.actorId, t.createdAt, t.id),
   ],
 );
 

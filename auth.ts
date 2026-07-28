@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { authConfig } from "@/auth.config";
 import { authorizeCredentials } from "@/server/auth/credentials";
+import { recordSuccessfulLogin } from "@/server/auth/last-login";
 import { assignGeneratedUsername } from "@/server/lib/username";
 
 const providers = [
@@ -43,6 +44,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter,
   providers,
   session: { strategy: "jwt" },
+  events: {
+    async signIn({ user }) {
+      if (!user.id) return;
+      try {
+        await recordSuccessfulLogin(user.id, new Date(), db);
+      } catch (error) {
+        // Last-login telemetry must not make authentication unavailable.
+        console.error("[auth] lastLoginAt update failed", user.id, error);
+      }
+    },
+  },
   callbacks: {
     async jwt({ token, user }) {
       if (user?.id) {
