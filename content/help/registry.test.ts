@@ -57,7 +57,6 @@ describe("contextual guide routes", () => {
     ["/", "getting-started"],
     ["/prompts/new", "prompts"],
     ["/skills/id/edit", "skills"],
-    ["/kits/id", "kits"],
     ["/docs/id", "docs"],
     ["/plans/id/edit", "plans"],
     ["/projects/id", "projects"],

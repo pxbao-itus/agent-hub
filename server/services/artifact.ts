@@ -1,5 +1,5 @@
 import { eq, inArray, sql } from "drizzle-orm";
-import { artifacts, artifactVersions, artifactFiles, artifactMembers, artifactTasks, artifactVariables } from "@/server/db/schema";
+import { artifacts, artifactVersions, artifactFiles, artifactTasks, artifactVariables } from "@/server/db/schema";
 import type { ArtifactKind, TaskStatus } from "@/server/db/schema";
 import type { DbClient } from "@/server/db/types";
 import { notifyVersionChange } from "@/server/services/notification";
@@ -22,19 +22,17 @@ export type CreateArtifactInput = {
   createdBy: string;
   /** skill only */
   files?: { path: string; content: string; mimeType?: string | null }[];
-  /** kit only */
-  members?: { memberArtifactId: string; position: number }[];
   /** plan only */
   tasks?: { content: string; status?: TaskStatus; position?: number }[];
 };
 
 /**
  * Core artifact creation: artifact row + v1 version + whatever kind-specific
- * relations were passed (files/members/tasks), all in one transaction.
+ * relations were passed (files/tasks), all in one transaction.
  * Generalizes what server/services/plan.ts's createPlan used to do only for
  * plans — callers (routers, MCP tools) own authorization; this just writes.
  *
- * Not currently wired into skill.ts/kit.ts's own `create` mutations — those
+ * Not currently wired into every kind-specific `create` mutation — those
  * keep their inline inserts for now (matches Phase 40's scope: this exists
  * so fork/duplicate and import have one creation path to call, not a
  * mandate to migrate every existing call site in the same phase).
@@ -78,16 +76,6 @@ export async function createArtifact(input: CreateArtifactInput, db: DbClient) {
       );
     }
 
-    if (input.members?.length) {
-      await tx.insert(artifactMembers).values(
-        input.members.map((m) => ({
-          kitArtifactId: artifact.id,
-          memberArtifactId: m.memberArtifactId,
-          position: m.position,
-        })),
-      );
-    }
-
     if (input.tasks?.length) {
       await tx.insert(artifactTasks).values(
         input.tasks.map((t, i) => ({
@@ -124,7 +112,7 @@ export type UpdateArtifactInput = {
 /**
  * Core artifact update: optional metadata patch + optional new version (body
  * bump, replacing bundled files for skills). Generalizes what doc.ts/plan.ts/
- * skill.ts/kit.ts/prompt.ts's own `update` mutations each duplicate inline —
+ * skill.ts/prompt.ts's own `update` mutations each duplicate inline —
  * added here so MCP's update_doc/update_plan/update_skill have one path to
  * call (Phase 50) without a mandate to migrate the existing tRPC call sites
  * in the same phase (same reasoning as createArtifact, Phase 40).

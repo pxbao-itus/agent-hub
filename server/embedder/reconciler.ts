@@ -6,7 +6,6 @@ import {
   artifactEmbeddings,
   artifactFiles,
   artifactTasks,
-  artifactMembers,
 } from "@/server/db/schema";
 import { getEmbedder } from "./index";
 
@@ -49,7 +48,7 @@ async function tick() {
   const metaMap = new Map(artifactMeta.map((p) => [p.id, p]));
 
   // Kind-specific extra text so the vector captures more than just the body:
-  // skill → bundled file paths (per version), plan → task content, kit → member titles.
+  // skill → bundled file paths (per version), plan → task content.
   const versionIds = pending.map((v) => v.versionId);
   const skillFiles = await db
     .select({ artifactVersionId: artifactFiles.artifactVersionId, path: artifactFiles.path })
@@ -73,33 +72,11 @@ async function tick() {
     tasksByArtifact.set(t.artifactId, list);
   }
 
-  const memberLinks = await db
-    .select({ kitArtifactId: artifactMembers.kitArtifactId, memberArtifactId: artifactMembers.memberArtifactId })
-    .from(artifactMembers)
-    .where(inArray(artifactMembers.kitArtifactId, artifactIds));
-  const memberArtifactIds = [...new Set(memberLinks.map((m) => m.memberArtifactId))];
-  const memberTitles = memberArtifactIds.length
-    ? await db
-        .select({ id: artifacts.id, title: artifacts.title })
-        .from(artifacts)
-        .where(inArray(artifacts.id, memberArtifactIds))
-    : [];
-  const memberTitleById = new Map(memberTitles.map((m) => [m.id, m.title]));
-  const memberTitlesByKit = new Map<string, string[]>();
-  for (const link of memberLinks) {
-    const title = memberTitleById.get(link.memberArtifactId);
-    if (!title) continue;
-    const list = memberTitlesByKit.get(link.kitArtifactId) ?? [];
-    list.push(title);
-    memberTitlesByKit.set(link.kitArtifactId, list);
-  }
-
   const texts = pending.map((v) => {
     const meta = metaMap.get(v.artifactId);
     const extra =
       meta?.kind === "skill" ? filesByVersion.get(v.versionId)?.join(", ")
       : meta?.kind === "plan" ? tasksByArtifact.get(v.artifactId)?.join("\n")
-      : meta?.kind === "kit" ? memberTitlesByKit.get(v.artifactId)?.join(", ")
       : undefined;
     return [meta?.title, meta?.description, v.body, extra].filter(Boolean).join("\n\n");
   });

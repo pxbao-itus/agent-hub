@@ -13,32 +13,29 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { HighlightText } from "@/components/ui/highlight-text";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { BookText, Wrench, Package, ClipboardList, FileText, Search } from "lucide-react";
+import { BookText, Wrench, ClipboardList, FileText, Search } from "lucide-react";
 
 export const metadata: Metadata = { title: "Search" };
 
 const KIND_ICON: Record<string, React.ElementType> = {
   prompt: BookText,
   skill: Wrench,
-  kit: Package,
   plan: ClipboardList,
   doc: FileText,
 };
 const KIND_HREF: Record<string, string> = {
   prompt: "/prompts",
   skill: "/skills",
-  kit: "/kits",
   plan: "/plans",
   doc: "/docs",
 };
 const KIND_LABEL: Record<string, string> = {
   prompt: "Prompts",
   skill: "Skills",
-  kit: "Kits",
   plan: "Plans",
   doc: "Docs",
 };
-const KIND_ORDER = ["prompt", "skill", "kit", "plan", "doc"] as const;
+const KIND_ORDER = ["prompt", "skill", "plan", "doc"] as const;
 
 type Props = {
   searchParams: Promise<{ q?: string; kind?: string }>;
@@ -92,7 +89,7 @@ export default async function SearchPage({ searchParams }: Props) {
       <div>
         <h1 className="text-2xl font-bold">Search</h1>
         <p className="text-sm text-muted-foreground">
-          Search across everything you can access — prompts, skills, kits, plans, docs.
+          Search across everything you can access — prompts, skills, plans, and docs.
           {q && (
             <>
               {" "}

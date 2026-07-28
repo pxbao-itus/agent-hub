@@ -16,13 +16,17 @@ type Entry struct {
 }
 
 type Manifest struct {
-	Skills   map[string]Entry `json:"skills"`
-	Kits     map[string]Entry `json:"kits"`
-	Commands map[string]Entry `json:"commands"`
+	Skills     map[string]Entry `json:"skills"`
+	Commands   map[string]Entry `json:"commands"`
+	LegacyKits map[string]Entry `json:"-"`
 }
 
 func empty() *Manifest {
-	return &Manifest{Skills: map[string]Entry{}, Kits: map[string]Entry{}, Commands: map[string]Entry{}}
+	return &Manifest{
+		Skills:     map[string]Entry{},
+		Commands:   map[string]Entry{},
+		LegacyKits: map[string]Entry{},
+	}
 }
 
 // Load reads the manifest from rootDir, or an empty one if it doesn't exist
@@ -33,18 +37,23 @@ func Load(rootDir string) *Manifest {
 	if err != nil {
 		return empty()
 	}
-	m := empty()
-	if err := json.Unmarshal(data, m); err != nil {
+	var stored struct {
+		Skills   map[string]Entry `json:"skills"`
+		Kits     map[string]Entry `json:"kits"`
+		Commands map[string]Entry `json:"commands"`
+	}
+	if err := json.Unmarshal(data, &stored); err != nil {
 		return empty()
 	}
-	if m.Skills == nil {
-		m.Skills = map[string]Entry{}
+	m := empty()
+	if stored.Skills != nil {
+		m.Skills = stored.Skills
 	}
-	if m.Kits == nil {
-		m.Kits = map[string]Entry{}
+	if stored.Commands != nil {
+		m.Commands = stored.Commands
 	}
-	if m.Commands == nil {
-		m.Commands = map[string]Entry{}
+	if stored.Kits != nil {
+		m.LegacyKits = stored.Kits
 	}
 	return m
 }

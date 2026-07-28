@@ -1,10 +1,9 @@
 ## Khi nào dùng CLI
 
 MCP cho phép agent lấy nội dung khi cần. Dùng Agent Hub CLI khi công cụ yêu cầu
-Skill, script hoặc prompt file tồn tại trên filesystem local như
-`.claude/skills/` hoặc `.claude/commands/`.
+Skill hoặc script tồn tại trên filesystem local như `.claude/skills/`.
 
-CLI hiện hỗ trợ pull Skill và Kit từ một Agent Hub instance đang chạy.
+CLI hỗ trợ pull Skill từ một Agent Hub instance đang chạy.
 
 ## Kết nối và pull
 
@@ -12,8 +11,7 @@ Build hoặc cài CLI theo CLI README của project, sau đó:
 
 1. Login bằng Agent Hub base URL và MCP token.
 2. Pull Skill theo slug để cài instruction file và bundled files.
-3. Pull Kit để cài các Skill đã flatten và prompt command.
-4. Review file được tạo trước khi cho agent chạy script.
+3. Review file được tạo trước khi cho agent chạy script.
 
 Cấu hình login được lưu trong user profile với file permission hạn chế. Luôn bảo
 vệ token.

@@ -8,7 +8,6 @@ const PREFIX_TOPICS: Array<[prefix: string, topic: HelpTopicSlug]> = [
   ["/settings/tokens", "connect-agent"],
   ["/prompts", "prompts"],
   ["/skills", "skills"],
-  ["/kits", "kits"],
   ["/docs", "docs"],
   ["/plans", "plans"],
   ["/projects", "projects"],

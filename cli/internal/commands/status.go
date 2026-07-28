@@ -33,30 +33,15 @@ func Status(_ []string) error {
 	client := mcp.NewClient(cfg)
 	rootDir := "."
 	m := manifest.Load(rootDir)
+	warnLegacyKits(m)
 	opts := syncengine.SyncOptions{Apply: false, Force: false}
 
-	if len(m.Skills) == 0 && len(m.Kits) == 0 {
-		fmt.Println("Nothing installed yet — run `agent-hub pull skill <slug>` or `agent-hub pull kit <slug>`.")
+	if len(m.Skills) == 0 {
+		fmt.Println("Nothing installed yet — run `agent-hub pull skill <slug>`.")
 		return nil
 	}
 
-	touchedSkills := map[string]bool{}
-	for _, slug := range sortedKeys(m.Kits) {
-		result, err := syncengine.ReconcileTrackedKit(client, slug, m, opts, rootDir)
-		if err != nil {
-			return err
-		}
-		fmt.Println(describeStatus(result.Kit))
-		for _, member := range result.Members {
-			touchedSkills[member.Slug] = true
-			fmt.Printf("  %s\n", describeStatus(member))
-		}
-	}
-
 	for _, slug := range sortedKeys(m.Skills) {
-		if touchedSkills[slug] {
-			continue
-		}
 		result, err := syncengine.ReconcileTrackedSkill(client, slug, m, opts, rootDir)
 		if err != nil {
 			return err

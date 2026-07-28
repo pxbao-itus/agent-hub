@@ -1,5 +1,5 @@
 // Package syncengine classifies and reconciles the disk-vs-manifest-vs-server
-// state for a tracked skill/kit (mirrors the retired TS CLI's diff.ts +
+// state for a tracked skill (mirrors the retired TS CLI's diff.ts +
 // sync-engine.ts).
 package syncengine
 

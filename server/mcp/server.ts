@@ -15,7 +15,6 @@ import { getCachedVersionContent } from "@/server/lib/version-cache";
 import { hybridSearch } from "@/server/lib/search";
 import { getEmbedder } from "@/server/embedder";
 import { type TokenScope, applyScopeToOwners, promptPassesScopeTags } from "./scope";
-import { flattenKitMembers } from "@/server/lib/kit";
 import { createPlan, addPlanLink } from "@/server/services/plan";
 import { addAssignee, getAssignmentDetail, removeAssignee, setAssigner, updateWorkItem } from "@/server/services/assignment";
 import { listMyWork } from "@/server/services/my-work";
@@ -31,7 +30,7 @@ type Identity = { userId: string; systemRole: "user" | "superadmin" };
  * Each accessible prompt is registered as its own named slash command
  * so agents can invoke prompts directly without going through list/get.
  */
-const ALL_KINDS: ArtifactKind[] = ["prompt", "skill", "kit", "plan", "doc"];
+const ALL_KINDS: ArtifactKind[] = ["prompt", "skill", "plan", "doc"];
 
 // Reusable input schema for renaming an artifact's slug via the update_* tools.
 // Same rule as the tRPC router's slugSchema: lowercase alphanumeric + hyphens.
@@ -43,8 +42,8 @@ const newSlugSchema = z
   .describe("Rename the artifact's slug (lowercase, alphanumeric + hyphens). Must be unique within its owner space. Omit to leave unchanged.");
 
 const SERVER_INSTRUCTIONS =
-  "Agent Hub is a shared library of prompts, skills, kits, plans, docs, and workflows. " +
-  "Prompts are exposed as native prompts/slash-commands; everything else is fetched with get_skill/get_kit/get_plan/get_doc/get_workflow. " +
+  "Agent Hub is a shared library of prompts, skills, plans, docs, and workflows. " +
+  "Prompts are exposed as native prompts/slash-commands; everything else is fetched with get_skill/get_plan/get_doc/get_workflow. " +
   "Start with the `overview` tool to see what's here before searching blind.";
 
 export async function createMcpServer(identity: Identity, scope: TokenScope = {}): Promise<McpServer> {
@@ -53,13 +52,12 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
     { instructions: SERVER_INSTRUCTIONS },
   );
 
-  // One access resolution + one query for every kind, instead of 5 of each
+  // One access resolution + one query for every kind
   // (Phase 39 perf) — getAccessibleGroups/getSharedArtifactIds/findMany were
   // each re-run per kind despite returning the same thing every time.
   const byKind = await getArtifactsForIdentity(identity, scope, ALL_KINDS);
   const rows = byKind.prompt;
   const skillRows = byKind.skill;
-  const kitRows = byKind.kit;
   const planRows = byKind.plan;
   const docRows = byKind.doc;
   const identityUser = { userId: identity.userId, systemRole: identity.systemRole };
@@ -68,14 +66,13 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
   // batch — same reasoning: this is a pure lookup by owner identity, not by
   // which kind asked for it, so one shared map is correct for all five.
   const ownerSlugPaths = await resolveOwnerSlugPaths(
-    [...rows, ...skillRows, ...kitRows, ...planRows, ...docRows].map((r) => ({
+    [...rows, ...skillRows, ...planRows, ...docRows].map((r) => ({
       ownerType: r.ownerType,
       ownerId: r.ownerId,
     })),
     db,
   );
   const skillOwnerPaths = ownerSlugPaths;
-  const kitOwnerPaths = ownerSlugPaths;
   const docOwnerPaths = ownerSlugPaths;
   const planOwnerPaths = ownerSlugPaths;
 
@@ -350,210 +347,6 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
     },
   );
 
-  // ── Kit tools ─────────────────────────────────────────────────────────────
-
-  const kitBySlug = new Map<string, typeof kitRows[number]>();
-  for (const k of kitRows) {
-    const spacePath = kitOwnerPaths.get(`${k.ownerType}:${k.ownerId}`) ?? "";
-    const localSlug = k.slug ?? slugify(k.title);
-    const fullSlug = [spacePath, localSlug].filter(Boolean).join(".");
-    kitBySlug.set(fullSlug, k);
-    if (fullSlug !== localSlug) kitBySlug.set(localSlug, k);
-  }
-
-  // Accessible artifact id set for access-filtering during flatten
-  const accessibleArtifactIds = new Set([
-    ...rows.map((r) => r.id),
-    ...skillRows.map((r) => r.id),
-    ...kitRows.map((r) => r.id),
-  ]);
-
-  server.tool(
-    "list_kits",
-    "List all available toolkits — packaged sets of prompts/skills you can equip for a task or workflow stage — with their slugs and descriptions.",
-    {},
-    async () => {
-      if (!kitRows.length) {
-        return { content: [{ type: "text" as const, text: "No kits available." }] };
-      }
-
-      const lines = kitRows.map((k) => {
-        const spacePath = kitOwnerPaths.get(`${k.ownerType}:${k.ownerId}`) ?? "";
-        const localSlug = k.slug ?? slugify(k.title);
-        const fullSlug = [spacePath, localSlug].filter(Boolean).join(".");
-        const desc = k.description ? `: ${k.description}` : "";
-        return `- ${fullSlug}${desc}`;
-      });
-
-      return {
-        content: [{ type: "text" as const, text: lines.join("\n") }],
-      };
-    },
-  );
-
-  server.tool(
-    "get_kit",
-    "Get a toolkit's overview and the list of member slugs (prompts + skills) you should fetch next — a toolkit equips you with a packaged, reusable capability for a task or workflow stage. Members are flattened recursively.",
-    {
-      slug: z.string().describe("The kit slug (e.g. 'acme.starter-kit' or 'starter-kit')"),
-    },
-    async ({ slug }) => {
-      const kit = kitBySlug.get(slug);
-      if (!kit) {
-        const available = [...kitBySlug.keys()].filter((_, i) => i < 10).join(", ");
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Kit '${slug}' not found.${available ? ` Available kits: ${available}` : ""}`,
-          }],
-        };
-      }
-
-      bumpUsage(kit.id);
-      const version = kit.versions[0];
-      const overviewBody = version?.body ?? "";
-
-      const { prompts: flatPrompts, skills: flatSkills } = await flattenKitMembers(
-        kit.id,
-        db,
-        accessibleArtifactIds,
-      );
-
-      // Build slug lookup maps for prompts and skills
-      const promptSlugMap = new Map(rows.map((r) => {
-        const spacePath = ownerSlugPaths.get(`${r.ownerType}:${r.ownerId}`) ?? "";
-        const localSlug = r.slug ?? slugify(r.title);
-        return [r.id, [spacePath, localSlug].filter(Boolean).join(".")];
-      }));
-      const skillSlugMap = new Map(skillRows.map((r) => {
-        const spacePath = skillOwnerPaths.get(`${r.ownerType}:${r.ownerId}`) ?? "";
-        const localSlug = r.slug ?? slugify(r.title);
-        return [r.id, [spacePath, localSlug].filter(Boolean).join(".")];
-      }));
-
-      const parts: string[] = [];
-      parts.push(`# ${kit.title}`);
-      if (kit.description) parts.push(`_${kit.description}_`);
-      parts.push("");
-      if (overviewBody) {
-        parts.push(overviewBody);
-        parts.push("");
-      }
-
-      if (flatPrompts.length > 0) {
-        parts.push("## Prompts — call each as a slash command");
-        for (const p of flatPrompts) {
-          const s = promptSlugMap.get(p.id) ?? (p.slug ?? slugify(p.title));
-          const desc = p.description ? ` — ${p.description}` : "";
-          parts.push(`- \`/${s}\`${desc}`);
-        }
-        parts.push("");
-      }
-
-      if (flatSkills.length > 0) {
-        parts.push("## Skills — call get_skill for each");
-        for (const s of flatSkills) {
-          const sl = skillSlugMap.get(s.id) ?? (s.slug ?? slugify(s.title));
-          const desc = s.description ? ` — ${s.description}` : "";
-          parts.push(`- get_skill('${sl}')${desc}`);
-        }
-        parts.push("");
-      }
-
-      if (flatPrompts.length === 0 && flatSkills.length === 0) {
-        parts.push("_This kit has no accessible members._");
-      }
-
-      return {
-        content: [{ type: "text" as const, text: parts.join("\n") }],
-      };
-    },
-  );
-
-  // ── Tool: pull_kit ────────────────────────────────────────────────────────
-  // Machine-readable counterpart to get_kit, for the CLI (Phase 42 M2). The
-  // flatten happens server-side (flattenKitMembers already handles recursion,
-  // dedup, and cycles) so the CLI receives one fully-resolved payload instead
-  // of re-implementing the kit graph walk itself.
-
-  server.tool(
-    "pull_kit",
-    "Machine-readable toolkit bundle (JSON): the toolkit itself plus every recursively-flattened member skill/prompt, fully resolved. For CLI/filesystem sync — not for agent/LLM consumption, use get_kit for that.",
-    {
-      slug: z.string().describe("The kit slug (e.g. 'acme.starter-kit' or 'starter-kit')"),
-    },
-    async ({ slug }) => {
-      const kit = kitBySlug.get(slug);
-      if (!kit) {
-        return { content: [{ type: "text" as const, text: JSON.stringify({ error: `Kit '${slug}' not found.` }) }] };
-      }
-      bumpUsage(kit.id);
-      const version = kit.versions[0];
-
-      const { prompts: flatPrompts, skills: flatSkills } = await flattenKitMembers(
-        kit.id,
-        db,
-        accessibleArtifactIds,
-      );
-
-      const promptById = new Map(rows.map((r) => [r.id, r]));
-      const skillById = new Map(skillRows.map((r) => [r.id, r]));
-
-      const prompts = flatPrompts.flatMap((p) => {
-        const full = promptById.get(p.id);
-        const v = full?.versions[0];
-        if (!full || !v) return [];
-        const spacePath = ownerSlugPaths.get(`${full.ownerType}:${full.ownerId}`) ?? "";
-        const localSlug = full.slug ?? slugify(full.title);
-        return [{
-          slug: [spacePath, localSlug].filter(Boolean).join("."),
-          title: full.title,
-          description: full.description ?? null,
-          body: v.body,
-          versionNo: v.versionNo,
-          updatedAt: v.createdAt.toISOString(),
-        }];
-      });
-
-      const skills = [];
-      for (const s of flatSkills) {
-        const full = skillById.get(s.id);
-        const v = full?.versions[0];
-        if (!full || !v) continue;
-        const content = await getCachedVersionContent(v.id, db);
-        const spacePath = skillOwnerPaths.get(`${full.ownerType}:${full.ownerId}`) ?? "";
-        const localSlug = full.slug ?? slugify(full.title);
-        skills.push({
-          slug: [spacePath, localSlug].filter(Boolean).join("."),
-          title: full.title,
-          description: full.description ?? null,
-          body: content?.body ?? v.body,
-          files: content?.files ?? [],
-          versionNo: v.versionNo,
-          updatedAt: v.createdAt.toISOString(),
-        });
-      }
-
-      const kitSpacePath = kitOwnerPaths.get(`${kit.ownerType}:${kit.ownerId}`) ?? "";
-      const kitLocalSlug = kit.slug ?? slugify(kit.title);
-
-      const bundle = {
-        schemaVersion: 1 as const,
-        kind: "kit" as const,
-        slug: [kitSpacePath, kitLocalSlug].filter(Boolean).join("."),
-        title: kit.title,
-        description: kit.description ?? null,
-        body: version?.body ?? "",
-        versionNo: version?.versionNo ?? 0,
-        updatedAt: version?.createdAt.toISOString() ?? null,
-        prompts,
-        skills,
-      };
-
-      return { content: [{ type: "text" as const, text: JSON.stringify(bundle) }] };
-    },
-  );
-
   // ── Doc setup (needed by plan tools for linked-docs trace) ──────────────
 
   const accessibleDocIds = new Set(docRows.map((d) => d.id));
@@ -637,7 +430,6 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
   };
   indexForSearch(rows, ownerSlugPaths, "prompt");
   indexForSearch(skillRows, skillOwnerPaths, "skill");
-  indexForSearch(kitRows, kitOwnerPaths, "kit");
   indexForSearch(docRows, docOwnerPaths, "doc");
   indexForSearch(planRows, planOwnerPaths, "plan");
 
@@ -650,7 +442,6 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
     switch (kind) {
       case "prompt": return `invoke slash command /${fullSlug}`;
       case "skill": return `get_skill('${fullSlug}')`;
-      case "kit": return `get_kit('${fullSlug}')`;
       case "plan": return `get_plan('${fullSlug}')`;
       case "doc": return `get_doc('${fullSlug}')`;
     }
@@ -658,11 +449,11 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
 
   server.tool(
     "search_artifacts",
-    "Search across everything you can access — prompts, skills, kits, plans, docs — by meaning or keywords. Returns matches with their slug and how to use each one.",
+    "Search across everything you can access — prompts, skills, plans, and docs — by meaning or keywords. Returns matches with their slug and how to use each one.",
     {
       query: z.string().describe("What you're looking for — describe the task or topic"),
       kinds: z
-        .array(z.enum(["prompt", "skill", "kit", "plan", "doc"]))
+        .array(z.enum(["prompt", "skill", "plan", "doc"]))
         .optional()
         .describe("Restrict to these kinds; omit to search all"),
       limit: z.number().int().min(1).max(20).optional().default(5),
@@ -980,7 +771,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
 
   server.tool(
     "list_workflows",
-    "List processes/workflows you can see — ordered stages that tie docs, plans, and toolkits together across a lifecycle (spec, build, review, ...). Shows progress and which stage is active.",
+    "List processes/workflows you can see — ordered stages that tie docs, plans, prompts, and skills together across a lifecycle (spec, build, review, ...). Shows progress and which stage is active.",
     {},
     async () => {
       const rows = await listAccessibleWorkflows();
@@ -1023,7 +814,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
 
   server.tool(
     "get_workflow",
-    "Get a workflow's full stage structure — ordered stages with status, and each stage's attached artifacts as references (kind + slug + title). Call get_doc/get_skill/get_kit/get_plan for the actual content of a reference.",
+    "Get a workflow's full stage structure — ordered stages with status, and each stage's attached artifacts as references (kind + slug + title). Call get_doc/get_skill/get_plan for the actual content of a reference.",
     {
       id: z.string().uuid().describe("The workflow id (from list_workflows output)"),
     },
@@ -1118,7 +909,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
             : "personal space only";
       parts.push(`**Your access**: ${spaceLine}`);
       parts.push(
-        `**Artifacts you can reach**: ${rows.length} prompts, ${skillRows.length} skills, ${kitRows.length} kits, ${planRows.length} plans, ${docRows.length} docs`,
+        `**Artifacts you can reach**: ${rows.length} prompts, ${skillRows.length} skills, ${planRows.length} plans, ${docRows.length} docs`,
       );
       parts.push("");
 
@@ -1145,7 +936,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
       }
       parts.push("");
 
-      const allArtifacts = [...rows, ...skillRows, ...kitRows, ...planRows, ...docRows];
+      const allArtifacts = [...rows, ...skillRows, ...planRows, ...docRows];
       const mostUsed = allArtifacts
         .filter((a) => a.fetchCount > 0)
         .sort((a, b) => b.fetchCount - a.fetchCount)
@@ -1543,7 +1334,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
 
     server.tool(
       "attach_artifact_to_workflow_stage",
-      "Attach an artifact (prompt/skill/kit/plan/doc, by slug) to a workflow stage — the way work you just produced (e.g. a doc or plan you created) joins the process. Only available with a write-enabled token. Agents can only add; ask the user to remove or reorganize attachments in the app.",
+      "Attach an artifact (prompt/skill/plan/doc, by slug) to a workflow stage — the way work you just produced (e.g. a doc or plan you created) joins the process. Only available with a write-enabled token. Agents can only add; ask the user to remove or reorganize attachments in the app.",
       {
         stageId: z.string().uuid().describe("The stage id (from get_workflow output)"),
         slug: z.string().describe("The artifact's slug, exactly as shown by get_workflow/search_artifacts (e.g. 'acme.auth-bug' or 'auth-bug')"),
@@ -2389,7 +2180,7 @@ async function isSlugTaken(
  * the tool-response path (Phase 39 cut this exact request down to 8 queries;
  * blocking every content read on a write would give half of that back).
  * Called only where an agent actually retrieves content (prompt invoked,
- * get_skill/get_kit/get_plan/get_doc) — not on list/search, which only
+ * get_skill/get_plan/get_doc) — not on list/search, which only
  * surface a candidate, not a use.
  */
 function bumpUsage(artifactId: string): void {

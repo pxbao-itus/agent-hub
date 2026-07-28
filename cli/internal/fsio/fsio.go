@@ -64,25 +64,6 @@ func WritePromptAsCommand(slug, body, rootDir string) (string, error) {
 	return filePath, nil
 }
 
-// WriteKit writes every member skill and prompt-as-command in a kit bundle.
-func WriteKit(bundle mcp.KitBundle, rootDir string) (skillDirs []string, commandFiles []string, err error) {
-	for _, skill := range bundle.Skills {
-		dir, err := WriteSkill(skill, rootDir)
-		if err != nil {
-			return nil, nil, err
-		}
-		skillDirs = append(skillDirs, dir)
-	}
-	for _, prompt := range bundle.Prompts {
-		file, err := WritePromptAsCommand(prompt.Slug, prompt.Body, rootDir)
-		if err != nil {
-			return nil, nil, err
-		}
-		commandFiles = append(commandFiles, file)
-	}
-	return skillDirs, commandFiles, nil
-}
-
 type DiskSkill struct {
 	Body  string
 	Files []hashutil.FileContent

@@ -185,52 +185,6 @@ func TestReconcileTrackedSkillRemovesStaleFiles(t *testing.T) {
 	}
 }
 
-func TestReconcileTrackedKitReconcilesMembersAndKitItself(t *testing.T) {
-	dir := t.TempDir()
-	bundle := mcp.KitBundle{
-		Slug:      "k1",
-		Body:      "kit body",
-		VersionNo: 1,
-		Skills:    []mcp.SkillBundle{{Slug: "member-skill", Body: "skill body", VersionNo: 1}},
-		Prompts:   []mcp.PromptEntry{{Slug: "member-prompt", Body: "prompt body", VersionNo: 1}},
-	}
-	_, client := newTestServer(t, bundle)
-
-	m := manifest.Load(dir)
-	first, err := ReconcileTrackedKit(client, "k1", m, SyncOptions{Apply: true}, dir)
-	if err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
-	if first.Kit.Action != ActionUpdate {
-		t.Fatalf("kit action: got %q, want update", first.Kit.Action)
-	}
-	if len(first.Members) != 2 {
-		t.Fatalf("expected 2 members, got %d", len(first.Members))
-	}
-	for _, member := range first.Members {
-		if member.Action != ActionUpdate {
-			t.Errorf("member %s: got %q, want update", member.Slug, member.Action)
-		}
-	}
-
-	skillMd := filepath.Join(dir, ".claude", "skills", "member-skill", "SKILL.md")
-	if _, err := os.Stat(skillMd); err != nil {
-		t.Errorf("expected member skill written to disk: %v", err)
-	}
-	commandMd := filepath.Join(dir, ".claude", "commands", "member-prompt.md")
-	if _, err := os.Stat(commandMd); err != nil {
-		t.Errorf("expected member prompt written as a command: %v", err)
-	}
-
-	second, err := ReconcileTrackedKit(client, "k1", m, SyncOptions{Apply: true}, dir)
-	if err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
-	if second.Kit.Action != ActionUpToDate {
-		t.Fatalf("kit action on 2nd reconcile: got %q, want up-to-date", second.Kit.Action)
-	}
-}
-
 func TestReconcileTrackedSkillDryRunDoesNotWrite(t *testing.T) {
 	dir := t.TempDir()
 	bundle := mcp.SkillBundle{Slug: "s1", Body: "body", VersionNo: 1}

@@ -13,7 +13,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: { default: "Agent Hub", template: "%s · Agent Hub" },
-  description: "Store, share, and use reusable agent capabilities — prompts, skills, and kits — with AI agent integration over MCP.",
+  description: "Store, share, and use reusable prompts, skills, plans, and docs with AI agent integration over MCP.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

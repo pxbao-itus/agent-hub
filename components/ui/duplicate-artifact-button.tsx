@@ -12,13 +12,7 @@ export function DuplicateArtifactButton({ artifactId, kind }: { artifactId: stri
 
   const duplicate = trpc.artifact.duplicate.useMutation({
     onSuccess: (copy) => {
-      const skipped = copy.skippedMembers;
-      toast({
-        title: "Duplicated",
-        description: skipped
-          ? `${skipped} member${skipped === 1 ? "" : "s"} you don't have access to were left out.`
-          : undefined,
-      });
+      toast({ title: "Duplicated" });
       router.push(artifactDetailPath(kind, copy.id));
     },
     onError: (e) => toast({ title: "Failed to duplicate", description: e.message, variant: "destructive" }),

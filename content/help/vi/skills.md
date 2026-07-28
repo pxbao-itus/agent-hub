@@ -25,7 +25,8 @@ Mỗi lần lưu tạo version mới cho body và bundled files. Nên review ver
 khi cập nhật Skill được dùng rộng rãi vì agent có thể lấy version mới nhất ngay
 sau đó.
 
-Skill có thể được đưa vào Kit để team phân phối một nhóm năng lực liên quan cùng
-nhau.
+Skill có thể được gắn vào stage của Workflow khi một quy trình lặp lại cần năng
+lực đó.
 
-Xem [Đồng bộ filesystem bằng CLI](/help/cli-sync) và [Kit](/help/kits).
+Xem [Đồng bộ filesystem bằng CLI](/help/cli-sync) và
+[Workflow](/help/workflows).

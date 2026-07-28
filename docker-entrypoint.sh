@@ -15,6 +15,9 @@
 # before deploying, the same care a hand-run migration would need anyway.
 set -e
 
+echo "Purging legacy Kit data..."
+node_modules/.bin/tsx server/scripts/purge-kits.ts
+
 echo "Applying database schema (drizzle-kit push)..."
 node_modules/.bin/drizzle-kit push --force
 

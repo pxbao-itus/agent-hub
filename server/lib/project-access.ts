@@ -22,7 +22,7 @@ export async function canViewProject(
 /**
  * Manage-rights for a project come entirely from `effectiveGroupRole` on its
  * owning group — same threshold used for creating/editing group-owned
- * artifacts (kit.ts/skill.ts). Project membership itself grants nothing
+ * artifacts (skill.ts and the other artifact routers). Project membership itself grants nothing
  * (decision #1 in plans/44-projects.md — organizational only).
  */
 export async function canManageProject(

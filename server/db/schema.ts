@@ -227,22 +227,23 @@ export const memberships = pgTable(
 /* Prompts                                                                     */
 /* -------------------------------------------------------------------------- */
 
-/** Discriminates the kind of artifact. prompt (default) ⊂ skill ⊂ kit ⊂ plan. */
-export const artifactKindEnum = ["prompt", "skill", "kit", "plan", "doc"] as const;
+/** Discriminates the kind of artifact. */
+export const artifactKindEnum = ["prompt", "skill", "plan", "doc"] as const;
 export type ArtifactKind = (typeof artifactKindEnum)[number];
 
 /**
- * An artifact is a reusable agent capability. Three kinds share this table:
+ * Reusable agent content shares one versioned table:
  * - prompt: a single template (body = the prompt text, with {{vars}}).
  * - skill: instructions (body = SKILL.md) + bundled files (artifact_files).
- * - kit: a curated bundle referencing other artifacts (artifact_members).
- * Versioning, variables, embeddings, permissions and search are shared across kinds.
+ * - plan: an overview plus live tasks (artifact_tasks).
+ * - doc: general Markdown documentation.
+ * Versioning, permissions and search are shared across kinds.
  */
 export const artifacts = pgTable(
   "artifacts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    /** prompt | skill | kit. Stored as text + CHECK at migration level. */
+    /** prompt | skill | plan | doc. */
     kind: text("kind").notNull().default("prompt").$type<ArtifactKind>(),
     /** Polymorphic owner: user / org / department / team. `ownerId` has no FK. */
     ownerType: ownerTypeEnum("owner_type").notNull(),
@@ -264,7 +265,7 @@ export const artifacts = pgTable(
     /**
      * Usage analytics (Phase 41): bumped fire-and-forget whenever an agent
      * actually pulls this artifact's content over MCP (prompt invoked,
-     * get_skill/get_kit/get_plan/get_doc) — not on search results or list
+     * get_skill/get_plan/get_doc) — not on search results or list
      * views, which only surface a candidate, not a use.
      */
     fetchCount: integer("fetch_count").notNull().default(0),
@@ -331,7 +332,7 @@ export const artifactVariables = pgTable(
 
 /**
  * Files bundled with a skill artifact (scripts, references, templates), versioned
- * together with the skill via `artifactVersionId`. Empty for prompt/kit kinds.
+ * together with the skill via `artifactVersionId`. Empty for other kinds.
  */
 export const artifactFiles = pgTable(
   "artifact_files",
@@ -349,29 +350,6 @@ export const artifactFiles = pgTable(
   (t) => [
     unique("artifact_files_version_path_uq").on(t.artifactVersionId, t.path),
     index("artifact_files_version_idx").on(t.artifactVersionId),
-  ]
-);
-
-/**
- * Members of a kit artifact: an ordered list of other artifacts (prompts/skills).
- * References the latest version of each member (live, no copy). Empty for prompt/skill.
- */
-export const artifactMembers = pgTable(
-  "artifact_members",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    kitArtifactId: uuid("kit_artifact_id")
-      .notNull()
-      .references(() => artifacts.id, { onDelete: "cascade" }),
-    memberArtifactId: uuid("member_artifact_id")
-      .notNull()
-      .references(() => artifacts.id, { onDelete: "cascade" }),
-    position: integer("position").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    unique("artifact_members_kit_member_uq").on(t.kitArtifactId, t.memberArtifactId),
-    index("artifact_members_kit_idx").on(t.kitArtifactId),
   ]
 );
 
@@ -816,8 +794,8 @@ export const workflowStages = pgTable(
 
 /**
  * Many-to-many: any artifact kind can attach to a stage (unlike
- * project_artifacts, which is doc|plan-only) — this is where kit/skill/prompt
- * participate in the process, alongside doc (spec) and plan (execution).
+ * project_artifacts, which is doc|plan-only). Prompt and skill can participate
+ * alongside doc (spec) and plan (execution).
  */
 export const workflowStageArtifacts = pgTable(
   "workflow_stage_artifacts",
@@ -889,7 +867,6 @@ export const teamsRelations = relations(teams, ({ one }) => ({
 export const artifactsRelations = relations(artifacts, ({ one, many }) => ({
   versions: many(artifactVersions),
   variables: many(artifactVariables),
-  members: many(artifactMembers, { relationName: "kit" }),
   tasks: many(artifactTasks),
   shares: many(artifactShares),
   workItem: one(artifactWorkItems),
@@ -918,18 +895,6 @@ export const artifactFilesRelations = relations(artifactFiles, ({ one }) => ({
   version: one(artifactVersions, {
     fields: [artifactFiles.artifactVersionId],
     references: [artifactVersions.id],
-  }),
-}));
-
-export const artifactMembersRelations = relations(artifactMembers, ({ one }) => ({
-  kit: one(artifacts, {
-    relationName: "kit",
-    fields: [artifactMembers.kitArtifactId],
-    references: [artifacts.id],
-  }),
-  member: one(artifacts, {
-    fields: [artifactMembers.memberArtifactId],
-    references: [artifacts.id],
   }),
 }));
 

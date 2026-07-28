@@ -79,8 +79,6 @@ let prompt2Slug: string;
 let prompt3Slug: string;
 let skill1Slug: string;
 let skill2Slug: string;
-let kit1Slug: string;
-let kit3Slug: string;
 let plan1Slug: string;
 let plan2Slug: string;
 let doc1Slug: string;
@@ -101,8 +99,6 @@ beforeAll(async () => {
   const prompt3 = await mustArtifact("Viết email xin nghỉ phép");
   const skill1 = await mustArtifact("PR review checklist");
   const skill2 = await mustArtifact("Hướng dẫn viết test tự động");
-  const kit1 = await mustArtifact("Code review starter kit");
-  const kit3 = await mustArtifact("Meta kit");
   const plan1 = await mustArtifact("Sửa lỗi phiên đăng nhập hết hạn sớm");
   const plan2 = await mustArtifact("Migrate to Next.js 16");
   const doc1 = await mustArtifact("Lỗi: phiên đăng nhập hết hạn sau 5 phút");
@@ -112,8 +108,6 @@ beforeAll(async () => {
   prompt3Slug = `${ORG_PATH}.${prompt3.slug}`;
   skill1Slug = `${BACKEND_PATH}.${slugify(skill1.title)}`;
   skill2Slug = `${ENG_PATH}.${slugify(skill2.title)}`;
-  kit1Slug = `${BACKEND_PATH}.${slugify(kit1.title)}`;
-  kit3Slug = slugify(kit3.title);
   plan1Slug = `${BACKEND_PATH}.${slugify(plan1.title)}`;
   plan2Slug = `${ENG_PATH}.${slugify(plan2.title)}`;
   doc1Slug = `${BACKEND_PATH}.${slugify(doc1.title)}`;
@@ -157,14 +151,13 @@ describe("prompts primitive", () => {
 });
 
 describe("write gate", () => {
-  it("read-only scope exposes exactly the 20 read tools", async () => {
+  it("read-only scope exposes exactly the 17 read tools", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" }, {});
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual(
       [
         "get_doc",
-        "get_kit",
         "get_plan",
         "get_project",
         "get_prompt",
@@ -172,7 +165,6 @@ describe("write gate", () => {
         "get_workflow",
         "list_docs",
         "list_groups",
-        "list_kits",
         "list_comments",
         "list_my_work",
         "list_plans",
@@ -180,17 +172,16 @@ describe("write gate", () => {
         "list_skills",
         "list_workflows",
         "overview",
-        "pull_kit",
         "pull_skill",
         "search_artifacts",
       ].sort(),
     );
   });
 
-  it("write:true scope adds the 28 write tools (48 total)", async () => {
+  it("write:true scope adds the 28 write tools (45 total)", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(48);
+    expect(tools).toHaveLength(45);
     const names = new Set(tools.map((t) => t.name));
     for (const n of [
       "update_task_status",
@@ -319,18 +310,7 @@ describe("get_skill", () => {
   });
 });
 
-describe("get_kit recursive flatten", () => {
-  it("flattens Meta kit (kit3 -> kit1 -> prompt1+skill1, plus prompt2) recursively", async () => {
-    const client = await connect({ userId: engMember.id, systemRole: "user" });
-    const result = await client.callTool({ name: "get_kit", arguments: { slug: kit3Slug } });
-    const t = text(result);
-    expect(t).toContain(`/${prompt1Slug}`);
-    expect(t).toContain(`/${prompt2Slug}`);
-    expect(t).toContain(`get_skill('${skill1Slug}')`);
-  });
-});
-
-describe("pull_skill / pull_kit (CLI JSON bundles, Phase 42 M2)", () => {
+describe("pull_skill (CLI JSON bundle, Phase 42 M2)", () => {
   it("pull_skill returns a JSON bundle with body, files, and version metadata", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" });
     const result = await client.callTool({ name: "pull_skill", arguments: { slug: skill1Slug } });
@@ -361,24 +341,6 @@ describe("pull_skill / pull_kit (CLI JSON bundles, Phase 42 M2)", () => {
     expect(bundle.error).toContain("not found");
   });
 
-  it("pull_kit returns the kit plus every recursively-flattened member, fully resolved", async () => {
-    const client = await connect({ userId: engMember.id, systemRole: "user" });
-    const result = await client.callTool({ name: "pull_kit", arguments: { slug: kit3Slug } });
-    const bundle = JSON.parse(text(result));
-    expect(bundle.schemaVersion).toBe(1);
-    expect(bundle.kind).toBe("kit");
-    expect(bundle.title).toBe("Meta kit");
-
-    const promptSlugs = bundle.prompts.map((p: { slug: string }) => p.slug);
-    expect(promptSlugs).toContain(prompt1Slug);
-    expect(promptSlugs).toContain(prompt2Slug);
-
-    expect(bundle.skills).toHaveLength(1);
-    expect(bundle.skills[0].slug).toBe(skill1Slug);
-    expect(bundle.skills[0].files).toEqual([
-      expect.objectContaining({ path: "checklist.md" }),
-    ]);
-  });
 });
 
 describe("plan and doc reads", () => {
@@ -449,9 +411,7 @@ describe("workflow tools", () => {
     expect(t).toContain(`get_doc('${doc1Slug}')`);
     expect(t).not.toContain("session.maxAge"); // that's doc1's body — must not leak here
 
-    // Build -> kit1 + skill1 + plan1
-    expect(t).toContain("[kit] Code review starter kit");
-    expect(t).toContain(`get_kit('${kit1Slug}')`);
+    // Build -> skill1 + plan1
     expect(t).toContain("[skill] PR review checklist");
     expect(t).toContain(`get_skill('${skill1Slug}')`);
     expect(t).toContain("[plan] Sửa lỗi phiên đăng nhập hết hạn sớm");
@@ -486,8 +446,7 @@ describe("workflow tools", () => {
     // doc1 (tags: bug) and plan1 (tags: bug) fall outside the "engineering" scope
     expect(t).not.toContain("Lỗi: phiên đăng nhập hết hạn sau 5 phút");
     expect(t).not.toContain("Sửa lỗi phiên đăng nhập hết hạn sớm");
-    // kit1 (engineering) and skill1 (engineering, review) still pass
-    expect(t).toContain("[kit] Code review starter kit");
+    // skill1 (engineering, review) still passes
     expect(t).toContain("[skill] PR review checklist");
     // Spec's only attachment (doc1) was scoped out, so it now reads as empty
     expect(t).toContain("_Nothing attached._");
@@ -501,7 +460,7 @@ describe("overview tool", () => {
     const t = text(result);
 
     expect(t).toContain(BACKEND_PATH);
-    expect(t).toMatch(/\*\*Artifacts you can reach\*\*: \d+ prompts, \d+ skills, \d+ kits, \d+ plans, \d+ docs/);
+    expect(t).toMatch(/\*\*Artifacts you can reach\*\*: \d+ prompts, \d+ skills, \d+ plans, \d+ docs/);
     expect(t).toContain("## In-flight workflows");
     expect(t).toContain("now: Build");
     expect(t).toContain("Next:");
@@ -820,19 +779,6 @@ describe("usage analytics (fetchCount / lastFetchedAt)", () => {
     expect(row.lastFetchedAt).not.toBeNull();
   });
 
-  it("get_kit bumps the kit itself but not its recursively flattened members", async () => {
-    const kit3 = await mustArtifact("Meta kit");
-    const prompt1 = await mustArtifact("Rà soát bảo mật mã nguồn");
-    const kitBefore = kit3.fetchCount;
-    const promptBefore = prompt1.fetchCount;
-    const client = await connect({ userId: engMember.id, systemRole: "user" });
-    await client.callTool({ name: "get_kit", arguments: { slug: kit3Slug } });
-    const kitAfter = await waitForFetchCount(kit3.id, kitBefore + 1);
-    expect(kitAfter).toBe(kitBefore + 1);
-    const [promptRow] = await db.select().from(schema.artifacts).where(eq(schema.artifacts.id, prompt1.id));
-    expect(promptRow.fetchCount).toBe(promptBefore);
-  });
-
   it("get_plan bumps fetchCount", async () => {
     const plan1 = await mustArtifact("Sửa lỗi phiên đăng nhập hết hạn sớm");
     const before = plan1.fetchCount;
@@ -894,7 +840,6 @@ describe("search_artifacts", () => {
     const t = text(result);
     expect(t).toContain("[skill]");
     expect(t).not.toContain("[prompt]");
-    expect(t).not.toContain("[kit]");
   });
 });
 

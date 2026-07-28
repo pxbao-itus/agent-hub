@@ -9,7 +9,6 @@ Các loại artifact chính:
 
 - **Prompt** — nội dung tái sử dụng, có thể chứa biến.
 - **Skill** — chỉ dẫn kèm file hỗ trợ tùy chọn cho agent.
-- **Kit** — tập hợp prompt, skill hoặc kit lồng nhau.
 - **Doc** — tài liệu tham chiếu cho plan và project.
 - **Plan** — phần tổng quan và danh sách task có thể theo dõi.
 
@@ -36,7 +35,7 @@ cũng không tự cấp quyền truy cập.
 3. Chọn đúng owner space và visibility.
 4. Thêm title rõ ràng, description ngắn, tag hữu ích và nội dung tái sử dụng.
 5. Lưu artifact và kiểm tra trang chi tiết.
-6. Thêm vào project, kit hoặc workflow nếu artifact thuộc một phạm vi lớn hơn.
+6. Thêm vào project hoặc workflow nếu artifact thuộc một phạm vi lớn hơn.
 7. Nếu AI agent cần sử dụng, tạo MCP token có scope và kết nối client.
 
 Mỗi lần lưu tiếp theo tạo một version bất biến. Bạn có thể xem, so sánh hoặc

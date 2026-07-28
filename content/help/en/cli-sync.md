@@ -1,10 +1,10 @@
 ## When to use the CLI
 
 MCP lets an agent retrieve content on demand. Use the Agent Hub CLI when a tool
-expects Skills, scripts, or prompt files to exist in a local filesystem such as
-`.claude/skills/` or `.claude/commands/`.
+expects Skills or scripts to exist in a local filesystem such as
+`.claude/skills/`.
 
-The CLI currently pulls Skills and Kits from a running Agent Hub instance.
+The CLI pulls Skills from a running Agent Hub instance.
 
 ## Connect and pull
 
@@ -12,8 +12,7 @@ Build or install the CLI according to the project CLI README, then:
 
 1. Log in with the Agent Hub base URL and an MCP token.
 2. Pull a Skill by slug to install its instruction file and bundled files.
-3. Pull a Kit to install its flattened Skills and prompt commands.
-4. Review generated files before allowing an agent to execute scripts.
+3. Review generated files before allowing an agent to execute scripts.
 
 The login configuration is stored under your user profile with restricted file
 permissions. Keep the token private.

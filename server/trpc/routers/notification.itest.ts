@@ -6,7 +6,6 @@ import { createArtifact } from "@/server/services/artifact";
 import { rollbackVersion } from "@/server/services/version";
 import { promptRouter } from "./prompt";
 import { skillRouter } from "./skill";
-import { kitRouter } from "./kit";
 import { docRouter } from "./doc";
 import { planRouter } from "./plan";
 import { notificationRouter } from "./notification";
@@ -47,7 +46,7 @@ afterAll(async () => {
   await close();
 });
 
-async function makeSharedArtifact(kind: "prompt" | "skill" | "kit" | "plan" | "doc") {
+async function makeSharedArtifact(kind: schema.ArtifactKind) {
   const created = await createArtifact(
     {
       kind,
@@ -73,7 +72,7 @@ async function notificationsFor(artifactId: string) {
   return db.query.notifications.findMany({ where: eq(schema.notifications.artifactId, artifactId) });
 }
 
-describe("notifyVersionChange trigger — wired into all 5 kind routers", () => {
+describe("notifyVersionChange trigger — wired into all four kind routers", () => {
   it("prompt.update notifies the share recipient, not the actor", async () => {
     const artifact = await makeSharedArtifact("prompt");
     const caller = callerFor(promptRouter, { userId: engMember.id, systemRole: "user" });
@@ -89,16 +88,6 @@ describe("notifyVersionChange trigger — wired into all 5 kind routers", () => 
   it("skill.update notifies the share recipient", async () => {
     const artifact = await makeSharedArtifact("skill");
     const caller = callerFor(skillRouter, { userId: engMember.id, systemRole: "user" });
-    await caller.update({ id: artifact.id, body: "v2 body" });
-
-    const rows = await notificationsFor(artifact.id);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].userId).toBe(marketingMember.id);
-  });
-
-  it("kit.update notifies the share recipient", async () => {
-    const artifact = await makeSharedArtifact("kit");
-    const caller = callerFor(kitRouter, { userId: engMember.id, systemRole: "user" });
     await caller.update({ id: artifact.id, body: "v2 body" });
 
     const rows = await notificationsFor(artifact.id);

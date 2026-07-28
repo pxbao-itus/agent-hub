@@ -30,7 +30,7 @@ import { ActivityTimeline } from "@/components/collaboration/activity-timeline";
 import { CollaborationPanel } from "@/components/collaboration/collaboration-panel";
 import { FollowMenu } from "@/components/collaboration/follow-menu";
 import { DocVersionHistory } from "./_components/doc-version-history";
-import { FileText, ClipboardList, BookText, Wrench, Package } from "lucide-react";
+import { FileText, ClipboardList, BookText, Wrench } from "lucide-react";
 
 const getDoc = cache(async (id: string) =>
   db.query.artifacts.findFirst({
@@ -48,14 +48,12 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 const KIND_ICON: Record<string, React.ElementType> = {
   prompt: BookText,
   skill: Wrench,
-  kit: Package,
   plan: ClipboardList,
   doc: FileText,
 };
 const KIND_HREF: Record<string, string> = {
   prompt: "/prompts",
   skill: "/skills",
-  kit: "/kits",
   plan: "/plans",
   doc: "/docs",
 };

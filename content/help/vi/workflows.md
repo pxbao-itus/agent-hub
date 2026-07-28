@@ -11,7 +11,7 @@ hoàn thành một nhóm task không có thứ tự.
 1. Chọn owner group và tùy chọn link một Project.
 2. Định nghĩa stage với tên mô tả kết quả hoặc checkpoint.
 3. Sắp xếp stage theo thứ tự thực hiện dự kiến.
-4. Gắn Prompt, Skill, Kit, Doc hoặc Plan tại nơi cần dùng.
+4. Gắn Prompt, Skill, Doc hoặc Plan tại nơi cần dùng.
 5. Chuyển stage qua todo, doing và done khi công việc tiến triển.
 6. Theo dõi progress tổng thể từ trạng thái các stage.
 

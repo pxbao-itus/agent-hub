@@ -11,7 +11,7 @@ completing an unordered collection of tasks.
 1. Choose the owner group and optionally link a Project.
 2. Define stages with names that describe outcomes or checkpoints.
 3. Order stages in the expected execution sequence.
-4. Attach Prompts, Skills, Kits, Docs, or Plans where they are needed.
+4. Attach Prompts, Skills, Docs, or Plans where they are needed.
 5. Move a stage through todo, doing, and done as work advances.
 6. Review overall progress from the stage summary.
 

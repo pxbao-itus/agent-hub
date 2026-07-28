@@ -27,8 +27,8 @@ Each save creates a new version of the Skill body and its bundled files. Review
 the version before updating a widely used Skill, because connected agents may
 retrieve the latest version immediately.
 
-Skills can also be placed in Kits so a team can distribute a related set of
-capabilities together.
+Skills can be attached to Workflow stages when a repeatable process needs the
+capability.
 
 See [CLI filesystem sync](/help/cli-sync) for local installation and
-[Kits](/help/kits) for packaging multiple artifacts.
+[Workflows](/help/workflows) for process organization.

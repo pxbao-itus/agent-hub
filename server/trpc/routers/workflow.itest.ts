@@ -206,7 +206,7 @@ describe("workflow.get", () => {
 
     const buildTitles = result.stages[1].artifacts.map((a) => a.title).sort();
     expect(buildTitles).toEqual(
-      ["Code review starter kit", "PR review checklist", "Sửa lỗi phiên đăng nhập hết hạn sớm"].sort(),
+      ["PR review checklist", "Sửa lỗi phiên đăng nhập hết hạn sớm"].sort(),
     );
 
     expect(result.stages[2].artifacts).toEqual([]);
@@ -328,7 +328,7 @@ describe("workflow.setStageStatus", () => {
 });
 
 describe("workflow.attachArtifact / detachArtifact", () => {
-  it("attaches any kind, including kit, and detach removes it", async () => {
+  it("attaches an active artifact kind and detach removes it", async () => {
     const workflow = await callerAs({ userId: engMember.id, systemRole: "user" }).create({
       ownerGroupType: "team",
       ownerGroupId: backend.id,
@@ -338,15 +338,15 @@ describe("workflow.attachArtifact / detachArtifact", () => {
     createdWorkflowIds.push(workflow.id);
     const [stage] = await db.select().from(schema.workflowStages).where(eq(schema.workflowStages.workflowId, workflow.id));
 
-    const kit1 = await mustArtifact("Code review starter kit");
-    await callerAs({ userId: engMember.id, systemRole: "user" }).attachArtifact({ stageId: stage.id, artifactId: kit1.id });
+    const skill1 = await mustArtifact("PR review checklist");
+    await callerAs({ userId: engMember.id, systemRole: "user" }).attachArtifact({ stageId: stage.id, artifactId: skill1.id });
 
     const got = await callerAs({ userId: engMember.id, systemRole: "user" }).get({ id: workflow.id });
-    expect(got.stages[0].artifacts.map((a) => a.id)).toContain(kit1.id);
+    expect(got.stages[0].artifacts.map((a) => a.id)).toContain(skill1.id);
 
-    await callerAs({ userId: engMember.id, systemRole: "user" }).detachArtifact({ stageId: stage.id, artifactId: kit1.id });
+    await callerAs({ userId: engMember.id, systemRole: "user" }).detachArtifact({ stageId: stage.id, artifactId: skill1.id });
     const after = await callerAs({ userId: engMember.id, systemRole: "user" }).get({ id: workflow.id });
-    expect(after.stages[0].artifacts.map((a) => a.id)).not.toContain(kit1.id);
+    expect(after.stages[0].artifacts.map((a) => a.id)).not.toContain(skill1.id);
   });
 
   it("rejects attaching an artifact the caller cannot read", async () => {

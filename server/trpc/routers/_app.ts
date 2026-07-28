@@ -4,7 +4,6 @@ import { artifactRouter } from "./artifact";
 import { orgRouter } from "./org";
 import { promptRouter } from "./prompt";
 import { skillRouter } from "./skill";
-import { kitRouter } from "./kit";
 import { planRouter } from "./plan";
 import { docRouter } from "./doc";
 import { linkRouter } from "./link";
@@ -37,7 +36,6 @@ export const appRouter = router({
   org: orgRouter,
   prompt: promptRouter,
   skill: skillRouter,
-  kit: kitRouter,
   plan: planRouter,
   doc: docRouter,
   link: linkRouter,

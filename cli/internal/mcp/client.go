@@ -1,5 +1,5 @@
 // Package mcp is a minimal client for Agent Hub's stateless /api/mcp
-// endpoint — just enough to call pull_skill/pull_kit. It talks raw
+// endpoint — just enough to call pull_skill. It talks raw
 // JSON-RPC-over-HTTP with the stdlib only (no MCP SDK): the endpoint accepts
 // a bare "tools/call" with no "initialize" handshake in stateless mode
 // (proven by qa/e2e/mcp-http.spec.ts), so there's nothing else to implement.
@@ -136,8 +136,8 @@ func parseSSE(body io.Reader) ([]byte, error) {
 	return nil, fmt.Errorf(`no SSE "data:" line in response body`)
 }
 
-// callPullTool calls pull_skill/pull_kit and decodes the result into v,
-// mirroring the TS client's error convention: these two tools always return
+// callPullTool calls pull_skill and decodes the result into v,
+// mirroring the server's error convention: the tool always returns
 // valid JSON — either the bundle or {"error": "..."} — never isError.
 func callPullTool(c *Client, name, slug string, v any) error {
 	text, err := c.callTool(name, map[string]string{"slug": slug})
@@ -157,11 +157,5 @@ func callPullTool(c *Client, name, slug string, v any) error {
 func (c *Client) PullSkill(slug string) (SkillBundle, error) {
 	var bundle SkillBundle
 	err := callPullTool(c, "pull_skill", slug, &bundle)
-	return bundle, err
-}
-
-func (c *Client) PullKit(slug string) (KitBundle, error) {
-	var bundle KitBundle
-	err := callPullTool(c, "pull_kit", slug, &bundle)
 	return bundle, err
 }

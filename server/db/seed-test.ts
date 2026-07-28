@@ -51,7 +51,7 @@ async function reset() {
     TRUNCATE TABLE
       audit_events, workflow_stage_artifacts, workflow_stages, workflows,
       project_artifacts, project_members, projects,
-      artifact_links, artifact_shares, artifact_tasks, artifact_members,
+      artifact_links, artifact_shares, artifact_tasks,
       artifact_files, artifact_embeddings, artifact_variables, artifact_versions,
       artifacts, mcp_tokens, memberships, teams, departments, orgs,
       sessions, accounts, verification_tokens, users
@@ -289,57 +289,6 @@ async function main() {
     mimeType: "text/markdown",
   });
 
-  // ---- Kits (incl. one nested kit-in-kit, for recursive flatten) --------
-  const { artifact: kit1 } = await createArtifact({
-    kind: "kit",
-    ownerType: "team",
-    ownerId: backend.id,
-    title: "Code review starter kit",
-    description: "Everything needed to review a PR end to end.",
-    tags: ["engineering"],
-    visibility: "group",
-    createdBy: engMember.id,
-    body: "Bundles the security review prompt with the PR review checklist skill.",
-  });
-  await db.insert(schema.artifactMembers).values([
-    { kitArtifactId: kit1.id, memberArtifactId: prompt1.id, position: 0 },
-    { kitArtifactId: kit1.id, memberArtifactId: skill1.id, position: 1 },
-  ]);
-
-  const { artifact: kit2 } = await createArtifact({
-    kind: "kit",
-    ownerType: "org",
-    ownerId: org.id,
-    title: "Bộ kit onboarding",
-    description: "Các tài liệu và mẫu dùng khi onboarding nhân viên mới.",
-    tags: ["hr"],
-    visibility: "public",
-    createdBy: orgAdmin.id,
-    body: "Bộ công cụ onboarding: mẫu email nghỉ phép + hướng dẫn viết test.",
-  });
-  await db.insert(schema.artifactMembers).values([
-    { kitArtifactId: kit2.id, memberArtifactId: prompt3.id, position: 0 },
-    { kitArtifactId: kit2.id, memberArtifactId: skill2.id, position: 1 },
-  ]);
-
-  // Nested: kit3 contains kit1 (a kit) + prompt2 — exercises recursive
-  // flattening (get_kit / flattenKitMembers must resolve kit1's own members).
-  const { artifact: kit3 } = await createArtifact({
-    kind: "kit",
-    ownerType: "user",
-    ownerId: engMember.id,
-    title: "Meta kit",
-    description: "A kit that bundles another kit, to exercise recursive flattening.",
-    tags: ["engineering"],
-    visibility: "private",
-    createdBy: engMember.id,
-    body: "Bundles the code review starter kit with the meeting-notes summarizer.",
-  });
-  await db.insert(schema.artifactMembers).values([
-    { kitArtifactId: kit3.id, memberArtifactId: kit1.id, position: 0 },
-    { kitArtifactId: kit3.id, memberArtifactId: prompt2.id, position: 1 },
-  ]);
-
   // ---- Plans (tasks covering all 3 statuses) -----------------------------
   const { artifact: plan1 } = await createArtifact({
     kind: "plan",
@@ -506,15 +455,14 @@ async function main() {
     .returning();
   await db.insert(schema.workflowStageArtifacts).values([
     { stageId: specStage.id, artifactId: doc1.id, position: 0 },
-    { stageId: buildStage.id, artifactId: kit1.id, position: 0 },
-    { stageId: buildStage.id, artifactId: skill1.id, position: 1 },
-    { stageId: buildStage.id, artifactId: plan1.id, position: 2 },
+    { stageId: buildStage.id, artifactId: skill1.id, position: 0 },
+    { stageId: buildStage.id, artifactId: plan1.id, position: 1 },
   ]);
 
   console.log("Seeded:");
   console.log(`  users: superadmin, org-admin, org-viewer, eng-member, marketing-member, outsider (password: ${PASSWORD})`);
   console.log(`  org "${org.slug}" → dept [engineering, marketing] → team [backend, content]`);
-  console.log("  15 artifacts (3 per kind: prompt, skill, kit, plan, doc), 1 cross-team share, 1 nested kit");
+  console.log("  12 artifacts (3 per kind: prompt, skill, plan, doc), 1 cross-team share");
   console.log("  1 project (Backend team) with 1 plan + 1 doc assigned, 1 member (eng-member)");
   console.log("  1 workflow (Backend team, linked to the project) with 3 stages (Spec done, Build doing, Review todo)");
 }

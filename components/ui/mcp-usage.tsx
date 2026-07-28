@@ -7,7 +7,6 @@ function usageCommand(kind: ArtifactKind, fullSlug: string): string {
   switch (kind) {
     case "prompt": return `/mcp__agent-hub__${fullSlug}`;
     case "skill": return `get_skill('${fullSlug}')`;
-    case "kit": return `get_kit('${fullSlug}')`;
     case "plan": return `get_plan('${fullSlug}')`;
     case "doc": return `get_doc('${fullSlug}')`;
   }

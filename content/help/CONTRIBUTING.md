@@ -18,7 +18,7 @@ the current screen layout.
   and permission caveats.
 - Prefer feature names over positions such as “top-right” or descriptions of
   color and icons.
-- Keep `Prompt`, `Skill`, `Kit`, `Plan`, `Doc`, `Project`, `Workflow`, and `MCP`
+- Keep `Prompt`, `Skill`, `Plan`, `Doc`, `Project`, `Workflow`, and `MCP`
   recognizable across both languages.
 - Do not include real email addresses, tokens, internal infrastructure, or
   screenshots containing private data.

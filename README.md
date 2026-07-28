@@ -1,6 +1,6 @@
 # Agent Hub
 
-> Open-source platform to **store, share, and use reusable building blocks for AI agents** — prompts, skills, kits, plans, and docs — with first-class **agent integration over MCP**.
+> Open-source platform to **store, share, and use reusable building blocks for AI agents** — prompts, skills, plans, and docs — with first-class **agent integration over MCP**.
 
 Instead of copy-pasting prompts and instructions between projects, keep them in one place: versioned, access-controlled across **Organization → Department → Team → User**, searchable by meaning, and pulled straight into your AI agent through the Model Context Protocol (MCP). No copy-paste, always the latest version.
 
@@ -10,7 +10,6 @@ Instead of copy-pasting prompts and instructions between projects, keep them in 
 
 - 📦 **Prompts** — with tags, descriptions, and template variables `{{var}}`.
 - 🛠️ **Skills** — reusable instruction sets (SKILL.md) with bundled files, delivered to agents on demand.
-- 🎒 **Kits** — toolkits that package multiple prompts and skills into one reusable unit, pulled into any project or workflow stage; members are resolved recursively.
 - ✅ **Plans** — structured task lists (todo / doing / done) that agents can read and update.
 - 📄 **Docs** — free-form markdown docs, linkable to the plans they inform.
 - 👥 **Assignments + My Work** — coordinate Docs and Plans with assigners,
@@ -21,7 +20,7 @@ Instead of copy-pasting prompts and instructions between projects, keep them in 
 - 🕑 **Versioning** — every save creates an immutable version, with diff and rollback.
 - 🔎 **Semantic + hybrid search** — full-text (BM25) fused with vector similarity (bge-m3 + pgvector) via Reciprocal Rank Fusion, across every artifact kind. A global search page and a `Cmd/Ctrl-K` command palette. Degrades gracefully to keyword-only when embeddings are disabled.
 - 🏢 **Org-based access control** — an artifact's owner can be a user, team, department, or org; permissions inherit upward. Plus per-user sharing for one-off grants.
-- 🔌 **MCP server** — plug into Claude Code, Cursor, or any MCP-compatible agent using a scoped token. Prompts appear as slash commands; skills, kits, plans, and docs are fetched via tools.
+- 🔌 **MCP server** — plug into Claude Code, Cursor, or any MCP-compatible agent using a scoped token. Prompts appear as slash commands; skills, plans, and docs are fetched via tools.
 - 🔐 **Multiple auth providers** — basic auth (Credentials), Google, and GitHub, all pluggable via env.
 - 🌗 **Markdown rendering** with light/dark themes.
 
@@ -69,12 +68,18 @@ git pull
 docker compose up -d --build
 ```
 
-> The container applies the schema (`drizzle-kit push`, non-interactively)
-> before starting on every boot — there's no separate migration step to run.
+> The container runs required one-time data cleanup and then applies the schema
+> (`drizzle-kit push`, non-interactively) before starting on every boot —
+> there's no separate migration step to run.
 > This means a schema change that would involve data loss (e.g. a dropped
 > column) also applies automatically on next restart, with no confirmation
 > prompt. Review `schema.ts` changes before deploying, the same care a
 > hand-run migration would need anyway.
+
+> **Pre-release upgrade note:** Kit has been removed. On startup, existing Kit
+> records and their membership rows are deleted before the obsolete table is
+> dropped. Legacy v1 Kit bundles are rejected on import. The CLI stops tracking
+> Kit entries but leaves any previously generated local files untouched.
 
 ## Development
 
@@ -136,7 +141,7 @@ Once connected:
 
 - Your accessible **prompts** show up as slash commands (type `/` in Claude Code).
 - Use **`search_artifacts`** to find anything by meaning or keyword across all kinds.
-- Pull specific artifacts with **`get_skill`**, **`get_kit`**, **`get_plan`**, **`get_doc`** (and their `list_*` counterparts).
+- Pull specific artifacts with **`get_skill`**, **`get_plan`**, **`get_doc`** (and their `list_*` counterparts).
 - Agents can update plan progress with **`update_task_status`**.
 - Agents can inspect and coordinate Doc/Plan work with **`list_my_work`**,
   **`set_assigner`**, **`add_assignee`**, **`remove_assignee`**, and

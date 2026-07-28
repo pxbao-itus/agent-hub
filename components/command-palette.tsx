@@ -14,13 +14,12 @@ import {
 } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { KIND_ICON, KIND_LABEL, kindRoute } from "@/lib/kind";
-import { LayoutDashboard, BookText, Wrench, Package, ClipboardList, FileText, Compass, Search, Plus } from "lucide-react";
+import { LayoutDashboard, BookText, Wrench, ClipboardList, FileText, Compass, Search, Plus } from "lucide-react";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Prompts", href: "/prompts", icon: BookText },
   { label: "Skills", href: "/skills", icon: Wrench },
-  { label: "Kits", href: "/kits", icon: Package },
   { label: "Plans", href: "/plans", icon: ClipboardList },
   { label: "Docs", href: "/docs", icon: FileText },
   { label: "Explore", href: "/explore", icon: Compass },
@@ -30,7 +29,6 @@ const NAV_ITEMS = [
 const CREATE_ITEMS = [
   { label: "New prompt", href: "/prompts/new", icon: BookText },
   { label: "New skill", href: "/skills/new", icon: Wrench },
-  { label: "New kit", href: "/kits/new", icon: Package },
   { label: "New plan", href: "/plans/new", icon: ClipboardList },
   { label: "New doc", href: "/docs/new", icon: FileText },
 ];

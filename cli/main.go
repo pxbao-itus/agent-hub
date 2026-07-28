@@ -1,5 +1,5 @@
 // Command agent-hub is a filesystem-sync CLI for Agent Hub — pulls
-// skills/kits onto disk for tools that read .claude/skills/.claude/commands
+// skills onto disk for tools that read .claude/skills
 // directly instead of going through MCP.
 package main
 
@@ -14,7 +14,6 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "Usage: agent-hub <login|pull|sync|status> ...")
 	fmt.Fprintln(os.Stderr, "  agent-hub login <base-url> <token>")
 	fmt.Fprintln(os.Stderr, "  agent-hub pull skill <slug>")
-	fmt.Fprintln(os.Stderr, "  agent-hub pull kit <slug>")
 	fmt.Fprintln(os.Stderr, "  agent-hub sync [--force]")
 	fmt.Fprintln(os.Stderr, "  agent-hub status")
 }

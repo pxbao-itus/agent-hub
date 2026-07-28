@@ -317,8 +317,8 @@ export const workflowRouter = router({
       const artifact = await ctx.db.query.artifacts.findFirst({ where: eq(artifacts.id, input.artifactId) });
       if (!artifact) throw new TRPCError({ code: "NOT_FOUND" });
 
-      // Any kind may attach — this is where kit/skill/prompt participate in
-      // the process, alongside doc (spec) and plan (execution). Only gate is
+      // Any active kind may attach — skill/prompt participate in the process
+      // alongside doc (spec) and plan (execution). The only gate is
       // the same read-access check used everywhere else.
       const readable = await canAccessArtifact({ userId, systemRole }, artifact, ctx.db);
       if (!readable) throw new TRPCError({ code: "FORBIDDEN", message: "Cannot access this artifact" });

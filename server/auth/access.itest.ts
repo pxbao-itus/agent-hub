@@ -269,7 +269,7 @@ describe("artifactAccessCondition (full accessible set via a real query)", () =>
   it("a backend team member sees every artifact except another user's unshared private one", async () => {
     const titles = await accessibleTitles(engMember.id, "user");
     expect(titles.has(skill3.title)).toBe(false);
-    expect(titles.size).toBe(14); // 15 seeded artifacts minus skill3
+    expect(titles.size).toBe(11); // 12 seeded artifacts minus skill3
   });
 
   it("a content team member (different lineage) sees only public + their own + shared", async () => {
@@ -277,7 +277,6 @@ describe("artifactAccessCondition (full accessible set via a real query)", () =>
     expect(titles).toEqual(
       new Set([
         "Viết email xin nghỉ phép", // public
-        "Bộ kit onboarding", // public
         "Kế hoạch onboarding nhân viên mới", // public
         "Quy trình onboarding nhân viên", // public
         skill3.title, // own private
@@ -291,7 +290,6 @@ describe("artifactAccessCondition (full accessible set via a real query)", () =>
     expect(titles).toEqual(
       new Set([
         "Viết email xin nghỉ phép",
-        "Bộ kit onboarding",
         "Kế hoạch onboarding nhân viên mới",
         "Quy trình onboarding nhân viên",
       ]),
@@ -300,10 +298,10 @@ describe("artifactAccessCondition (full accessible set via a real query)", () =>
 
   it("an org admin with no direct team/dept membership sees every group artifact under the org (D-016 — read inherits downward)", async () => {
     const titles = await accessibleTitles(orgAdmin.id, "user");
-    // Every seeded artifact except the 3 private ones not owned by / shared
-    // with orgAdmin (prompt2, skill3, kit3) — public + every group-visibility
+    // Every seeded artifact except the 2 personal private ones not owned by /
+    // shared with orgAdmin (prompt2, skill3) — public + every group-visibility
     // artifact anywhere under qa-org, regardless of which dept/team owns it.
-    expect(titles.size).toBe(12);
+    expect(titles.size).toBe(10);
     expect(titles.has(prompt2.title)).toBe(false);
     expect(titles.has(skill3.title)).toBe(false);
     expect(titles.has(prompt1.title)).toBe(true); // team backend, group
@@ -318,6 +316,6 @@ describe("artifactAccessCondition (full accessible set via a real query)", () =>
 
   it("superadmin's condition is undefined (unfiltered) and returns every seeded artifact", async () => {
     const titles = await accessibleTitles(outsider.id, "superadmin");
-    expect(titles.size).toBe(15);
+    expect(titles.size).toBe(12);
   });
 });

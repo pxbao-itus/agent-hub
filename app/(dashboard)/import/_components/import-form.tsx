@@ -29,13 +29,7 @@ export function ImportForm() {
 
   const importMutation = trpc.artifact.import.useMutation({
     onSuccess: (result) => {
-      const skipped = result.skippedMembers.length;
-      toast({
-        title: "Imported",
-        description: skipped
-          ? `Member${skipped === 1 ? "" : "s"} not found or not accessible, left out: ${result.skippedMembers.join(", ")}`
-          : undefined,
-      });
+      toast({ title: "Imported" });
       router.push(artifactDetailPath(result.kind, result.id));
     },
     onError: (e) => toast({ title: "Failed to import", description: e.message, variant: "destructive" }),
@@ -58,6 +52,7 @@ export function ImportForm() {
   }
 
   const preview = readAsPreview(bundle);
+  const isLegacyKit = preview?.kind === "kit";
 
   return (
     <Card className="max-w-lg">
@@ -83,14 +78,18 @@ export function ImportForm() {
             {preview.description && <p className="text-muted-foreground">{preview.description}</p>}
             <div className="flex gap-3 text-xs text-muted-foreground">
               {!!preview.files?.length && <span>{preview.files.length} file(s)</span>}
-              {!!preview.members?.length && <span>{preview.members.length} member(s)</span>}
               {!!preview.tasks?.length && <span>{preview.tasks.length} task(s)</span>}
             </div>
+            {isLegacyKit && (
+              <p className="text-xs text-destructive">
+                Legacy Kit bundles are no longer supported and cannot be imported.
+              </p>
+            )}
           </div>
         )}
 
         <Button
-          disabled={!bundle || importMutation.isPending}
+          disabled={!bundle || isLegacyKit || importMutation.isPending}
           onClick={() => importMutation.mutate({ bundle: bundle as ArtifactBundle })}
         >
           {importMutation.isPending ? "Importing…" : "Import into my space"}

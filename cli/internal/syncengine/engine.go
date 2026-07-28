@@ -14,7 +14,7 @@ type SyncOptions struct {
 
 type SyncResult struct {
 	Slug      string
-	Kind      string // "skill" | "command" | "kit"
+	Kind      string // "skill"
 	Action    SyncAction
 	VersionNo int
 }
@@ -79,81 +79,10 @@ func reconcileSkillBundle(bundle mcp.SkillBundle, m *manifest.Manifest, opts Syn
 	return SyncResult{Slug: bundle.Slug, Kind: "skill", Action: action, VersionNo: bundle.VersionNo}, nil
 }
 
-func reconcileCommandBundle(prompt mcp.PromptEntry, m *manifest.Manifest, opts SyncOptions, rootDir string) (SyncResult, error) {
-	entry, hasEntry := m.Commands[prompt.Slug]
-	disk := fsio.ReadCommandFromDisk(prompt.Slug, rootDir)
-	var diskHashPtr *string
-	if disk != nil {
-		h := hashutil.HashContent(*disk, nil)
-		diskHashPtr = &h
-	}
-	remoteHash := hashutil.HashContent(prompt.Body, nil)
-	lastKnown := ""
-	if hasEntry {
-		lastKnown = entry.ContentHash
-	}
-	action := ClassifySync(diskHashPtr, lastKnown, remoteHash)
-
-	if opts.Apply && (action == ActionUpdate || (action == ActionConflict && opts.Force)) {
-		if _, err := fsio.WritePromptAsCommand(prompt.Slug, prompt.Body, rootDir); err != nil {
-			return SyncResult{}, err
-		}
-		m.Commands[prompt.Slug] = manifest.Entry{VersionNo: prompt.VersionNo, ContentHash: remoteHash}
-	}
-	return SyncResult{Slug: prompt.Slug, Kind: "command", Action: action, VersionNo: prompt.VersionNo}, nil
-}
-
 func ReconcileTrackedSkill(client *mcp.Client, slug string, m *manifest.Manifest, opts SyncOptions, rootDir string) (SyncResult, error) {
 	bundle, err := client.PullSkill(slug)
 	if err != nil {
 		return SyncResult{}, err
 	}
 	return reconcileSkillBundle(bundle, m, opts, rootDir)
-}
-
-type KitReconcileResult struct {
-	Kit     SyncResult
-	Members []SyncResult
-}
-
-// ReconcileTrackedKit has no file of its own on disk — its "conflict"
-// concept doesn't apply, only its member skills/commands (reconciled here
-// too) can carry local edits. The kit's own manifest entry just tracks
-// whether its member list/versions changed since last sync, for reporting.
-func ReconcileTrackedKit(client *mcp.Client, slug string, m *manifest.Manifest, opts SyncOptions, rootDir string) (KitReconcileResult, error) {
-	bundle, err := client.PullKit(slug)
-	if err != nil {
-		return KitReconcileResult{}, err
-	}
-
-	var members []SyncResult
-	for _, skill := range bundle.Skills {
-		r, err := reconcileSkillBundle(skill, m, opts, rootDir)
-		if err != nil {
-			return KitReconcileResult{}, err
-		}
-		members = append(members, r)
-	}
-	for _, prompt := range bundle.Prompts {
-		r, err := reconcileCommandBundle(prompt, m, opts, rootDir)
-		if err != nil {
-			return KitReconcileResult{}, err
-		}
-		members = append(members, r)
-	}
-
-	entry, hasEntry := m.Kits[slug]
-	remoteHash := KitContentHash(bundle)
-	kitAction := ActionUpdate
-	if hasEntry && entry.ContentHash == remoteHash {
-		kitAction = ActionUpToDate
-	}
-	if opts.Apply {
-		m.Kits[slug] = manifest.Entry{VersionNo: bundle.VersionNo, ContentHash: remoteHash}
-	}
-
-	return KitReconcileResult{
-		Kit:     SyncResult{Slug: slug, Kind: "kit", Action: kitAction, VersionNo: bundle.VersionNo},
-		Members: members,
-	}, nil
 }

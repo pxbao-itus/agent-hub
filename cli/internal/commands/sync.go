@@ -40,6 +40,18 @@ func sortedKeys(m map[string]manifest.Entry) []string {
 	return keys
 }
 
+func warnLegacyKits(m *manifest.Manifest) {
+	if len(m.LegacyKits) == 0 {
+		return
+	}
+	fmt.Fprintf(
+		os.Stderr,
+		"Warning: %d legacy Kit tracking entr%s will be removed when the manifest is next written; previously generated local files are preserved.\n",
+		len(m.LegacyKits),
+		map[bool]string{true: "y", false: "ies"}[len(m.LegacyKits) == 1],
+	)
+}
+
 func Sync(args []string) error {
 	force := false
 	for _, a := range args {
@@ -55,33 +67,12 @@ func Sync(args []string) error {
 	client := mcp.NewClient(cfg)
 	rootDir := "."
 	m := manifest.Load(rootDir)
+	warnLegacyKits(m)
 	opts := syncengine.SyncOptions{Apply: true, Force: force}
 
-	// Kits first — their member skills/prompts are reconciled as part of the
-	// kit call, so skipping those slugs below avoids re-fetching (and
-	// double-printing) anything already tracked both directly and via a kit.
-	touchedSkills := map[string]bool{}
 	unresolvedConflicts := 0
 
-	for _, slug := range sortedKeys(m.Kits) {
-		result, err := syncengine.ReconcileTrackedKit(client, slug, m, opts, rootDir)
-		if err != nil {
-			return err
-		}
-		fmt.Println(describeSync(result.Kit, force))
-		for _, member := range result.Members {
-			touchedSkills[member.Slug] = true
-			fmt.Printf("  %s\n", describeSync(member, force))
-			if member.Action == syncengine.ActionConflict && !force {
-				unresolvedConflicts++
-			}
-		}
-	}
-
 	for _, slug := range sortedKeys(m.Skills) {
-		if touchedSkills[slug] {
-			continue
-		}
 		result, err := syncengine.ReconcileTrackedSkill(client, slug, m, opts, rootDir)
 		if err != nil {
 			return err

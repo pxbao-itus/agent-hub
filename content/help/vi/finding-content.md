@@ -23,7 +23,7 @@ Sau khi mở một kết quả:
 1. Kiểm tra owner, visibility, version hiện tại và thời điểm cập nhật.
 2. Đọc nội dung và artifact liên quan để xác nhận phù hợp.
 3. Đánh dấu yêu thích nếu sẽ quay lại thường xuyên.
-4. Dùng trực tiếp qua MCP, thêm vào Kit, Project hoặc Workflow, hoặc nhân bản
+4. Dùng trực tiếp qua MCP, thêm vào Project hoặc Workflow, hoặc nhân bản
    nếu cần một bản được duy trì độc lập.
 
 Bản nhân bản bắt đầu lịch sử version riêng. Một số reference có thể được giữ lại

@@ -24,10 +24,10 @@ type Props = {
 
 /**
  * Search dialog to attach any artifact kind to a workflow stage — unlike
- * project's doc/plan-only picker, a stage can hold prompt/skill/kit too
- * (that's where a kit "plugs in" to a process). Queries each kind's own
+ * project's doc/plan-only picker, a stage can hold prompt/skill too.
+ * Queries each kind's own
  * `.list` in parallel (small cap each), same shape as AssignArtifactDialog
- * just extended to all 5 kinds instead of 2.
+ * just extended to all four artifact kinds instead of two.
  */
 export function AttachStageArtifactDialog({ stageId, attachedIds, onAttached }: Props) {
   const [open, setOpen] = useState(false);
@@ -36,7 +36,6 @@ export function AttachStageArtifactDialog({ stageId, attachedIds, onAttached }: 
   const enabled = open && query.length >= 1;
   const prompts = trpc.prompt.list.useQuery({ query: query || undefined, limit: 5 }, { enabled });
   const skills = trpc.skill.list.useQuery({ query: query || undefined, limit: 5 }, { enabled });
-  const kits = trpc.kit.list.useQuery({ query: query || undefined, limit: 5 }, { enabled });
   const plans = trpc.plan.list.useQuery({ query: query || undefined, limit: 5 }, { enabled });
   const docs = trpc.doc.list.useQuery({ query: query || undefined, limit: 5 }, { enabled });
 
@@ -51,11 +50,10 @@ export function AttachStageArtifactDialog({ stageId, attachedIds, onAttached }: 
   const results = [
     ...(prompts.data?.items ?? []).map((a) => ({ ...a, kind: "prompt" as const })),
     ...(skills.data?.items ?? []).map((a) => ({ ...a, kind: "skill" as const })),
-    ...(kits.data?.items ?? []).map((a) => ({ ...a, kind: "kit" as const })),
     ...(plans.data?.items ?? []).map((a) => ({ ...a, kind: "plan" as const })),
     ...(docs.data?.items ?? []).map((a) => ({ ...a, kind: "doc" as const })),
   ];
-  const isLoading = prompts.isLoading || skills.isLoading || kits.isLoading || plans.isLoading || docs.isLoading;
+  const isLoading = prompts.isLoading || skills.isLoading || plans.isLoading || docs.isLoading;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -73,7 +71,7 @@ export function AttachStageArtifactDialog({ stageId, attachedIds, onAttached }: 
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search prompts, skills, kits, plans, docs…"
+            placeholder="Search prompts, skills, plans, docs…"
             autoFocus
           />
           <div className="divide-y rounded-md border max-h-72 overflow-y-auto">

@@ -9,7 +9,6 @@ The main artifact types are:
 
 - **Prompt** — reusable text that can contain variables.
 - **Skill** — instructions plus optional supporting files for an agent.
-- **Kit** — a collection of related prompts, skills, or nested kits.
 - **Doc** — reference material that can inform plans and projects.
 - **Plan** — an overview and a list of trackable tasks.
 
@@ -36,7 +35,7 @@ access. Assignment also does not grant access by itself.
 3. Select the correct owner space and visibility.
 4. Add a clear title, short description, useful tags, and the reusable content.
 5. Save the artifact and review its detail page.
-6. Add it to a project, kit, or workflow when it belongs to a broader effort.
+6. Add it to a project or workflow when it belongs to a broader effort.
 7. If an AI agent needs it, create a scoped MCP token and connect the client.
 
 Each later save creates a new immutable version. You can inspect or compare

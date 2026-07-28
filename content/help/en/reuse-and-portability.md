@@ -4,7 +4,7 @@ Use **Duplicate** when you need an independently maintained copy inside Agent
 Hub. Use **Export** and **Import** when moving content between spaces, backups,
 or different Agent Hub instances.
 
-Linking an artifact into a Kit, Project, or Workflow is not duplication. The
+Linking an artifact into a Project or Workflow is not duplication. The
 linked item continues to use its original owner and current version.
 
 ## Duplicate
@@ -12,9 +12,8 @@ linked item continues to use its original owner and current version.
 A duplicate starts at version 1 with a new identity and ownership. Review its
 title, visibility, and destination space before publishing it.
 
-Kind-specific data such as files, tasks, or Kit members may be copied. Kit
-members remain references where possible; inaccessible references may be
-skipped. Version history and usage counters are not the new copy's history.
+Kind-specific data such as Skill files or Plan tasks may be copied. Version
+history and usage counters are not the new copy's history.
 
 ## Export and import
 
@@ -22,7 +21,7 @@ Export creates a versioned bundle representation of the artifact and supported
 related data. Before importing:
 
 1. Inspect the bundle source and intended destination.
-2. Preview the parsed artifact and any unresolved references.
+2. Preview the parsed artifact and bundled data.
 3. Select a destination space you may edit.
 4. Resolve name or slug conflicts.
 5. Import, then review the created artifact before sharing it.
@@ -32,9 +31,8 @@ or bundled files before installing them in an agent workspace.
 
 ## Access considerations
 
-Export only includes information you are allowed to read. Import does not grant
-access to referenced artifacts that already exist in the destination. Missing
-or inaccessible references may be reported and omitted rather than causing the
-entire operation to fail.
+Export only includes information you are allowed to read. Import creates a new
+artifact but does not grant any additional access in the destination.
 
-For packaged agent content, see [Kits](/help/kits).
+For local agent content, see [Skills](/help/skills) and
+[CLI filesystem sync](/help/cli-sync).

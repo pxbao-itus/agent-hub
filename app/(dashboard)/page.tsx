@@ -8,21 +8,19 @@ import { listMyWork } from "@/server/services/my-work";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { BookText, Wrench, Package, ClipboardList, FileText, Building2, Key, Plus, Sparkles, Flame, Star, ListChecks } from "lucide-react";
+import { BookText, Wrench, ClipboardList, FileText, Building2, Key, Plus, Sparkles, Flame, Star, ListChecks } from "lucide-react";
 
 export const metadata = { title: "Dashboard" };
 
 const KIND_ICON: Record<string, React.ElementType> = {
   prompt: BookText,
   skill: Wrench,
-  kit: Package,
   plan: ClipboardList,
   doc: FileText,
 };
 const KIND_HREF: Record<string, string> = {
   prompt: "/prompts",
   skill: "/skills",
-  kit: "/kits",
   plan: "/plans",
   doc: "/docs",
 };
@@ -36,10 +34,9 @@ export default async function DashboardHome() {
   const accessWhere = await artifactAccessCondition(userId, isSuperAdmin ? "superadmin" : "user", db);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
-  const [[{ promptCount }], [{ skillCount }], [{ kitCount }], [{ planCount }], [{ docCount }], [{ orgCount }], [{ tokenCount }], recentActivity, mostUsed, favorites] = await Promise.all([
+  const [[{ promptCount }], [{ skillCount }], [{ planCount }], [{ docCount }], [{ orgCount }], [{ tokenCount }], recentActivity, mostUsed, favorites] = await Promise.all([
     db.select({ promptCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "prompt"), accessWhere)),
     db.select({ skillCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "skill"), accessWhere)),
-    db.select({ kitCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "kit"), accessWhere)),
     db.select({ planCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "plan"), accessWhere)),
     db.select({ docCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "doc"), accessWhere)),
     db
@@ -74,7 +71,7 @@ export default async function DashboardHome() {
       .limit(10),
   ]);
 
-  const totalArtifacts = promptCount + skillCount + kitCount + planCount + docCount;
+  const totalArtifacts = promptCount + skillCount + planCount + docCount;
   const displayName = session!.user?.name ?? session!.user?.email ?? "there";
   const myWork = await listMyWork(
     { userId, systemRole: isSuperAdmin ? "superadmin" : "user" },
@@ -108,16 +105,6 @@ export default async function DashboardHome() {
           </CardHeader>
           <CardContent className="px-4 pb-4 pt-0">
             <p className="text-3xl font-bold">{skillCount}</p>
-            <p className="text-xs text-muted-foreground mt-1">accessible to you</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between px-4 pt-4 pb-2">
-            <CardTitle className="text-sm text-muted-foreground font-medium">Kits</CardTitle>
-            <Package className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="px-4 pb-4 pt-0">
-            <p className="text-3xl font-bold">{kitCount}</p>
             <p className="text-xs text-muted-foreground mt-1">accessible to you</p>
           </CardContent>
         </Card>
@@ -170,9 +157,6 @@ export default async function DashboardHome() {
         </Button>
         <Button asChild size="sm" variant="outline">
           <Link href="/skills/new"><Plus className="h-4 w-4" />New skill</Link>
-        </Button>
-        <Button asChild size="sm" variant="outline">
-          <Link href="/kits/new"><Plus className="h-4 w-4" />New kit</Link>
         </Button>
         <Button asChild size="sm" variant="outline">
           <Link href="/plans/new"><Plus className="h-4 w-4" />New plan</Link>

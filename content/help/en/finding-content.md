@@ -24,7 +24,7 @@ After opening a result:
 1. Check its owner, visibility, current version, and recent update time.
 2. Read its body and related artifacts to confirm it fits the task.
 3. Favorite it when you expect to return to it.
-4. Use it directly through MCP, add it to a Kit, Project, or Workflow, or create
+4. Use it directly through MCP, add it to a Project or Workflow, or create
    a duplicate when you need an independently maintained copy.
 
 A duplicate starts its own version history. Some references may be preserved or

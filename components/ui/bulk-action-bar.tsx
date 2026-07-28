@@ -12,7 +12,7 @@ import { runUndoable } from "@/lib/undoable-action";
 import { toast } from "@/hooks/use-toast";
 import { Tag, FolderKanban, Trash2, UserPlus, X } from "lucide-react";
 
-type Props = { kind: "prompt" | "skill" | "kit" | "plan" | "doc" };
+type Props = { kind: "prompt" | "skill" | "plan" | "doc" };
 
 /**
  * Floating bulk-action bar (Phase 45 B2). Renders nothing with an empty

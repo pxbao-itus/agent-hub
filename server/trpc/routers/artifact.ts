@@ -2,53 +2,63 @@ import { z } from "zod";
 import { eq, desc, asc, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
-import { artifacts, artifactVersions, artifactMembers, artifactTasks } from "@/server/db/schema";
+import { artifacts, artifactVersions, artifactTasks } from "@/server/db/schema";
 import { canAccessArtifact, canMutatePrompt, effectiveGroupRole } from "@/server/auth/access";
 import { createArtifact } from "@/server/services/artifact";
 
 const BULK_MAX = 100;
 
-const artifactKindEnum = z.enum(["prompt", "skill", "kit", "plan", "doc"]);
+const activeArtifactKindSchema = z.enum(["prompt", "skill", "plan", "doc"]);
+const legacyArtifactKindSchema = z.enum(["prompt", "skill", "kit", "plan", "doc"]);
 
-/**
- * Bundle format for export/import — v1. Member refs carry the real artifact
- * id (not slug): most artifacts have no stored slug at all (it's optional),
- * and resolving by title+kind would be ambiguous across titles. Importing
- * with a member id that exists and is accessible re-links to that *same*
- * artifact (by-reference, same semantics as duplicate's kit-member copying)
- * rather than creating a new copy of it — kind/title are carried alongside
- * only for display and as the label shown when a member has to be skipped.
- */
-export const artifactBundleSchema = z.object({
-  schemaVersion: z.literal(1),
-  kind: artifactKindEnum,
+const bundleFilesSchema = z
+  .array(z.object({ path: z.string().min(1).max(500), content: z.string(), mimeType: z.string().nullable().optional() }))
+  .default([]);
+const bundleTasksSchema = z
+  .array(
+    z.object({
+      content: z.string().min(1),
+      status: z.enum(["todo", "doing", "done"]).default("todo"),
+      position: z.number().int().min(0).optional(),
+    }),
+  )
+  .default([]);
+const bundleBase = {
   title: z.string().min(1).max(200),
   slug: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
   tags: z.array(z.string()).default([]),
   body: z.string(),
-  files: z
-    .array(z.object({ path: z.string().min(1).max(500), content: z.string(), mimeType: z.string().nullable().optional() }))
-    .default([]),
-  members: z.array(z.object({ id: z.string().uuid(), kind: artifactKindEnum, title: z.string() })).default([]),
-  tasks: z
-    .array(
-      z.object({
-        content: z.string().min(1),
-        status: z.enum(["todo", "doing", "done"]).default("todo"),
-        position: z.number().int().min(0).optional(),
-      }),
-    )
+  files: bundleFilesSchema,
+  tasks: bundleTasksSchema,
+};
+
+/**
+ * Active bundle format is v2. Import also accepts v1 for the four remaining
+ * kinds so useful exports survive the Kit removal; v1 Kit bundles are rejected
+ * explicitly by the mutation before any write.
+ */
+const artifactBundleV1Schema = z.object({
+  schemaVersion: z.literal(1),
+  kind: legacyArtifactKindSchema,
+  ...bundleBase,
+  members: z
+    .array(z.object({ id: z.string().uuid(), kind: legacyArtifactKindSchema, title: z.string() }))
     .default([]),
 });
+const artifactBundleV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  kind: activeArtifactKindSchema,
+  ...bundleBase,
+});
+export const artifactBundleSchema = z.union([artifactBundleV2Schema, artifactBundleV1Schema]);
 export type ArtifactBundle = z.infer<typeof artifactBundleSchema>;
+export type ArtifactBundleV2 = z.infer<typeof artifactBundleV2Schema>;
 
 /**
  * Generic operations across all artifact kinds — as opposed to prompt.ts/
- * skill.ts/kit.ts/plan.ts/doc.ts, which each own their kind-specific create/
- * update/delete. Duplicate only needs read access to the source and doesn't
- * care what kind it is, so one mutation here covers all five instead of
- * five near-identical copies.
+ * kind-specific routers own create/update/delete. Duplicate only needs read
+ * access to the source, so one mutation covers all four active kinds.
  */
 export const artifactRouter = router({
   duplicate: protectedProcedure
@@ -85,9 +95,7 @@ export const artifactRouter = router({
       }
 
       let files: { path: string; content: string; mimeType?: string | null }[] | undefined;
-      let members: { memberArtifactId: string; position: number }[] | undefined;
       let tasks: { content: string; status?: "todo" | "doing" | "done"; position?: number }[] | undefined;
-      let skippedMembers = 0;
 
       if (source.kind === "skill") {
         const versionWithFiles = await ctx.db.query.artifactVersions.findFirst({
@@ -95,27 +103,6 @@ export const artifactRouter = router({
           with: { files: true },
         });
         files = versionWithFiles?.files.map((f) => ({ path: f.path, content: f.content, mimeType: f.mimeType }));
-      }
-
-      if (source.kind === "kit") {
-        const memberRows = await ctx.db.query.artifactMembers.findMany({
-          where: eq(artifactMembers.kitArtifactId, source.id),
-          orderBy: asc(artifactMembers.position),
-        });
-        const kept: { memberArtifactId: string; position: number }[] = [];
-        for (const m of memberRows) {
-          const memberArtifact = await ctx.db.query.artifacts.findFirst({
-            where: eq(artifacts.id, m.memberArtifactId),
-          });
-          const memberAccessible =
-            memberArtifact && (await canAccessArtifact({ userId, systemRole }, memberArtifact, ctx.db));
-          if (memberAccessible) {
-            kept.push({ memberArtifactId: m.memberArtifactId, position: kept.length });
-          } else {
-            skippedMembers++;
-          }
-        }
-        members = kept;
       }
 
       if (source.kind === "plan") {
@@ -126,7 +113,7 @@ export const artifactRouter = router({
         tasks = taskRows.map((t) => ({ content: t.content, status: t.status, position: t.position }));
       }
 
-      // Group artifacts can't be private (same rule prompt/skill/kit/plan/doc
+      // Group artifacts can't be private (same rule kind-specific
       // create mutations already enforce) — only "user" ownership gets to be
       // private by default.
       const copy = await createArtifact(
@@ -143,18 +130,17 @@ export const artifactRouter = router({
           changelog: `Duplicated from "${source.title}"`,
           createdBy: userId,
           files,
-          members,
           tasks,
         },
         ctx.db,
       );
 
-      return { ...copy, skippedMembers };
+      return copy;
     }),
 
   export: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
-    .query(async ({ ctx, input }): Promise<ArtifactBundle> => {
+    .query(async ({ ctx, input }): Promise<ArtifactBundleV2> => {
       const { userId, systemRole } = ctx.session;
 
       const source = await ctx.db.query.artifacts.findFirst({
@@ -170,8 +156,7 @@ export const artifactRouter = router({
       if (!version) throw new TRPCError({ code: "BAD_REQUEST", message: "Source has no version to export" });
 
       let files: ArtifactBundle["files"] = [];
-      let members: ArtifactBundle["members"] = [];
-      let tasks: ArtifactBundle["tasks"] = [];
+      let tasks: ArtifactBundleV2["tasks"] = [];
 
       if (source.kind === "skill") {
         const versionWithFiles = await ctx.db.query.artifactVersions.findFirst({
@@ -179,25 +164,6 @@ export const artifactRouter = router({
           with: { files: true },
         });
         files = versionWithFiles?.files.map((f) => ({ path: f.path, content: f.content, mimeType: f.mimeType })) ?? [];
-      }
-
-      if (source.kind === "kit") {
-        const memberRows = await ctx.db.query.artifactMembers.findMany({
-          where: eq(artifactMembers.kitArtifactId, source.id),
-          orderBy: asc(artifactMembers.position),
-        });
-        const memberIds = memberRows.map((m) => m.memberArtifactId);
-        const memberArtifacts = memberIds.length
-          ? await ctx.db.query.artifacts.findMany({
-              where: inArray(artifacts.id, memberIds),
-              columns: { id: true, kind: true, title: true },
-            })
-          : [];
-        const memberMap = new Map(memberArtifacts.map((a) => [a.id, a]));
-        members = memberRows
-          .map((m) => memberMap.get(m.memberArtifactId))
-          .filter((a): a is NonNullable<typeof a> => !!a)
-          .map((a) => ({ id: a.id, kind: a.kind, title: a.title }));
       }
 
       if (source.kind === "plan") {
@@ -209,7 +175,7 @@ export const artifactRouter = router({
       }
 
       return {
-        schemaVersion: 1,
+        schemaVersion: 2,
         kind: source.kind,
         title: source.title,
         slug: source.slug,
@@ -217,7 +183,6 @@ export const artifactRouter = router({
         tags: source.tags,
         body: version.body,
         files,
-        members,
         tasks,
       };
     }),
@@ -234,6 +199,13 @@ export const artifactRouter = router({
       const { userId, systemRole } = ctx.session;
       const { bundle } = input;
 
+      if (bundle.kind === "kit") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Kit bundles are no longer supported",
+        });
+      }
+
       const targetOwnerType = input.ownerType;
       const targetOwnerId = targetOwnerType === "user" ? userId : (input.ownerId ?? userId);
 
@@ -242,26 +214,6 @@ export const artifactRouter = router({
         if (role !== "editor" && role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "You need editor or admin role in that group space" });
         }
-      }
-
-      let resolvedMembers: { memberArtifactId: string; position: number }[] | undefined;
-      const skippedMembers: string[] = [];
-
-      if (bundle.kind === "kit" && bundle.members.length > 0) {
-        const memberIds = bundle.members.map((m) => m.id);
-        const found = await ctx.db.query.artifacts.findMany({ where: inArray(artifacts.id, memberIds) });
-        const foundMap = new Map(found.map((a) => [a.id, a]));
-        const kept: { memberArtifactId: string; position: number }[] = [];
-        for (const ref of bundle.members) {
-          const artifact = foundMap.get(ref.id);
-          const memberAccessible = artifact && (await canAccessArtifact({ userId, systemRole }, artifact, ctx.db));
-          if (memberAccessible) {
-            kept.push({ memberArtifactId: ref.id, position: kept.length });
-          } else {
-            skippedMembers.push(ref.title);
-          }
-        }
-        resolvedMembers = kept;
       }
 
       const created = await createArtifact(
@@ -280,13 +232,12 @@ export const artifactRouter = router({
           changelog: `Imported: "${bundle.title}"`,
           createdBy: userId,
           files: bundle.kind === "skill" ? bundle.files : undefined,
-          members: resolvedMembers,
           tasks: bundle.kind === "plan" ? bundle.tasks : undefined,
         },
         ctx.db,
       );
 
-      return { ...created, skippedMembers };
+      return created;
     }),
 
   /**

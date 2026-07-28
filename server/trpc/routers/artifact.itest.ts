@@ -3,7 +3,7 @@ import { eq, inArray } from "drizzle-orm";
 import { createTestDb } from "@/server/test-support/test-db";
 import * as schema from "@/server/db/schema";
 import { createArtifact } from "@/server/services/artifact";
-import { artifactRouter, type ArtifactBundle } from "./artifact";
+import { artifactRouter, type ArtifactBundleV2 } from "./artifact";
 import type { Context } from "@/server/trpc/context";
 
 const { db, close } = createTestDb();
@@ -28,7 +28,6 @@ async function mustArtifact(title: string) {
 }
 
 let engMember: typeof schema.users.$inferSelect;
-let marketingMember: typeof schema.users.$inferSelect;
 let outsider: typeof schema.users.$inferSelect;
 let content: typeof schema.teams.$inferSelect;
 
@@ -42,7 +41,6 @@ const createdArtifactIds: string[] = [];
 
 beforeAll(async () => {
   engMember = await mustUser("eng-member@test.local");
-  marketingMember = await mustUser("marketing-member@test.local");
   outsider = await mustUser("outsider@test.local");
   [content] = await db.select().from(schema.teams).where(eq(schema.teams.slug, "content"));
 });
@@ -99,28 +97,6 @@ describe("createArtifact (server/services/artifact.ts)", () => {
     expect(files[0]).toMatchObject({ path: "notes.md", content: "some notes" });
   });
 
-  it("creates a kit with members", async () => {
-    const prompt2 = await mustArtifact("Summarize meeting notes");
-    const created = await createArtifact(
-      {
-        kind: "kit",
-        ownerType: "user",
-        ownerId: engMember.id,
-        title: "itest kit with members",
-        body: "bundle",
-        createdBy: engMember.id,
-        members: [{ memberArtifactId: prompt2.id, position: 0 }],
-      },
-      db,
-    );
-    createdArtifactIds.push(created.id);
-    const members = await db.query.artifactMembers.findMany({
-      where: eq(schema.artifactMembers.kitArtifactId, created.id),
-    });
-    expect(members).toHaveLength(1);
-    expect(members[0].memberArtifactId).toBe(prompt2.id);
-  });
-
   it("creates a plan with tasks", async () => {
     const created = await createArtifact(
       {
@@ -156,25 +132,11 @@ describe("artifact.duplicate", () => {
     expect(copy.ownerType).toBe("user");
     expect(copy.ownerId).toBe(engMember.id);
     expect(copy.visibility).toBe("private");
-    expect(copy.skippedMembers).toBe(0);
 
     const version = await db.query.artifactVersions.findFirst({
       where: eq(schema.artifactVersions.id, copy.currentVersionId!),
     });
     expect(version?.body).toContain("Summarize the following transcript");
-  });
-
-  it("duplicates a kit, preserving all accessible members", async () => {
-    const source = await mustArtifact("Meta kit"); // members: [kit1, prompt2] — both accessible to the owner
-    const caller = callerAs({ userId: engMember.id, systemRole: "user" });
-    const copy = await caller.duplicate({ sourceId: source.id });
-    createdArtifactIds.push(copy.id);
-
-    expect(copy.skippedMembers).toBe(0);
-    const members = await db.query.artifactMembers.findMany({
-      where: eq(schema.artifactMembers.kitArtifactId, copy.id),
-    });
-    expect(members).toHaveLength(2);
   });
 
   it("duplicates a skill, preserving its bundled files", async () => {
@@ -189,23 +151,6 @@ describe("artifact.duplicate", () => {
     expect(files).toHaveLength(1);
     expect(files[0]).toMatchObject({ path: "checklist.md" });
     expect(files[0].content).toContain("Tests pass");
-  });
-
-  it("skips kit members the duplicating user can't access, and counts them", async () => {
-    // "Bộ kit onboarding" is public (so marketing-member can duplicate it),
-    // but one of its members (skill2, dept-engineering group) is not
-    // accessible to a content-team member — see D-016's cone closure: no
-    // cross-branch downward reach into an unrelated department.
-    const source = await mustArtifact("Bộ kit onboarding");
-    const caller = callerAs({ userId: marketingMember.id, systemRole: "user" });
-    const copy = await caller.duplicate({ sourceId: source.id });
-    createdArtifactIds.push(copy.id);
-
-    expect(copy.skippedMembers).toBe(1);
-    const members = await db.query.artifactMembers.findMany({
-      where: eq(schema.artifactMembers.kitArtifactId, copy.id),
-    });
-    expect(members).toHaveLength(1); // only prompt3 (org, public) kept
   });
 
   it("denies duplicating a source the caller cannot access", async () => {
@@ -224,17 +169,16 @@ describe("artifact.duplicate", () => {
 });
 
 describe("artifact.export", () => {
-  it("exports a plain prompt with empty relation arrays", async () => {
+  it("exports a plain prompt as a v2 bundle", async () => {
     const source = await mustArtifact("Summarize meeting notes");
     const caller = callerAs({ userId: engMember.id, systemRole: "user" });
     const bundle = await caller.export({ id: source.id });
 
-    expect(bundle.schemaVersion).toBe(1);
+    expect(bundle.schemaVersion).toBe(2);
     expect(bundle.kind).toBe("prompt");
     expect(bundle.title).toBe("Summarize meeting notes");
     expect(bundle.tags).toEqual(["productivity"]);
     expect(bundle.files).toEqual([]);
-    expect(bundle.members).toEqual([]);
     expect(bundle.tasks).toEqual([]);
   });
 
@@ -246,16 +190,6 @@ describe("artifact.export", () => {
     expect(bundle.files).toHaveLength(1);
     expect(bundle.files[0].path).toBe("checklist.md");
     expect(bundle.files[0].content).toContain("Tests pass");
-  });
-
-  it("exports a kit's members with id/kind/title", async () => {
-    const source = await mustArtifact("Code review starter kit"); // members: [prompt1, skill1]
-    const caller = callerAs({ userId: engMember.id, systemRole: "user" });
-    const bundle = await caller.export({ id: source.id });
-
-    expect(bundle.members).toHaveLength(2);
-    const kinds = bundle.members.map((m) => m.kind).sort();
-    expect(kinds).toEqual(["prompt", "skill"]);
   });
 
   it("exports a plan's tasks in position order", async () => {
@@ -275,9 +209,9 @@ describe("artifact.export", () => {
 });
 
 describe("artifact.import", () => {
-  function bundle(overrides: Partial<ArtifactBundle> = {}): ArtifactBundle {
+  function bundle(overrides: Partial<ArtifactBundleV2> = {}): ArtifactBundleV2 {
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       kind: "prompt",
       title: "itest imported prompt",
       slug: null,
@@ -285,7 +219,6 @@ describe("artifact.import", () => {
       tags: ["imported"],
       body: "imported body {{x}}",
       files: [],
-      members: [],
       tasks: [],
       ...overrides,
     };
@@ -300,7 +233,6 @@ describe("artifact.import", () => {
     expect(result.ownerType).toBe("user");
     expect(result.ownerId).toBe(engMember.id);
     expect(result.visibility).toBe("private");
-    expect(result.skippedMembers).toEqual([]);
 
     const version = await db.query.artifactVersions.findFirst({
       where: eq(schema.artifactVersions.id, result.currentVersionId!),
@@ -308,47 +240,44 @@ describe("artifact.import", () => {
     expect(version?.body).toBe("imported body {{x}}");
   });
 
-  it("resolves kit member refs that exist and are accessible", async () => {
-    const prompt1 = await mustArtifact("Rà soát bảo mật mã nguồn");
+  it("accepts a legacy v1 non-Kit bundle", async () => {
     const caller = callerAs({ userId: engMember.id, systemRole: "user" });
     const result = await caller.import({
-      bundle: bundle({
-        kind: "kit",
-        title: "itest imported kit",
-        members: [{ id: prompt1.id, kind: "prompt", title: prompt1.title }],
-      }),
+      bundle: {
+        schemaVersion: 1,
+        kind: "prompt",
+        title: "itest imported legacy prompt",
+        tags: [],
+        body: "legacy body",
+        files: [],
+        members: [],
+        tasks: [],
+      },
     });
     createdArtifactIds.push(result.id);
-
-    expect(result.skippedMembers).toEqual([]);
-    const members = await db.query.artifactMembers.findMany({
-      where: eq(schema.artifactMembers.kitArtifactId, result.id),
-    });
-    expect(members).toHaveLength(1);
-    expect(members[0].memberArtifactId).toBe(prompt1.id);
+    expect(result.kind).toBe("prompt");
   });
 
-  it("skips member refs that don't exist or aren't accessible, reporting them by title", async () => {
-    const missingId = "11111111-1111-4111-8111-111111111111";
-    const skill3 = await mustArtifact("Debug memory leaks in Node.js"); // private to marketing-member
+  it("rejects a legacy v1 Kit bundle before writing", async () => {
     const caller = callerAs({ userId: engMember.id, systemRole: "user" });
-    const result = await caller.import({
-      bundle: bundle({
-        kind: "kit",
-        title: "itest kit with bad refs",
-        members: [
-          { id: missingId, kind: "prompt", title: "Ghost prompt" },
-          { id: skill3.id, kind: "skill", title: skill3.title },
-        ],
+    await expect(
+      caller.import({
+        bundle: {
+          schemaVersion: 1,
+          kind: "kit",
+          title: "legacy kit",
+          tags: [],
+          body: "legacy",
+          files: [],
+          members: [],
+          tasks: [],
+        },
       }),
+    ).rejects.toThrow(/Kit bundles are no longer supported/);
+    const rows = await db.query.artifacts.findMany({
+      where: eq(schema.artifacts.title, "legacy kit"),
     });
-    createdArtifactIds.push(result.id);
-
-    expect(result.skippedMembers.sort()).toEqual(["Debug memory leaks in Node.js", "Ghost prompt"].sort());
-    const members = await db.query.artifactMembers.findMany({
-      where: eq(schema.artifactMembers.kitArtifactId, result.id),
-    });
-    expect(members).toHaveLength(0);
+    expect(rows).toHaveLength(0);
   });
 
   it("denies importing into a group space the caller has no editor/admin role in", async () => {
