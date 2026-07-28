@@ -3,7 +3,15 @@ import { eq, inArray, and } from "drizzle-orm";
 import { createTestDb } from "@/server/test-support/test-db";
 import * as schema from "@/server/db/schema";
 import { createArtifact } from "@/server/services/artifact";
-import { resolveAssigner, getAssignments, setAssigner, addAssignee, removeAssignee } from "./assignment";
+import {
+  addAssignee,
+  getAssignments,
+  getWorkItem,
+  removeAssignee,
+  resolveAssigner,
+  setAssigner,
+  updateWorkItem,
+} from "./assignment";
 
 /**
  * This file creates real, permanent throwaway artifacts (+ shares) to
@@ -257,5 +265,78 @@ describe("addAssignee / removeAssignee", () => {
 
     const result = await removeAssignee(doc, marketingMember.id, engMember.id, db);
     expect(result).toEqual({ ok: true, removed: true });
+  });
+});
+
+describe("work-item fields", () => {
+  it("reads defaults without materializing a row, then lazily upserts manager changes", async () => {
+    const doc = await makeDoc({ createdBy: engMember.id, shareWith: [marketingMember.id] });
+    expect(await getWorkItem(doc.id, db)).toEqual({ status: "open", priority: "normal", dueDate: null });
+    expect(await db.select().from(schema.artifactWorkItems).where(eq(schema.artifactWorkItems.artifactId, doc.id))).toHaveLength(0);
+
+    const result = await updateWorkItem(
+      doc,
+      { status: "in_progress", priority: "high", dueDate: "2026-08-15" },
+      { userId: engMember.id, systemRole: "user" },
+      db,
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      changedFields: ["status", "priority", "dueDate"],
+      after: { status: "in_progress", priority: "high", dueDate: "2026-08-15" },
+    });
+    expect(await getWorkItem(doc.id, db)).toEqual({
+      status: "in_progress",
+      priority: "high",
+      dueDate: "2026-08-15",
+    });
+  });
+
+  it("lets an assignee viewer update status but not priority or due date", async () => {
+    const doc = await makeDoc({ createdBy: engMember.id, shareWith: [marketingMember.id] });
+    await addAssignee(doc, marketingMember.id, engMember.id, db);
+
+    const status = await updateWorkItem(
+      doc,
+      { status: "blocked" },
+      { userId: marketingMember.id, systemRole: "user" },
+      db,
+    );
+    expect(status).toMatchObject({ ok: true, after: { status: "blocked" } });
+
+    const priority = await updateWorkItem(
+      doc,
+      { priority: "urgent" },
+      { userId: marketingMember.id, systemRole: "user" },
+      db,
+    );
+    expect(priority).toEqual({
+      ok: false,
+      message: "Only an artifact manager can update priority or due date.",
+    });
+  });
+
+  it("does not audit or notify a no-op and rejects invalid dates", async () => {
+    const doc = await makeDoc({ createdBy: engMember.id });
+    const noop = await updateWorkItem(
+      doc,
+      { status: "open" },
+      { userId: engMember.id, systemRole: "user" },
+      db,
+    );
+    expect(noop).toMatchObject({ ok: true, changedFields: [] });
+    expect(await auditFor(doc.id)).toHaveLength(0);
+    expect(await notificationsFor(doc.id)).toHaveLength(0);
+
+    const invalid = await updateWorkItem(
+      doc,
+      { dueDate: "2026-02-31" },
+      { userId: engMember.id, systemRole: "user" },
+      db,
+    );
+    expect(invalid).toEqual({
+      ok: false,
+      message: "Due date must be a valid date in YYYY-MM-DD format.",
+    });
   });
 });

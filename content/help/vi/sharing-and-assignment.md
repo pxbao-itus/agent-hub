@@ -31,6 +31,26 @@ Thay đổi assignment xuất hiện trong assignment history và có thể gử
 cho user liên quan. Xóa assignee chỉ xóa bản ghi trách nhiệm, không xóa quyền
 truy cập có sẵn của user.
 
+## Làm việc với My Work
+
+Mở **My Work** để xem:
+
+- Doc và Plan được assign cho bạn;
+- công việc bạn điều phối với vai trò effective assigner;
+- công việc bạn có quyền quản lý nhưng chưa có assignee.
+
+Dùng bộ lọc status, priority, due date, loại artifact và trạng thái hạn để thu
+gọn danh sách. Assignment status áp dụng cho toàn bộ Doc hoặc Plan; nó không
+thay thế status của từng task bên trong Plan.
+
+Assignee được cập nhật status. Thay đổi priority, due date, assigner hoặc danh
+sách assignee cần quyền chỉnh sửa artifact. Due date trong phiên bản này dùng
+để hiển thị và lọc: Agent Hub đánh dấu công việc quá hạn nhưng chưa gửi reminder
+theo lịch.
+
+MCP client có write scope có thể đọc My Work và cập nhật cùng các assignment
+field. Token scope và permission của artifact vẫn luôn được áp dụng.
+
 ## Xử lý khi không assign được
 
 1. Xác nhận user tồn tại và đang hoạt động.

@@ -32,6 +32,15 @@ function describe(row: HistoryRow): string {
   if (row.action === "assignment.assignee.remove") {
     return `${actor} removed ${(m.userName as string | null) ?? "someone"} as an assignee`;
   }
+  if (row.action === "assignment.status.change") {
+    return `${actor} changed status: ${String(m.oldValue)} → ${String(m.newValue)}`;
+  }
+  if (row.action === "assignment.priority.change") {
+    return `${actor} changed priority: ${String(m.oldValue)} → ${String(m.newValue)}`;
+  }
+  if (row.action === "assignment.due_date.change") {
+    return `${actor} changed due date: ${String(m.oldValue ?? "none")} → ${String(m.newValue ?? "none")}`;
+  }
   return `${actor} — ${row.action}`;
 }
 

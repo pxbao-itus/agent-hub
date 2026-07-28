@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UserPicker, type PickedUser } from "@/components/ui/user-picker";
 import { toast } from "@/hooks/use-toast";
 import { UserCog, UserPlus, X } from "lucide-react";
@@ -73,6 +75,14 @@ export function AssignmentPanel({ artifactId, canEdit }: Props) {
     },
     onError: (e) => toast({ title: "Failed to add assignee", description: e.message, variant: "destructive" }),
   });
+  const assignToMeMut = trpc.assignment.assignToMe.useMutation({
+    onSuccess: () => {
+      invalidate();
+      utils.assignment.listMyWork.invalidate();
+      toast({ title: "Assigned to you", variant: "success" });
+    },
+    onError: (e) => toast({ title: "Could not assign to you", description: e.message, variant: "destructive" }),
+  });
 
   const removeAssigneeMut = trpc.assignment.removeAssignee.useMutation({
     onSuccess: () => {
@@ -81,12 +91,76 @@ export function AssignmentPanel({ artifactId, canEdit }: Props) {
     },
     onError: (e) => toast({ title: "Failed to remove assignee", description: e.message, variant: "destructive" }),
   });
+  const updateWorkItemMut = trpc.assignment.updateWorkItem.useMutation({
+    onSuccess: () => {
+      invalidate();
+      utils.assignment.listMyWork.invalidate();
+      toast({ title: "Work item updated", variant: "success" });
+    },
+    onError: (e) => toast({ title: "Failed to update work item", description: e.message, variant: "destructive" }),
+  });
 
   const assigner = data?.assigner ?? null;
   const assignees = data?.assignees ?? [];
+  const canManage = data?.canManage ?? canEdit;
 
   return (
     <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="space-y-1">
+          <span className="text-xs font-medium text-muted-foreground">Status</span>
+          <Select
+            value={data?.status ?? "open"}
+            onValueChange={(status) => updateWorkItemMut.mutate({
+              artifactId,
+              status: status as "open" | "in_progress" | "blocked" | "done",
+            })}
+            disabled={!data?.canUpdateStatus || updateWorkItemMut.isPending}
+          >
+            <SelectTrigger className="h-9" aria-label="Assignment status"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="open">Open</SelectItem>
+              <SelectItem value="in_progress">In progress</SelectItem>
+              <SelectItem value="blocked">Blocked</SelectItem>
+              <SelectItem value="done">Done</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+        <label className="space-y-1">
+          <span className="text-xs font-medium text-muted-foreground">Priority</span>
+          <Select
+            value={data?.priority ?? "normal"}
+            onValueChange={(priority) => updateWorkItemMut.mutate({
+              artifactId,
+              priority: priority as "low" | "normal" | "high" | "urgent",
+            })}
+            disabled={!canManage || updateWorkItemMut.isPending}
+          >
+            <SelectTrigger className="h-9" aria-label="Assignment priority"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="low">Low</SelectItem>
+              <SelectItem value="normal">Normal</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+              <SelectItem value="urgent">Urgent</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+        <label className="space-y-1 sm:col-span-2">
+          <span className="text-xs font-medium text-muted-foreground">Due date</span>
+          <Input
+            type="date"
+            value={data?.dueDate ?? ""}
+            onChange={(event) => updateWorkItemMut.mutate({
+              artifactId,
+              dueDate: event.target.value || null,
+            })}
+            disabled={!canManage || updateWorkItemMut.isPending}
+            className="h-9"
+            aria-label="Assignment due date"
+          />
+        </label>
+      </div>
+
       {/* Assigner */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
@@ -102,7 +176,7 @@ export function AssignmentPanel({ artifactId, canEdit }: Props) {
             <span className="text-sm text-muted-foreground">Unassigned</span>
           )}
         </div>
-        {canEdit && (
+        {canManage && (
           <Popover open={assignerOpen} onOpenChange={setAssignerOpen}>
             <PopoverTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs">
@@ -135,8 +209,20 @@ export function AssignmentPanel({ artifactId, canEdit }: Props) {
           <span className="text-sm font-medium">
             Assignees{assignees.length > 0 ? ` (${assignees.length})` : ""}
           </span>
-          {canEdit && (
-            <Popover open={assigneeOpen} onOpenChange={setAssigneeOpen}>
+          <div className="flex items-center gap-1">
+            {data && !data.isCurrentUserAssignee && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => assignToMeMut.mutate({ artifactId })}
+                disabled={assignToMeMut.isPending}
+              >
+                Assign to me
+              </Button>
+            )}
+            {canManage && (
+              <Popover open={assigneeOpen} onOpenChange={setAssigneeOpen}>
               <PopoverTrigger asChild>
                 <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs">
                   <UserPlus className="h-3 w-3" /> Add
@@ -158,8 +244,9 @@ export function AssignmentPanel({ artifactId, canEdit }: Props) {
                   {addAssigneeMut.isPending ? "Adding…" : "Add assignee"}
                 </Button>
               </PopoverContent>
-            </Popover>
-          )}
+              </Popover>
+            )}
+          </div>
         </div>
         {!isLoading && assignees.length === 0 && (
           <p className="text-sm text-muted-foreground">No assignees yet.</p>
@@ -173,7 +260,7 @@ export function AssignmentPanel({ artifactId, canEdit }: Props) {
               >
                 <Avatar user={u} />
                 <span>{u.name ?? u.email}</span>
-                {canEdit && (
+                {canManage && (
                   <button
                     type="button"
                     onClick={() => removeAssigneeMut.mutate({ artifactId, userId: u.id })}

@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { eq, asc, desc, and, or, sql, inArray } from "drizzle-orm";
 import { db } from "@/server/db";
-import { artifacts, artifactVersions, artifactTasks, artifactLinks, workflows, workflowStages, workflowStageArtifacts, projects, projectArtifacts, orgs, departments, teams } from "@/server/db/schema";
+import { artifacts, artifactVersions, artifactTasks, artifactLinks, workflows, workflowStages, workflowStageArtifacts, projects, projectArtifacts, orgs, departments, teams, users } from "@/server/db/schema";
 import { getAccessibleGroups, getSharedArtifactIds, effectiveGroupRole, canMutatePrompt } from "@/server/auth/access";
 import { canViewWorkflow, canManageWorkflow, attachWorkflowProgress } from "@/server/lib/workflow-access";
 import { canViewProject, canManageProject, attachProjectCounts } from "@/server/lib/project-access";
@@ -17,6 +17,8 @@ import { getEmbedder } from "@/server/embedder";
 import { type TokenScope, applyScopeToOwners, promptPassesScopeTags } from "./scope";
 import { flattenKitMembers } from "@/server/lib/kit";
 import { createPlan, addPlanLink } from "@/server/services/plan";
+import { addAssignee, getAssignmentDetail, removeAssignee, setAssigner, updateWorkItem } from "@/server/services/assignment";
+import { listMyWork } from "@/server/services/my-work";
 import { slugify } from "@/lib/slug";
 import type { ArtifactKind } from "@/server/db/schema";
 
@@ -58,6 +60,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
   const kitRows = byKind.kit;
   const planRows = byKind.plan;
   const docRows = byKind.doc;
+  const identityUser = { userId: identity.userId, systemRole: identity.systemRole };
 
   // Resolve hierarchical slug paths for every owner across every kind in one
   // batch — same reasoning: this is a pure lookup by owner identity, not by
@@ -73,6 +76,41 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
   const kitOwnerPaths = ownerSlugPaths;
   const docOwnerPaths = ownerSlugPaths;
   const planOwnerPaths = ownerSlugPaths;
+
+  async function formatAssignmentSection(
+    artifact: Pick<(typeof planRows)[number], "id" | "ownerType" | "ownerId" | "createdBy">,
+  ): Promise<string[]> {
+    const { assignerId, assigneeIds, workItem } = await getAssignmentDetail(artifact, db);
+    const userIds = [...new Set([assignerId, ...assigneeIds].filter((id): id is string => Boolean(id)))];
+    const userRows = userIds.length
+      ? await db.query.users.findMany({
+          where: inArray(users.id, userIds),
+          columns: { id: true, name: true, email: true },
+        })
+      : [];
+    const userById = new Map(userRows.map((user) => [user.id, user]));
+    const displayUser = (userId: string | null) => {
+      if (!userId) return "None";
+      const user = userById.get(userId);
+      if (!user) return "Unknown user";
+      return `${user.name ?? user.email} <${user.email}>`;
+    };
+
+    const lines = [
+      "## Assignment",
+      `- Status: ${workItem.status}`,
+      `- Priority: ${workItem.priority}`,
+      `- Due date: ${workItem.dueDate ?? "None"}`,
+      `- Assigner: ${displayUser(assignerId)}`,
+    ];
+    if (assigneeIds.length === 0) {
+      lines.push("- Assignees: None");
+    } else {
+      lines.push("- Assignees:");
+      for (const assigneeId of assigneeIds) lines.push(`  - ${displayUser(assigneeId)}`);
+    }
+    return lines;
+  }
 
   const seen = new Set<string>();
 
@@ -743,6 +781,9 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         }
       }
 
+      parts.push("");
+      parts.push(...(await formatAssignmentSection(plan)));
+
       // Linked docs — only those accessible to this token
       const links = await db.query.artifactLinks.findMany({
         where: and(eq(artifactLinks.sourceArtifactId, plan.id), eq(artifactLinks.relation, "doc")),
@@ -815,8 +856,53 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
       if (doc.tags.length > 0) parts.push(`_Tags: ${doc.tags.join(", ")}_`);
       parts.push("");
       if (version?.body) parts.push(version.body);
+      parts.push("");
+      parts.push(...(await formatAssignmentSection(doc)));
 
       return { content: [{ type: "text" as const, text: parts.join("\n") }] };
+    },
+  );
+
+  const scopedWorkItemIds = new Set([...planRows, ...docRows].map((artifact) => artifact.id));
+  server.tool(
+    "list_my_work",
+    "List Docs and Plans assigned to you, coordinated by you, or still unassigned. Results respect this token's access scope.",
+    {
+      view: z.enum(["assigned_to_me", "coordinated_by_me", "unassigned"]).default("assigned_to_me"),
+      kind: z.enum(["doc", "plan"]).optional(),
+      status: z.enum(["open", "in_progress", "blocked", "done"]).optional(),
+      priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
+      due: z.enum(["overdue", "today", "next_7_days", "no_due_date"]).optional(),
+      limit: z.number().int().min(1).max(100).default(25),
+    },
+    async ({ view, kind, status, priority, due, limit }) => {
+      const result = await listMyWork(
+        identityUser,
+        {
+          view,
+          kind,
+          status: status ? [status] : undefined,
+          priority: priority ? [priority] : undefined,
+          due,
+          // Apply token scoping after the bounded service query. Fetching the
+          // maximum prevents earlier out-of-scope rows from hiding valid items.
+          limit: 100,
+          sort: "due_date",
+        },
+        db,
+      );
+      const items = result.items.filter((item) => scopedWorkItemIds.has(item.artifact.id)).slice(0, limit);
+      if (items.length === 0) {
+        return { content: [{ type: "text" as const, text: "No matching work items." }] };
+      }
+      const lines = items.map((item) => {
+        const source = item.artifact.kind === "plan"
+          ? planBySlug
+          : docBySlug;
+        const slug = [...source.entries()].find(([, artifact]) => artifact.id === item.artifact.id)?.[0] ?? item.artifact.id;
+        return `- [${item.artifact.kind}] ${slug}: ${item.artifact.title} — status=${item.status}, priority=${item.priority}, due=${item.dueDate ?? "none"}`;
+      });
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     },
   );
 
@@ -829,8 +915,6 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
   // map is invisible to this identity/token and is silently dropped, so
   // get_workflow never leaks a reference to something get_doc/get_skill/etc
   // would then refuse to open.
-
-  const identityUser = { userId: identity.userId, systemRole: identity.systemRole };
 
   async function listAccessibleWorkflows() {
     if (identity.systemRole === "superadmin") {
@@ -1903,22 +1987,154 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
     const resolveDocOrPlan = (
       slug: string,
       kind?: "doc" | "plan",
-    ): { ok: true; id: string; kind: "doc" | "plan"; title: string } | { ok: false; message: string } => {
+    ):
+      | {
+          ok: true;
+          id: string;
+          kind: "doc" | "plan";
+          title: string;
+          artifact: (typeof planRows)[number];
+        }
+      | { ok: false; message: string } => {
       const plan = planBySlug.get(slug);
       const doc = docBySlug.get(slug);
       if (kind === "plan") {
-        return plan ? { ok: true, id: plan.id, kind: "plan", title: plan.title } : { ok: false, message: `Plan '${slug}' not found or not accessible.` };
+        return plan ? { ok: true, id: plan.id, kind: "plan", title: plan.title, artifact: plan } : { ok: false, message: `Plan '${slug}' not found or not accessible.` };
       }
       if (kind === "doc") {
-        return doc ? { ok: true, id: doc.id, kind: "doc", title: doc.title } : { ok: false, message: `Doc '${slug}' not found or not accessible.` };
+        return doc ? { ok: true, id: doc.id, kind: "doc", title: doc.title, artifact: doc } : { ok: false, message: `Doc '${slug}' not found or not accessible.` };
       }
       if (plan && doc) {
         return { ok: false, message: `Slug '${slug}' matches both a doc and a plan — pass kind ("doc" or "plan") to disambiguate.` };
       }
-      if (plan) return { ok: true, id: plan.id, kind: "plan", title: plan.title };
-      if (doc) return { ok: true, id: doc.id, kind: "doc", title: doc.title };
+      if (plan) return { ok: true, id: plan.id, kind: "plan", title: plan.title, artifact: plan };
+      if (doc) return { ok: true, id: doc.id, kind: "doc", title: doc.title, artifact: doc };
       return { ok: false, message: `No doc or plan found with slug '${slug}' (or not accessible).` };
     };
+
+    async function resolveAssignmentTarget(email: string) {
+      return db.query.users.findFirst({
+        where: sql`lower(${users.email}) = lower(${email})`,
+        columns: { id: true, name: true, email: true },
+      });
+    }
+
+    const assignmentToolInput = {
+      slug: z.string().describe("Slug of the doc or plan"),
+      kind: z.enum(["doc", "plan"]).optional().describe("Disambiguate when a doc and a plan share the same slug"),
+      email: z.string().email().describe("Email of the target user"),
+    };
+
+    server.tool(
+      "set_assigner",
+      "Set the assigner for a doc or plan. The target must already be able to view the artifact. Requires artifact edit permission.",
+      assignmentToolInput,
+      async ({ slug, kind, email }) => {
+        const resolved = resolveDocOrPlan(slug, kind);
+        if (!resolved.ok) return { content: [{ type: "text" as const, text: resolved.message }] };
+        if (!(await canMutatePrompt(identityUser, resolved.artifact, db))) {
+          return { content: [{ type: "text" as const, text: `Access denied: cannot manage assignment for '${slug}'.` }] };
+        }
+        const target = await resolveAssignmentTarget(email);
+        if (!target) {
+          return { content: [{ type: "text" as const, text: "Target user not found or cannot be assigned." }] };
+        }
+        const result = await setAssigner(resolved.artifact, target.id, identity.userId, db);
+        if (!result.ok) return { content: [{ type: "text" as const, text: result.message }] };
+        const verb = result.changed ? "Set" : "Already";
+        return {
+          content: [{
+            type: "text" as const,
+            text: `${verb} assigner: ${target.name ?? target.email} <${target.email}> for [${resolved.kind}] '${slug}'.`,
+          }],
+        };
+      },
+    );
+
+    server.tool(
+      "add_assignee",
+      "Add an assignee to a doc or plan. The target must already be able to view the artifact. Requires artifact edit permission.",
+      assignmentToolInput,
+      async ({ slug, kind, email }) => {
+        const resolved = resolveDocOrPlan(slug, kind);
+        if (!resolved.ok) return { content: [{ type: "text" as const, text: resolved.message }] };
+        if (!(await canMutatePrompt(identityUser, resolved.artifact, db))) {
+          return { content: [{ type: "text" as const, text: `Access denied: cannot manage assignment for '${slug}'.` }] };
+        }
+        const target = await resolveAssignmentTarget(email);
+        if (!target) {
+          return { content: [{ type: "text" as const, text: "Target user not found or cannot be assigned." }] };
+        }
+        const result = await addAssignee(resolved.artifact, target.id, identity.userId, db);
+        if (!result.ok) return { content: [{ type: "text" as const, text: result.message }] };
+        const verb = result.alreadyAssigned ? "Already assigned" : "Added assignee";
+        return {
+          content: [{
+            type: "text" as const,
+            text: `${verb}: ${target.name ?? target.email} <${target.email}> on [${resolved.kind}] '${slug}'.`,
+          }],
+        };
+      },
+    );
+
+    server.tool(
+      "remove_assignee",
+      "Remove an assignee from a doc or plan. Requires artifact edit permission.",
+      assignmentToolInput,
+      async ({ slug, kind, email }) => {
+        const resolved = resolveDocOrPlan(slug, kind);
+        if (!resolved.ok) return { content: [{ type: "text" as const, text: resolved.message }] };
+        if (!(await canMutatePrompt(identityUser, resolved.artifact, db))) {
+          return { content: [{ type: "text" as const, text: `Access denied: cannot manage assignment for '${slug}'.` }] };
+        }
+        const target = await resolveAssignmentTarget(email);
+        if (!target) {
+          return { content: [{ type: "text" as const, text: "Target user not found or cannot be assigned." }] };
+        }
+        const result = await removeAssignee(resolved.artifact, target.id, identity.userId, db);
+        if (!result.ok) return { content: [{ type: "text" as const, text: result.message }] };
+        const verb = result.removed ? "Removed assignee" : "Was not assigned";
+        return {
+          content: [{
+            type: "text" as const,
+            text: `${verb}: ${target.name ?? target.email} <${target.email}> on [${resolved.kind}] '${slug}'.`,
+          }],
+        };
+      },
+    );
+
+    server.tool(
+      "update_work_item",
+      "Update status, priority, or due date for a Doc/Plan work item. Assignees may update status; priority and due date require artifact edit permission.",
+      {
+        slug: z.string().describe("Slug of the doc or plan"),
+        kind: z.enum(["doc", "plan"]).optional().describe("Disambiguate when a doc and a plan share the same slug"),
+        status: z.enum(["open", "in_progress", "blocked", "done"]).optional(),
+        priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
+        dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+      },
+      async ({ slug, kind, status, priority, dueDate }) => {
+        if (status === undefined && priority === undefined && dueDate === undefined) {
+          return { content: [{ type: "text" as const, text: "At least one of status, priority, or dueDate is required." }] };
+        }
+        const resolved = resolveDocOrPlan(slug, kind);
+        if (!resolved.ok) return { content: [{ type: "text" as const, text: resolved.message }] };
+        const result = await updateWorkItem(
+          resolved.artifact,
+          { status, priority, dueDate },
+          identityUser,
+          db,
+        );
+        if (!result.ok) return { content: [{ type: "text" as const, text: result.message }] };
+        const changed = result.changedFields.length ? result.changedFields.join(", ") : "nothing (no-op)";
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Updated [${resolved.kind}] '${slug}': ${changed}. Status=${result.after.status}, priority=${result.after.priority}, due=${result.after.dueDate ?? "none"}.`,
+          }],
+        };
+      },
+    );
 
     server.tool(
       "add_artifact_to_project",
@@ -2106,7 +2322,19 @@ async function getArtifactsForIdentity(
   const rows = await db.query.artifacts.findMany({
     where,
     orderBy: desc(artifacts.updatedAt),
-    columns: { id: true, kind: true, title: true, description: true, slug: true, ownerType: true, ownerId: true, tags: true, fetchCount: true },
+    columns: {
+      id: true,
+      kind: true,
+      title: true,
+      description: true,
+      slug: true,
+      ownerType: true,
+      ownerId: true,
+      visibility: true,
+      createdBy: true,
+      tags: true,
+      fetchCount: true,
+    },
     with: {
       variables: { columns: { name: true } },
       versions: { orderBy: desc(artifactVersions.versionNo), limit: 1 },

@@ -5,13 +5,28 @@ import { router, protectedProcedure } from "../trpc";
 import { artifacts, auditEvents, users } from "@/server/db/schema";
 import type { DbClient } from "@/server/db/types";
 import { canAccessArtifact, canMutatePrompt } from "@/server/auth/access";
-import { getAssignments, setAssigner, addAssignee, removeAssignee } from "@/server/services/assignment";
+import {
+  addAssignee,
+  canUpdateAssignmentStatus,
+  getAssignmentDetail,
+  isCurrentAssignee,
+  removeAssignee,
+  setAssigner,
+  updateWorkItem,
+} from "@/server/services/assignment";
+import { countMyWork, listMyWork } from "@/server/services/my-work";
 
 const ASSIGNMENT_AUDIT_ACTIONS = [
   "assignment.assigner.change",
   "assignment.assignee.add",
   "assignment.assignee.remove",
+  "assignment.status.change",
+  "assignment.priority.change",
+  "assignment.due_date.change",
 ] as const;
+
+const assignmentStatusSchema = z.enum(["open", "in_progress", "blocked", "done"]);
+const assignmentPrioritySchema = z.enum(["low", "normal", "high", "urgent"]);
 
 async function findAssignable(id: string, db: DbClient) {
   const artifact = await db.query.artifacts.findFirst({ where: eq(artifacts.id, id) });
@@ -32,7 +47,7 @@ export const assignmentRouter = router({
       const readable = await canAccessArtifact({ userId, systemRole }, artifact, ctx.db);
       if (!readable) throw new TRPCError({ code: "FORBIDDEN" });
 
-      const { assignerId, assigneeIds } = await getAssignments(artifact, ctx.db);
+      const { assignerId, assigneeIds, workItem } = await getAssignmentDetail(artifact, ctx.db);
       const userIds = [...new Set([assignerId, ...assigneeIds].filter((id): id is string => !!id))];
       const rows = userIds.length
         ? await ctx.db.query.users.findMany({
@@ -42,12 +57,49 @@ export const assignmentRouter = router({
         : [];
       const byId = new Map(rows.map((u) => [u.id, u]));
 
+      const canManage = await canMutatePrompt({ userId, systemRole }, artifact, ctx.db);
+      const canUpdateStatus = await canUpdateAssignmentStatus({ userId, systemRole }, artifact, ctx.db);
+      const isCurrentUserAssignee = await isCurrentAssignee(artifact.id, userId, ctx.db);
+
       return {
         assigner: assignerId ? (byId.get(assignerId) ?? null) : null,
         assignees: assigneeIds.flatMap((id) => {
           const u = byId.get(id);
           return u ? [u] : [];
         }),
+        ...workItem,
+        canManage,
+        canUpdateStatus,
+        isCurrentUserAssignee,
+      };
+    }),
+
+  listMyWork: protectedProcedure
+    .input(
+      z.object({
+        view: z.enum(["assigned_to_me", "coordinated_by_me", "unassigned"]).default("assigned_to_me"),
+        kind: z.enum(["doc", "plan"]).optional(),
+        status: z.array(assignmentStatusSchema).max(4).optional(),
+        priority: z.array(assignmentPrioritySchema).max(4).optional(),
+        due: z.enum(["overdue", "today", "next_7_days", "no_due_date"]).optional(),
+        projectId: z.string().uuid().optional(),
+        query: z.string().trim().max(200).optional(),
+        sort: z.enum(["due_date", "priority", "updated"]).default("due_date"),
+        cursor: z.string().optional(),
+        limit: z.number().int().min(1).max(100).default(25),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const actor = { userId: ctx.session.userId, systemRole: ctx.session.systemRole };
+      const [result, assignedToMe, coordinatedByMe, unassigned] = await Promise.all([
+        listMyWork(actor, input, ctx.db),
+        countMyWork(actor, "assigned_to_me", ctx.db),
+        countMyWork(actor, "coordinated_by_me", ctx.db),
+        countMyWork(actor, "unassigned", ctx.db),
+      ]);
+      return {
+        ...result,
+        counts: { assignedToMe, coordinatedByMe, unassigned },
       };
     }),
 
@@ -115,6 +167,54 @@ export const assignmentRouter = router({
       return result;
     }),
 
+  assignToMe: protectedProcedure
+    .input(z.object({ artifactId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const { userId, systemRole } = ctx.session;
+      const artifact = await findAssignable(input.artifactId, ctx.db);
+      if (!(await canAccessArtifact({ userId, systemRole }, artifact, ctx.db))) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      const result = await addAssignee(artifact, userId, userId, ctx.db);
+      if (!result.ok) throw new TRPCError({ code: "BAD_REQUEST", message: result.message });
+      return result;
+    }),
+
+  bulkAddAssignee: protectedProcedure
+    .input(
+      z.object({
+        artifactIds: z.array(z.string().uuid()).min(1).max(50),
+        userId: z.string().uuid(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const actor = { userId: ctx.session.userId, systemRole: ctx.session.systemRole };
+      const assigned: string[] = [];
+      const alreadyAssigned: string[] = [];
+      const failed: Array<{ artifactId: string; reason: string }> = [];
+
+      for (const artifactId of [...new Set(input.artifactIds)]) {
+        const artifact = await ctx.db.query.artifacts.findFirst({ where: eq(artifacts.id, artifactId) });
+        if (!artifact || (artifact.kind !== "doc" && artifact.kind !== "plan")) {
+          failed.push({ artifactId, reason: "Doc or Plan not found." });
+          continue;
+        }
+        if (!(await canMutatePrompt(actor, artifact, ctx.db))) {
+          failed.push({ artifactId, reason: "You cannot manage this artifact." });
+          continue;
+        }
+        const result = await addAssignee(artifact, input.userId, actor.userId, ctx.db);
+        if (!result.ok) {
+          failed.push({ artifactId, reason: result.message });
+        } else if (result.alreadyAssigned) {
+          alreadyAssigned.push(artifactId);
+        } else {
+          assigned.push(artifactId);
+        }
+      }
+      return { assigned, alreadyAssigned, failed };
+    }),
+
   removeAssignee: protectedProcedure
     .input(z.object({ artifactId: z.string().uuid(), userId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -125,6 +225,37 @@ export const assignmentRouter = router({
 
       const result = await removeAssignee(artifact, input.userId, actorId, ctx.db);
       if (!result.ok) throw new TRPCError({ code: "BAD_REQUEST", message: result.message });
+      return result;
+    }),
+
+  updateWorkItem: protectedProcedure
+    .input(
+      z
+        .object({
+          artifactId: z.string().uuid(),
+          status: assignmentStatusSchema.optional(),
+          priority: assignmentPrioritySchema.optional(),
+          dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+        })
+        .refine(
+          (input) => input.status !== undefined || input.priority !== undefined || input.dueDate !== undefined,
+          { message: "At least one work-item field is required." },
+        ),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const artifact = await findAssignable(input.artifactId, ctx.db);
+      const result = await updateWorkItem(
+        artifact,
+        { status: input.status, priority: input.priority, dueDate: input.dueDate },
+        { userId: ctx.session.userId, systemRole: ctx.session.systemRole },
+        ctx.db,
+      );
+      if (!result.ok) {
+        throw new TRPCError({
+          code: result.message.startsWith("Due date") ? "BAD_REQUEST" : "FORBIDDEN",
+          message: result.message,
+        });
+      }
       return result;
     }),
 

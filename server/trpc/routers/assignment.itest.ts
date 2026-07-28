@@ -83,6 +83,13 @@ describe("assignment.get", () => {
     const result = await callerAs({ userId: marketingMember.id, systemRole: "user" }).get({ artifactId: doc.id });
     expect(result.assigner?.id).toBe(engMember.id);
     expect(result.assignees).toEqual([]);
+    expect(result).toMatchObject({
+      status: "open",
+      priority: "normal",
+      dueDate: null,
+      canManage: false,
+      canUpdateStatus: false,
+    });
   });
 
   it("throws FORBIDDEN for someone without read access", async () => {
@@ -103,6 +110,99 @@ describe("assignment.get", () => {
     await expect(
       callerAs({ userId: engMember.id, systemRole: "user" }).get({ artifactId: "00000000-0000-0000-0000-000000000000" }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+describe("assignment.updateWorkItem / listMyWork", () => {
+  it("counts only manageable artifacts in the unassigned view", async () => {
+    const owner = callerAs({ userId: engMember.id, systemRole: "user" });
+    const viewer = callerAs({ userId: marketingMember.id, systemRole: "user" });
+    const ownerBefore = await owner.listMyWork({ view: "unassigned" });
+    const viewerBefore = await viewer.listMyWork({ view: "unassigned" });
+
+    await makeDoc();
+
+    const ownerAfter = await owner.listMyWork({ view: "unassigned" });
+    const viewerAfter = await viewer.listMyWork({ view: "unassigned" });
+    expect(ownerAfter.counts.unassigned).toBe(ownerBefore.counts.unassigned + 1);
+    expect(viewerAfter.counts.unassigned).toBe(viewerBefore.counts.unassigned);
+  });
+
+  it("lets a manager set work fields and exposes the item under coordinated-by-me", async () => {
+    const doc = await makeDoc();
+    const owner = callerAs({ userId: engMember.id, systemRole: "user" });
+    await owner.updateWorkItem({
+      artifactId: doc.id,
+      status: "in_progress",
+      priority: "urgent",
+      dueDate: "2026-08-15",
+    });
+
+    const detail = await owner.get({ artifactId: doc.id });
+    expect(detail).toMatchObject({
+      status: "in_progress",
+      priority: "urgent",
+      dueDate: "2026-08-15",
+      canManage: true,
+      canUpdateStatus: true,
+    });
+
+    const work = await owner.listMyWork({
+      view: "coordinated_by_me",
+      kind: "doc",
+      status: ["in_progress"],
+      priority: ["urgent"],
+      limit: 100,
+      sort: "due_date",
+    });
+    expect(work.items.some((item) => item.artifact.id === doc.id)).toBe(true);
+  });
+
+  it("lets an assignee viewer update status and see assigned-to-me, but denies priority", async () => {
+    const doc = await makeDoc();
+    const owner = callerAs({ userId: engMember.id, systemRole: "user" });
+    await owner.addAssignee({ artifactId: doc.id, userId: marketingMember.id });
+
+    const viewer = callerAs({ userId: marketingMember.id, systemRole: "user" });
+    await viewer.updateWorkItem({ artifactId: doc.id, status: "blocked" });
+    await expect(
+      viewer.updateWorkItem({ artifactId: doc.id, priority: "high" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    const work = await viewer.listMyWork({
+      view: "assigned_to_me",
+      status: ["blocked"],
+      limit: 100,
+      sort: "due_date",
+    });
+    const item = work.items.find((row) => row.artifact.id === doc.id);
+    expect(item).toMatchObject({ status: "blocked", canManage: false, canUpdateStatus: true });
+  });
+});
+
+describe("assignment productivity actions", () => {
+  it("lets a viewer assign the readable artifact to themselves idempotently", async () => {
+    const doc = await makeDoc();
+    const viewer = callerAs({ userId: marketingMember.id, systemRole: "user" });
+    expect(await viewer.assignToMe({ artifactId: doc.id })).toMatchObject({ alreadyAssigned: false });
+    expect(await viewer.assignToMe({ artifactId: doc.id })).toMatchObject({ alreadyAssigned: true });
+    const detail = await viewer.get({ artifactId: doc.id });
+    expect(detail.isCurrentUserAssignee).toBe(true);
+  });
+
+  it("bulk-adds an assignee and reports already-assigned items separately", async () => {
+    const first = await makeDoc();
+    const second = await makeDoc();
+    const owner = callerAs({ userId: engMember.id, systemRole: "user" });
+    await owner.addAssignee({ artifactId: first.id, userId: marketingMember.id });
+
+    const result = await owner.bulkAddAssignee({
+      artifactIds: [first.id, second.id],
+      userId: marketingMember.id,
+    });
+    expect(result.assigned).toEqual([second.id]);
+    expect(result.alreadyAssigned).toEqual([first.id]);
+    expect(result.failed).toEqual([]);
   });
 });
 

@@ -30,6 +30,15 @@ function describeNotification(n: NotificationRow): string {
     if (m.event === "assignee.remove") {
       return `${actor} removed ${(m.userName as string | null) ?? "someone"} as an assignee on "${n.artifact.title}"`;
     }
+    if (m.event === "status.change") {
+      return `${actor} changed "${n.artifact.title}" status to ${String(m.newValue)}`;
+    }
+    if (m.event === "priority.change") {
+      return `${actor} changed "${n.artifact.title}" priority to ${String(m.newValue)}`;
+    }
+    if (m.event === "due_date.change") {
+      return `${actor} changed "${n.artifact.title}" due date to ${String(m.newValue ?? "none")}`;
+    }
   }
   return `${actor} updated ${n.artifact.title}`;
 }

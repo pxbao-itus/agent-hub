@@ -157,7 +157,7 @@ describe("prompts primitive", () => {
 });
 
 describe("write gate", () => {
-  it("read-only scope exposes exactly the 18 read tools", async () => {
+  it("read-only scope exposes exactly the 19 read tools", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" }, {});
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
@@ -173,6 +173,7 @@ describe("write gate", () => {
         "list_docs",
         "list_groups",
         "list_kits",
+        "list_my_work",
         "list_plans",
         "list_projects",
         "list_skills",
@@ -185,10 +186,10 @@ describe("write gate", () => {
     );
   });
 
-  it("write:true scope adds the 20 write tools (38 total)", async () => {
+  it("write:true scope adds the 24 write tools (43 total)", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(38);
+    expect(tools).toHaveLength(43);
     const names = new Set(tools.map((t) => t.name));
     for (const n of [
       "update_task_status",
@@ -211,6 +212,10 @@ describe("write gate", () => {
       "attach_artifact_to_workflow_stage",
       "add_artifact_to_project",
       "remove_artifact_from_project",
+      "set_assigner",
+      "add_assignee",
+      "remove_assignee",
+      "update_work_item",
     ]) {
       expect(names.has(n)).toBe(true);
     }
@@ -1540,6 +1545,101 @@ describe("get_prompt / create_prompt / update_prompt / delete_prompt (Phase 51 M
       .from(schema.auditEvents)
       .where(and(eq(schema.auditEvents.action, "artifact.delete"), eq(schema.auditEvents.targetId, createdPrompt.id)));
     expect(afterAudit).toHaveLength(1);
+  });
+});
+
+describe("assignment MCP parity", () => {
+  it("get_doc and get_plan expose assignment details", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    const docResult = text(await client.callTool({ name: "get_doc", arguments: { slug: doc1Slug } }));
+    const planResult = text(await client.callTool({ name: "get_plan", arguments: { slug: plan1Slug } }));
+
+    expect(docResult).toContain("## Assignment");
+    expect(docResult).toContain("Assigner:");
+    expect(docResult).toContain("Assignees:");
+    expect(docResult).toContain("Status: open");
+    expect(docResult).toContain("Priority: normal");
+    expect(planResult).toContain("## Assignment");
+    expect(planResult).toContain("Assigner:");
+    expect(planResult).toContain("Assignees:");
+  });
+
+  it("set/add/remove round-trips through the shared assignment service", async () => {
+    const plan = await mustArtifact("Migrate to Next.js 16");
+    try {
+      const client = await connect({ userId: orgAdmin.id, systemRole: "user" }, { write: true });
+      const setResult = text(await client.callTool({
+        name: "set_assigner",
+        arguments: { slug: plan2Slug, kind: "plan", email: orgViewer.email },
+      }));
+      expect(setResult).toContain("Set assigner");
+
+      const addResult = text(await client.callTool({
+        name: "add_assignee",
+        arguments: { slug: plan2Slug, kind: "plan", email: orgViewer.email },
+      }));
+      expect(addResult).toContain("Added assignee");
+
+      const managerUpdate = text(await client.callTool({
+        name: "update_work_item",
+        arguments: { slug: plan2Slug, kind: "plan", priority: "urgent", dueDate: "2026-08-15" },
+      }));
+      expect(managerUpdate).toContain("priority, dueDate");
+
+      const assigneeClient = await connect({ userId: orgViewer.id, systemRole: "user" }, { write: true });
+      const statusUpdate = text(await assigneeClient.callTool({
+        name: "update_work_item",
+        arguments: { slug: plan2Slug, kind: "plan", status: "blocked" },
+      }));
+      expect(statusUpdate).toContain("Status=blocked");
+
+      const myWork = text(await assigneeClient.callTool({
+        name: "list_my_work",
+        arguments: { view: "assigned_to_me", status: "blocked" },
+      }));
+      expect(myWork).toContain(plan2Slug);
+      expect(myWork).toContain("priority=urgent");
+
+      const readClient = await connect({ userId: orgAdmin.id, systemRole: "user" });
+      const assigned = text(await readClient.callTool({ name: "get_plan", arguments: { slug: plan2Slug } }));
+      expect(assigned).toContain(orgViewer.email);
+      expect(assigned).toContain("Status: blocked");
+      expect(assigned).toContain("Due date: 2026-08-15");
+
+      const removeResult = text(await client.callTool({
+        name: "remove_assignee",
+        arguments: { slug: plan2Slug, kind: "plan", email: orgViewer.email },
+      }));
+      expect(removeResult).toContain("Removed assignee");
+
+      const rows = await db
+        .select()
+        .from(schema.artifactAssignments)
+        .where(eq(schema.artifactAssignments.artifactId, plan.id));
+      expect(rows.filter((row) => row.role === "assignee")).toHaveLength(0);
+      expect(rows.filter((row) => row.role === "assigner")).toHaveLength(1);
+    } finally {
+      await db.delete(schema.notifications).where(eq(schema.notifications.artifactId, plan.id));
+      await db.delete(schema.auditEvents).where(eq(schema.auditEvents.targetId, plan.id));
+      await db.delete(schema.artifactWorkItems).where(eq(schema.artifactWorkItems.artifactId, plan.id));
+      await db.delete(schema.artifactAssignments).where(eq(schema.artifactAssignments.artifactId, plan.id));
+    }
+  });
+
+  it("keeps artifact-manager and target-access gates", async () => {
+    const viewerClient = await connect({ userId: orgViewer.id, systemRole: "user" }, { write: true });
+    const denied = text(await viewerClient.callTool({
+      name: "set_assigner",
+      arguments: { slug: plan2Slug, kind: "plan", email: orgAdmin.email },
+    }));
+    expect(denied).toContain("Access denied");
+
+    const managerClient = await connect({ userId: orgAdmin.id, systemRole: "user" }, { write: true });
+    const inaccessibleTarget = text(await managerClient.callTool({
+      name: "add_assignee",
+      arguments: { slug: plan2Slug, kind: "plan", email: marketingMember.email },
+    }));
+    expect(inaccessibleTarget).toContain("doesn't have access");
   });
 });
 

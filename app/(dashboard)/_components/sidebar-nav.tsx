@@ -4,12 +4,13 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { LayoutDashboard, BookText, Wrench, Package, ClipboardList, FileText, FolderKanban, GitBranch, Compass, Building2, Key, Sun, Moon, Users, Search, Upload, ShieldCheck, CircleHelp } from "lucide-react";
+import { LayoutDashboard, BookText, Wrench, Package, ClipboardList, FileText, FolderKanban, GitBranch, Compass, Building2, Key, Sun, Moon, Users, Search, Upload, ShieldCheck, CircleHelp, ListChecks } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 const MAIN_NAV = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard, exact: true },
+  { label: "My Work", href: "/my-work", icon: ListChecks },
   { label: "Prompts", href: "/prompts", icon: BookText },
   { label: "Skills", href: "/skills", icon: Wrench },
   { label: "Kits", href: "/kits", icon: Package },

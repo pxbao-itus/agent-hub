@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button";
 import { useListSelection } from "@/components/ui/list-selection-context";
 import { BulkAddTagDialog } from "@/components/ui/bulk-add-tag-dialog";
 import { BulkAddToProjectDialog } from "@/components/ui/bulk-add-to-project-dialog";
+import { BulkAddAssigneeDialog } from "@/components/ui/bulk-add-assignee-dialog";
 import { runUndoable } from "@/lib/undoable-action";
 import { toast } from "@/hooks/use-toast";
-import { Tag, FolderKanban, Trash2, X } from "lucide-react";
+import { Tag, FolderKanban, Trash2, UserPlus, X } from "lucide-react";
 
 type Props = { kind: "prompt" | "skill" | "kit" | "plan" | "doc" };
 
@@ -24,6 +25,7 @@ export function BulkActionBar({ kind }: Props) {
   const { selected, clear, markPendingDelete, unmarkPendingDelete } = useListSelection();
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  const [assigneeDialogOpen, setAssigneeDialogOpen] = useState(false);
 
   const bulkDelete = trpc.artifact.bulkDelete.useMutation();
 
@@ -66,10 +68,16 @@ export function BulkActionBar({ kind }: Props) {
           Add tag
         </Button>
         {canAssignToProject && (
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setProjectDialogOpen(true)}>
-            <FolderKanban className="h-3.5 w-3.5" />
-            Add to project
-          </Button>
+          <>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setProjectDialogOpen(true)}>
+              <FolderKanban className="h-3.5 w-3.5" />
+              Add to project
+            </Button>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAssigneeDialogOpen(true)}>
+              <UserPlus className="h-3.5 w-3.5" />
+              Add assignee
+            </Button>
+          </>
         )}
         <Button variant="destructive" size="sm" className="gap-1.5" onClick={handleDelete}>
           <Trash2 className="h-3.5 w-3.5" />
@@ -82,12 +90,20 @@ export function BulkActionBar({ kind }: Props) {
 
       <BulkAddTagDialog open={tagDialogOpen} onOpenChange={setTagDialogOpen} ids={ids} onDone={() => { clear(); router.refresh(); }} />
       {canAssignToProject && (
-        <BulkAddToProjectDialog
-          open={projectDialogOpen}
-          onOpenChange={setProjectDialogOpen}
-          artifactIds={ids}
-          onDone={() => clear()}
-        />
+        <>
+          <BulkAddToProjectDialog
+            open={projectDialogOpen}
+            onOpenChange={setProjectDialogOpen}
+            artifactIds={ids}
+            onDone={() => clear()}
+          />
+          <BulkAddAssigneeDialog
+            open={assigneeDialogOpen}
+            onOpenChange={setAssigneeDialogOpen}
+            artifactIds={ids}
+            onDone={() => { clear(); router.refresh(); }}
+          />
+        </>
       )}
     </>
   );

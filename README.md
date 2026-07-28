@@ -13,6 +13,8 @@ Instead of copy-pasting prompts and instructions between projects, keep them in 
 - 🎒 **Kits** — toolkits that package multiple prompts and skills into one reusable unit, pulled into any project or workflow stage; members are resolved recursively.
 - ✅ **Plans** — structured task lists (todo / doing / done) that agents can read and update.
 - 📄 **Docs** — free-form markdown docs, linkable to the plans they inform.
+- 👥 **Assignments + My Work** — coordinate Docs and Plans with assigners,
+  assignees, status, priority, due dates, personal work views, and audit history.
 - 🕑 **Versioning** — every save creates an immutable version, with diff and rollback.
 - 🔎 **Semantic + hybrid search** — full-text (BM25) fused with vector similarity (bge-m3 + pgvector) via Reciprocal Rank Fusion, across every artifact kind. A global search page and a `Cmd/Ctrl-K` command palette. Degrades gracefully to keyword-only when embeddings are disabled.
 - 🏢 **Org-based access control** — an artifact's owner can be a user, team, department, or org; permissions inherit upward. Plus per-user sharing for one-off grants.
@@ -133,6 +135,9 @@ Once connected:
 - Use **`search_artifacts`** to find anything by meaning or keyword across all kinds.
 - Pull specific artifacts with **`get_skill`**, **`get_kit`**, **`get_plan`**, **`get_doc`** (and their `list_*` counterparts).
 - Agents can update plan progress with **`update_task_status`**.
+- Agents can inspect and coordinate Doc/Plan work with **`list_my_work`**,
+  **`set_assigner`**, **`add_assignee`**, **`remove_assignee`**, and
+  **`update_work_item`** when their token has the required access and write scope.
 
 ## User guide
 

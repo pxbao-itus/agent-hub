@@ -1,8 +1,8 @@
 import { eq, and } from "drizzle-orm";
-import { artifactAssignments, users } from "@/server/db/schema";
+import { artifactAssignments, artifactWorkItems, users } from "@/server/db/schema";
 import type { DbClient } from "@/server/db/types";
-import type { ArtifactKind } from "@/server/db/schema";
-import { canAccessArtifact } from "@/server/auth/access";
+import type { ArtifactKind, AssignmentPriority, AssignmentStatus } from "@/server/db/schema";
+import { canAccessArtifact, canMutatePrompt } from "@/server/auth/access";
 import { recordAudit } from "@/server/services/audit";
 import { notifyAssignmentChange } from "@/server/services/notification";
 import { getVersionAuthorName } from "@/server/lib/version-author";
@@ -17,6 +17,18 @@ export type AssignableArtifact = {
 };
 
 type Failure = { ok: false; message: string };
+
+export type WorkItemFields = {
+  status: AssignmentStatus;
+  priority: AssignmentPriority;
+  dueDate: string | null;
+};
+
+export const DEFAULT_WORK_ITEM: WorkItemFields = {
+  status: "open",
+  priority: "normal",
+  dueDate: null,
+};
 
 function wrongKind(): Failure {
   return { ok: false, message: "Only docs and plans support assignment." };
@@ -52,6 +64,154 @@ export async function getAssignments(
       .where(and(eq(artifactAssignments.artifactId, artifact.id), eq(artifactAssignments.role, "assignee"))),
   ]);
   return { assignerId, assigneeIds: assigneeRows.map((r) => r.userId) };
+}
+
+export async function getWorkItem(artifactId: string, db: DbClient): Promise<WorkItemFields> {
+  const row = await db.query.artifactWorkItems.findFirst({
+    where: eq(artifactWorkItems.artifactId, artifactId),
+    columns: { status: true, priority: true, dueDate: true },
+  });
+  return row
+    ? { status: row.status, priority: row.priority, dueDate: row.dueDate }
+    : { ...DEFAULT_WORK_ITEM };
+}
+
+export async function getAssignmentDetail(
+  artifact: Pick<AssignableArtifact, "id" | "ownerType" | "ownerId" | "createdBy">,
+  db: DbClient,
+) {
+  const [assignments, workItem] = await Promise.all([
+    getAssignments(artifact, db),
+    getWorkItem(artifact.id, db),
+  ]);
+  return { ...assignments, workItem };
+}
+
+export async function isCurrentAssignee(artifactId: string, userId: string, db: DbClient): Promise<boolean> {
+  const row = await db.query.artifactAssignments.findFirst({
+    where: and(
+      eq(artifactAssignments.artifactId, artifactId),
+      eq(artifactAssignments.userId, userId),
+      eq(artifactAssignments.role, "assignee"),
+    ),
+    columns: { id: true },
+  });
+  return Boolean(row);
+}
+
+export async function canUpdateAssignmentStatus(
+  actor: { userId: string; systemRole: "user" | "superadmin" },
+  artifact: AssignableArtifact,
+  db: DbClient,
+): Promise<boolean> {
+  if (await canMutatePrompt(actor, artifact, db)) return true;
+  return isCurrentAssignee(artifact.id, actor.userId, db);
+}
+
+function validDueDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+}
+
+export type WorkItemPatch = {
+  status?: AssignmentStatus;
+  priority?: AssignmentPriority;
+  dueDate?: string | null;
+};
+
+export type UpdateWorkItemResult =
+  | {
+      ok: true;
+      before: WorkItemFields;
+      after: WorkItemFields;
+      changedFields: Array<keyof WorkItemFields>;
+    }
+  | Failure;
+
+export async function updateWorkItem(
+  artifact: AssignableArtifact,
+  patch: WorkItemPatch,
+  actor: { userId: string; systemRole: "user" | "superadmin" },
+  db: DbClient,
+): Promise<UpdateWorkItemResult> {
+  if (artifact.kind !== "doc" && artifact.kind !== "plan") return wrongKind();
+  if (patch.dueDate !== undefined && patch.dueDate !== null && !validDueDate(patch.dueDate)) {
+    return { ok: false, message: "Due date must be a valid date in YYYY-MM-DD format." };
+  }
+
+  const before = await getWorkItem(artifact.id, db);
+  const after: WorkItemFields = {
+    status: patch.status ?? before.status,
+    priority: patch.priority ?? before.priority,
+    dueDate: patch.dueDate === undefined ? before.dueDate : patch.dueDate,
+  };
+  const changedFields = (Object.keys(after) as Array<keyof WorkItemFields>).filter(
+    (field) => before[field] !== after[field],
+  );
+  if (changedFields.length === 0) return { ok: true, before, after, changedFields };
+
+  const canManage = await canMutatePrompt(actor, artifact, db);
+  if (changedFields.some((field) => field === "priority" || field === "dueDate") && !canManage) {
+    return { ok: false, message: "Only an artifact manager can update priority or due date." };
+  }
+  if (changedFields.includes("status") && !canManage && !(await isCurrentAssignee(artifact.id, actor.userId, db))) {
+    return { ok: false, message: "Only an assignee or artifact manager can update status." };
+  }
+
+  await db
+    .insert(artifactWorkItems)
+    .values({
+      artifactId: artifact.id,
+      status: after.status,
+      priority: after.priority,
+      dueDate: after.dueDate,
+      updatedBy: actor.userId,
+    })
+    .onConflictDoUpdate({
+      target: artifactWorkItems.artifactId,
+      set: {
+        status: after.status,
+        priority: after.priority,
+        dueDate: after.dueDate,
+        updatedBy: actor.userId,
+        updatedAt: new Date(),
+      },
+    });
+
+  const { assignerId, assigneeIds } = await getAssignments(artifact, db);
+  const sideEffects: Promise<void>[] = [];
+  for (const field of changedFields) {
+    const action =
+      field === "status"
+        ? "assignment.status.change"
+        : field === "priority"
+          ? "assignment.priority.change"
+          : "assignment.due_date.change";
+    const event =
+      field === "status" ? "status.change" : field === "priority" ? "priority.change" : "due_date.change";
+    const recipients = field === "status"
+      ? [...assigneeIds, ...(assignerId ? [assignerId] : [])]
+      : assigneeIds;
+    const metadata = { event, oldValue: before[field], newValue: after[field] };
+    sideEffects.push(
+      recordAudit(
+        {
+          actorId: actor.userId,
+          action,
+          targetType: "artifact",
+          targetId: artifact.id,
+          metadata,
+        },
+        db,
+      ),
+      notifyAssignmentChange(artifact.id, recipients, actor.userId, metadata, db),
+    );
+  }
+  await Promise.all(sideEffects);
+
+  return { ok: true, before, after, changedFields };
 }
 
 /**

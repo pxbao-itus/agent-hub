@@ -22,7 +22,10 @@ export type AuditAction =
   | "workflow.delete"
   | "assignment.assigner.change"
   | "assignment.assignee.add"
-  | "assignment.assignee.remove";
+  | "assignment.assignee.remove"
+  | "assignment.status.change"
+  | "assignment.priority.change"
+  | "assignment.due_date.change";
 
 export type AuditEntry = {
   actorId: string;

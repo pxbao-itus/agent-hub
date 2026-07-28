@@ -4,10 +4,11 @@ import { db } from "@/server/db";
 import { artifacts, orgs, mcpTokens, memberships, artifactFavorites } from "@/server/db/schema";
 import { eq, and, desc, count, isNull, gt, or } from "drizzle-orm";
 import { artifactAccessCondition } from "@/server/auth/access";
+import { listMyWork } from "@/server/services/my-work";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { BookText, Wrench, Package, ClipboardList, FileText, Building2, Key, Plus, Sparkles, Flame, Star } from "lucide-react";
+import { BookText, Wrench, Package, ClipboardList, FileText, Building2, Key, Plus, Sparkles, Flame, Star, ListChecks } from "lucide-react";
 
 export const metadata = { title: "Dashboard" };
 
@@ -75,6 +76,11 @@ export default async function DashboardHome() {
 
   const totalArtifacts = promptCount + skillCount + kitCount + planCount + docCount;
   const displayName = session!.user?.name ?? session!.user?.email ?? "there";
+  const myWork = await listMyWork(
+    { userId, systemRole: isSuperAdmin ? "superadmin" : "user" },
+    { view: "assigned_to_me", sort: "due_date", limit: 5 },
+    db,
+  );
 
   return (
     <div className="space-y-8">
@@ -181,6 +187,37 @@ export default async function DashboardHome() {
           <Link href="/settings/tokens">Manage tokens</Link>
         </Button>
       </div>
+
+      {/* My Work — bounded preview of assigned Docs and Plans */}
+      {myWork.items.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="flex items-center gap-1.5 text-lg font-semibold">
+              <ListChecks className="h-4 w-4 text-muted-foreground" />
+              My Work
+            </h2>
+            <Button asChild variant="ghost" size="sm"><Link href="/my-work">View all</Link></Button>
+          </div>
+          <div className="divide-y rounded-md border">
+            {myWork.items.map((item) => (
+              <Link
+                key={item.artifact.id}
+                href={`/${item.artifact.kind}s/${item.artifact.id}`}
+                className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/50"
+              >
+                {item.artifact.kind === "plan"
+                  ? <ClipboardList className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  : <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                <p className="min-w-0 flex-1 truncate text-sm font-medium">{item.artifact.title}</p>
+                <Badge variant={item.status === "blocked" ? "warning" : "outline"} className="shrink-0 text-[10px]">
+                  {item.status.replace("_", " ")}
+                </Badge>
+                <span className="hidden text-xs text-muted-foreground sm:inline">{item.dueDate ?? "No due date"}</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Favorites — starred via FavoriteButton on the detail page */}
       {favorites.length > 0 && (

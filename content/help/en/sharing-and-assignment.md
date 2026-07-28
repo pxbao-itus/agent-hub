@@ -33,6 +33,26 @@ Assignment changes appear in assignment history and may notify affected users.
 Removing an assignee removes the responsibility record, not the person's
 underlying access.
 
+## Work with My Work
+
+Open **My Work** to review:
+
+- Docs and Plans assigned to you;
+- work you coordinate as the effective assigner;
+- manageable work that has no assignees.
+
+Use status, priority, due date, kind, and due-state filters to focus the list.
+Assignment status applies to the whole Doc or Plan; it does not replace the
+individual task statuses inside a Plan.
+
+An assignee can update status. Changing priority, due date, assigner, or the
+assignee list requires artifact edit permission. Due dates are informational in
+this release: Agent Hub highlights overdue work but does not send scheduled
+reminders.
+
+Write-enabled MCP clients can list My Work and update the same assignment
+fields. Token scope and artifact permissions still apply.
+
 ## Troubleshoot assignment
 
 If a user cannot be selected:

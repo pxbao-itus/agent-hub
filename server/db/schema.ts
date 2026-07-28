@@ -5,6 +5,7 @@ import {
   uuid,
   integer,
   boolean,
+  date,
   timestamp,
   jsonb,
   vector,
@@ -47,6 +48,14 @@ export type TaskStatus = "todo" | "doing" | "done";
 /** Role within a doc/plan assignment: one assigner, many assignees (Phase 53). */
 export const assignmentRoleEnum = pgEnum("assignment_role", ["assigner", "assignee"]);
 export type AssignmentRole = "assigner" | "assignee";
+
+/** Workflow state for a Doc/Plan assignment as a whole (not individual Plan tasks). */
+export const assignmentStatusEnum = pgEnum("assignment_status", ["open", "in_progress", "blocked", "done"]);
+export type AssignmentStatus = "open" | "in_progress" | "blocked" | "done";
+
+/** Coordination priority for a Doc/Plan work item. */
+export const assignmentPriorityEnum = pgEnum("assignment_priority", ["low", "normal", "high", "urgent"]);
+export type AssignmentPriority = "low" | "normal" | "high" | "urgent";
 
 /** What triggered an in-app notification (Phase 53 generalizes beyond version bumps). */
 export const notificationTypeEnum = pgEnum("notification_type", ["version", "assignment"]);
@@ -425,6 +434,30 @@ export const artifactAssignments = pgTable(
 );
 
 /**
+ * Work metadata for an assigned Doc/Plan. The row is optional: absence means
+ * status=open, priority=normal, dueDate=null. This keeps existing artifacts
+ * migration-free and creates state lazily on the first real change.
+ */
+export const artifactWorkItems = pgTable(
+  "artifact_work_items",
+  {
+    artifactId: uuid("artifact_id")
+      .primaryKey()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    status: assignmentStatusEnum("status").notNull().default("open"),
+    priority: assignmentPriorityEnum("priority").notNull().default("normal"),
+    dueDate: date("due_date"),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("artifact_work_items_status_due_idx").on(t.status, t.dueDate),
+    index("artifact_work_items_priority_due_idx").on(t.priority, t.dueDate),
+  ],
+);
+
+/**
  * In-app notification. `type` discriminates the trigger: 'version' (an
  * artifact shared with `userId` per `artifactShares` got a new version —
  * `artifactVersionId` set, the original Phase 41 shape) or 'assignment'
@@ -765,12 +798,13 @@ export const teamsRelations = relations(teams, ({ one }) => ({
   }),
 }));
 
-export const artifactsRelations = relations(artifacts, ({ many }) => ({
+export const artifactsRelations = relations(artifacts, ({ one, many }) => ({
   versions: many(artifactVersions),
   variables: many(artifactVariables),
   members: many(artifactMembers, { relationName: "kit" }),
   tasks: many(artifactTasks),
   shares: many(artifactShares),
+  workItem: one(artifactWorkItems),
   outgoingLinks: many(artifactLinks, { relationName: "source" }),
   incomingLinks: many(artifactLinks, { relationName: "target" }),
 }));
@@ -846,6 +880,18 @@ export const artifactAssignmentsRelations = relations(artifactAssignments, ({ on
   assignedByUser: one(users, {
     relationName: "assignmentAssignedBy",
     fields: [artifactAssignments.assignedBy],
+    references: [users.id],
+  }),
+}));
+
+export const artifactWorkItemsRelations = relations(artifactWorkItems, ({ one }) => ({
+  artifact: one(artifacts, {
+    fields: [artifactWorkItems.artifactId],
+    references: [artifacts.id],
+  }),
+  updatedByUser: one(users, {
+    relationName: "workItemUpdatedBy",
+    fields: [artifactWorkItems.updatedBy],
     references: [users.id],
   }),
 }));
