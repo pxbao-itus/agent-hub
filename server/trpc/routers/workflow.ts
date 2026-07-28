@@ -1,32 +1,36 @@
 import { z } from "zod";
-import { eq, and, or, asc, desc, sql } from "drizzle-orm";
+import { eq, or, and, asc, desc, ilike } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
-import { workflows, workflowStages, workflowStageArtifacts, artifacts, projects } from "@/server/db/schema";
+import { workflows, workflowStages, workflowStageArtifacts, artifacts, projects, users } from "@/server/db/schema";
 import { getAccessibleGroups, canAccessArtifact } from "@/server/auth/access";
 import {
   canViewWorkflow,
   canManageWorkflow,
   attachWorkflowManageFlags,
   attachWorkflowProgress,
-  type GroupType,
-  type SessionUser,
 } from "@/server/lib/workflow-access";
 import { recordAudit } from "@/server/services/audit";
 import type { DbClient } from "@/server/db/types";
+import { canViewProject } from "@/server/lib/project-access";
+import {
+  addWorkflowStage,
+  attachArtifactToWorkflowStage,
+  canUpdateWorkflowStageStatus,
+  createWorkflow,
+  deleteWorkflow,
+  detachArtifactFromWorkflowStage,
+  listAssignedWorkflowStages,
+  listWorkflowActivity,
+  removeWorkflowStage,
+  reorderWorkflowStages,
+  setWorkflowStageStatus,
+  updateWorkflow,
+  updateWorkflowStageDetails,
+} from "@/server/services/workflow";
 
 const groupTypeSchema = z.enum(["org", "department", "team"]);
 const stageStatusSchema = z.enum(["todo", "doing", "done"]);
-
-async function requireManage(
-  user: SessionUser,
-  ownerGroupType: GroupType,
-  ownerGroupId: string,
-  db: DbClient,
-) {
-  const allowed = await canManageWorkflow(user, ownerGroupType, ownerGroupId, db);
-  if (!allowed) throw new TRPCError({ code: "FORBIDDEN" });
-}
 
 async function findWorkflowOrThrow(id: string, db: DbClient) {
   const workflow = await db.query.workflows.findFirst({ where: eq(workflows.id, id) });
@@ -34,13 +38,15 @@ async function findWorkflowOrThrow(id: string, db: DbClient) {
   return workflow;
 }
 
-/** Resolves a stage to its parent workflow (for permission checks) or throws. */
-async function findStageAndWorkflowOrThrow(stageId: string, db: DbClient) {
-  const stage = await db.query.workflowStages.findFirst({ where: eq(workflowStages.id, stageId) });
-  if (!stage) throw new TRPCError({ code: "NOT_FOUND" });
-  const workflow = await findWorkflowOrThrow(stage.workflowId, db);
-  return { stage, workflow };
-}
+const actor = (session: { userId: string; systemRole: "user" | "superadmin" }) => ({
+  userId: session.userId,
+  systemRole: session.systemRole,
+});
+
+const uiContext = (session: { userId: string; systemRole: "user" | "superadmin" }) => ({
+  actor: actor(session),
+  source: "ui" as const,
+});
 
 export const workflowRouter = router({
   create: protectedProcedure
@@ -58,33 +64,7 @@ export const workflowRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { userId, systemRole } = ctx.session;
-      await requireManage({ userId, systemRole }, input.ownerGroupType, input.ownerGroupId, ctx.db);
-
-      if (input.projectId) {
-        const project = await ctx.db.query.projects.findFirst({ where: eq(projects.id, input.projectId) });
-        if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
-      }
-
-      const [workflow] = await ctx.db
-        .insert(workflows)
-        .values({
-          ownerGroupType: input.ownerGroupType,
-          ownerGroupId: input.ownerGroupId,
-          projectId: input.projectId ?? null,
-          name: input.name,
-          description: input.description,
-          createdBy: userId,
-        })
-        .returning();
-
-      if (input.stages.length > 0) {
-        await ctx.db.insert(workflowStages).values(
-          input.stages.map((name, i) => ({ workflowId: workflow.id, name, position: i })),
-        );
-      }
-
-      return workflow;
+      return createWorkflow(input, uiContext(ctx.session), ctx.db);
     }),
 
   update: protectedProcedure
@@ -97,41 +77,16 @@ export const workflowRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { userId, systemRole } = ctx.session;
-      const { id, ...meta } = input;
-
-      const workflow = await findWorkflowOrThrow(id, ctx.db);
-      await requireManage({ userId, systemRole }, workflow.ownerGroupType, workflow.ownerGroupId, ctx.db);
-
-      if (meta.projectId) {
-        const project = await ctx.db.query.projects.findFirst({ where: eq(projects.id, meta.projectId) });
-        if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
-      }
-
-      const metaUpdates = Object.fromEntries(Object.entries(meta).filter(([, v]) => v !== undefined));
-
-      const [updated] = await ctx.db
-        .update(workflows)
-        .set({ ...metaUpdates, updatedAt: new Date() })
-        .where(eq(workflows.id, id))
-        .returning();
-
-      return updated;
+      return updateWorkflow(input, uiContext(ctx.session), ctx.db);
     }),
 
   delete: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const { userId, systemRole } = ctx.session;
-      const workflow = await findWorkflowOrThrow(input.id, ctx.db);
-      await requireManage({ userId, systemRole }, workflow.ownerGroupType, workflow.ownerGroupId, ctx.db);
-
-      // Cascades to workflow_stages/workflow_stage_artifacts only — the
-      // underlying artifacts and the optionally-linked project are untouched.
-      await ctx.db.delete(workflows).where(eq(workflows.id, input.id));
+      const workflow = await deleteWorkflow(input.id, uiContext(ctx.session), ctx.db);
 
       await recordAudit(
-        { actorId: userId, action: "workflow.delete", targetType: "workflow", targetId: input.id, metadata: { name: workflow.name } },
+        { actorId: ctx.session.userId, action: "workflow.delete", targetType: "workflow", targetId: input.id, metadata: { name: workflow.name } },
         ctx.db,
       );
     }),
@@ -161,6 +116,12 @@ export const workflowRouter = router({
     .input(z.object({ projectId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const { userId, systemRole } = ctx.session;
+      const project = await ctx.db.query.projects.findFirst({
+        where: eq(projects.id, input.projectId),
+      });
+      if (!project || !(await canViewProject({ userId, systemRole }, project, ctx.db))) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+      }
 
       const rows = await ctx.db.query.workflows.findMany({
         where: eq(workflows.projectId, input.projectId),
@@ -188,10 +149,15 @@ export const workflowRouter = router({
       const viewable = await canViewWorkflow({ userId, systemRole }, workflow, ctx.db);
       if (!viewable) throw new TRPCError({ code: "FORBIDDEN" });
 
-      const [canManage, stageRows, stageArtifactRows] = await Promise.all([
+      const [canManage, stageRows, stageArtifactRows, project] = await Promise.all([
         canManageWorkflow({ userId, systemRole }, workflow.ownerGroupType, workflow.ownerGroupId, ctx.db),
         ctx.db.query.workflowStages.findMany({
           where: eq(workflowStages.workflowId, workflow.id),
+          with: {
+            assignee: {
+              columns: { id: true, name: true, username: true, image: true },
+            },
+          },
           orderBy: asc(workflowStages.position),
         }),
         ctx.db
@@ -201,6 +167,9 @@ export const workflowRouter = router({
           .innerJoin(artifacts, eq(workflowStageArtifacts.artifactId, artifacts.id))
           .where(eq(workflowStages.workflowId, workflow.id))
           .orderBy(asc(workflowStageArtifacts.position)),
+        workflow.projectId
+          ? ctx.db.query.projects.findFirst({ where: eq(projects.id, workflow.projectId) })
+          : Promise.resolve(null),
       ]);
 
       // Group attachments by stage, filtered to what the viewer can actually
@@ -213,139 +182,171 @@ export const workflowRouter = router({
         byStage.get(row.stageId)!.push(row.artifact);
       }
 
-      const stages = stageRows.map((stage) => ({ ...stage, artifacts: byStage.get(stage.id) ?? [] }));
+      const stages = await Promise.all(
+        stageRows.map(async (stage) => ({
+          ...stage,
+          artifacts: byStage.get(stage.id) ?? [],
+          canUpdateStatus: await canUpdateWorkflowStageStatus(
+            { userId, systemRole },
+            stage,
+            workflow,
+            ctx.db,
+          ),
+        })),
+      );
 
-      return { ...workflow, canManage, stages };
+      const linkedProject =
+        project && (await canViewProject({ userId, systemRole }, project, ctx.db))
+          ? { id: project.id, name: project.name }
+          : null;
+
+      return { ...workflow, project: linkedProject, canManage, stages };
     }),
 
   addStage: protectedProcedure
     .input(z.object({ workflowId: z.string().uuid(), name: z.string().min(1).max(100) }))
     .mutation(async ({ ctx, input }) => {
-      const { userId, systemRole } = ctx.session;
-      const workflow = await findWorkflowOrThrow(input.workflowId, ctx.db);
-      await requireManage({ userId, systemRole }, workflow.ownerGroupType, workflow.ownerGroupId, ctx.db);
-
-      const [{ maxPos }] = await ctx.db
-        .select({ maxPos: sql<number>`coalesce(max(position), -1)` })
-        .from(workflowStages)
-        .where(eq(workflowStages.workflowId, input.workflowId));
-
-      const [stage] = await ctx.db
-        .insert(workflowStages)
-        .values({ workflowId: input.workflowId, name: input.name, position: maxPos + 1 })
-        .returning();
-
-      return stage;
+      return addWorkflowStage(input, uiContext(ctx.session), ctx.db);
     }),
 
   updateStage: protectedProcedure
     .input(z.object({ stageId: z.string().uuid(), name: z.string().min(1).max(100) }))
     .mutation(async ({ ctx, input }) => {
-      const { userId, systemRole } = ctx.session;
-      const { workflow } = await findStageAndWorkflowOrThrow(input.stageId, ctx.db);
-      await requireManage({ userId, systemRole }, workflow.ownerGroupType, workflow.ownerGroupId, ctx.db);
-
-      const [updated] = await ctx.db
-        .update(workflowStages)
-        .set({ name: input.name, updatedAt: new Date() })
-        .where(eq(workflowStages.id, input.stageId))
-        .returning();
-
-      return updated;
+      return updateWorkflowStageDetails(input, uiContext(ctx.session), ctx.db);
     }),
+
+  updateStageDetails: protectedProcedure
+    .input(
+      z.object({
+        stageId: z.string().uuid(),
+        name: z.string().trim().min(1).max(100).optional(),
+        description: z.string().max(10_000).nullable().optional(),
+        acceptanceCriteria: z.string().max(10_000).nullable().optional(),
+        assigneeId: z.string().uuid().nullable().optional(),
+        dueDate: z.string().date().nullable().optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      updateWorkflowStageDetails(input, uiContext(ctx.session), ctx.db),
+    ),
 
   removeStage: protectedProcedure
     .input(z.object({ stageId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const { userId, systemRole } = ctx.session;
-      const { workflow } = await findStageAndWorkflowOrThrow(input.stageId, ctx.db);
-      await requireManage({ userId, systemRole }, workflow.ownerGroupType, workflow.ownerGroupId, ctx.db);
-
-      await ctx.db.delete(workflowStages).where(eq(workflowStages.id, input.stageId));
+      await removeWorkflowStage(input.stageId, uiContext(ctx.session), ctx.db);
     }),
 
   reorderStages: protectedProcedure
     .input(z.object({ workflowId: z.string().uuid(), stageIds: z.array(z.string().uuid()).min(1) }))
     .mutation(async ({ ctx, input }) => {
-      const { userId, systemRole } = ctx.session;
-      const workflow = await findWorkflowOrThrow(input.workflowId, ctx.db);
-      await requireManage({ userId, systemRole }, workflow.ownerGroupType, workflow.ownerGroupId, ctx.db);
-
-      const existing = await ctx.db.query.workflowStages.findMany({
-        where: eq(workflowStages.workflowId, input.workflowId),
-        columns: { id: true },
-      });
-      const existingIds = new Set(existing.map((s) => s.id));
-      const sameSet =
-        input.stageIds.length === existingIds.size && input.stageIds.every((id) => existingIds.has(id));
-      if (!sameSet) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "stageIds must exactly match the workflow's current stages" });
-      }
-
-      await Promise.all(
-        input.stageIds.map((id, i) =>
-          ctx.db.update(workflowStages).set({ position: i, updatedAt: new Date() }).where(eq(workflowStages.id, id)),
-        ),
-      );
-
-      return { ok: true };
+      return reorderWorkflowStages(input, uiContext(ctx.session), ctx.db);
     }),
 
   setStageStatus: protectedProcedure
     .input(z.object({ stageId: z.string().uuid(), status: stageStatusSchema }))
     .mutation(async ({ ctx, input }) => {
-      const { userId, systemRole } = ctx.session;
-      const { workflow } = await findStageAndWorkflowOrThrow(input.stageId, ctx.db);
-      await requireManage({ userId, systemRole }, workflow.ownerGroupType, workflow.ownerGroupId, ctx.db);
-
-      const [updated] = await ctx.db
-        .update(workflowStages)
-        .set({ status: input.status, updatedAt: new Date() })
-        .where(eq(workflowStages.id, input.stageId))
-        .returning();
-
-      return updated;
+      return setWorkflowStageStatus(input, uiContext(ctx.session), ctx.db);
     }),
 
   attachArtifact: protectedProcedure
     .input(z.object({ stageId: z.string().uuid(), artifactId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const { userId, systemRole } = ctx.session;
-      const { workflow } = await findStageAndWorkflowOrThrow(input.stageId, ctx.db);
-      await requireManage({ userId, systemRole }, workflow.ownerGroupType, workflow.ownerGroupId, ctx.db);
-
-      const artifact = await ctx.db.query.artifacts.findFirst({ where: eq(artifacts.id, input.artifactId) });
-      if (!artifact) throw new TRPCError({ code: "NOT_FOUND" });
-
-      // Any active kind may attach — skill/prompt participate in the process
-      // alongside doc (spec) and plan (execution). The only gate is
-      // the same read-access check used everywhere else.
-      const readable = await canAccessArtifact({ userId, systemRole }, artifact, ctx.db);
-      if (!readable) throw new TRPCError({ code: "FORBIDDEN", message: "Cannot access this artifact" });
-
-      const [{ maxPos }] = await ctx.db
-        .select({ maxPos: sql<number>`coalesce(max(position), -1)` })
-        .from(workflowStageArtifacts)
-        .where(eq(workflowStageArtifacts.stageId, input.stageId));
-
-      const [row] = await ctx.db
-        .insert(workflowStageArtifacts)
-        .values({ stageId: input.stageId, artifactId: input.artifactId, position: maxPos + 1 })
-        .onConflictDoNothing()
-        .returning();
-
-      return row ?? null;
+      return attachArtifactToWorkflowStage(input, uiContext(ctx.session), ctx.db);
     }),
 
   detachArtifact: protectedProcedure
     .input(z.object({ stageId: z.string().uuid(), artifactId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const { userId, systemRole } = ctx.session;
-      const { workflow } = await findStageAndWorkflowOrThrow(input.stageId, ctx.db);
-      await requireManage({ userId, systemRole }, workflow.ownerGroupType, workflow.ownerGroupId, ctx.db);
-
-      await ctx.db
-        .delete(workflowStageArtifacts)
-        .where(and(eq(workflowStageArtifacts.stageId, input.stageId), eq(workflowStageArtifacts.artifactId, input.artifactId)));
+      return detachArtifactFromWorkflowStage(input, uiContext(ctx.session), ctx.db);
     }),
+
+  searchStageAssigneeCandidates: protectedProcedure
+    .input(
+      z.object({
+        workflowId: z.string().uuid(),
+        query: z.string().trim().max(100).default(""),
+        limit: z.number().int().min(1).max(50).default(20),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const workflow = await findWorkflowOrThrow(input.workflowId, ctx.db);
+      const identity = actor(ctx.session);
+      if (!(await canManageWorkflow(identity, workflow.ownerGroupType, workflow.ownerGroupId, ctx.db))) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+
+      const where = input.query
+        ? or(
+            ilike(users.name, `%${input.query}%`),
+            ilike(users.username, `%${input.query}%`),
+            ilike(users.email, `%${input.query}%`),
+          )
+        : undefined;
+      const candidates = await ctx.db.query.users.findMany({
+        where,
+        columns: {
+          id: true,
+          name: true,
+          username: true,
+          email: true,
+          image: true,
+          systemRole: true,
+        },
+        orderBy: asc(users.name),
+        limit: 200,
+      });
+      const result = [];
+      for (const candidate of candidates) {
+        if (result.length >= input.limit) break;
+        if (
+          await canViewWorkflow(
+            { userId: candidate.id, systemRole: candidate.systemRole },
+            workflow,
+            ctx.db,
+          )
+        ) {
+          result.push(candidate);
+        }
+      }
+      return result;
+    }),
+
+  activity: protectedProcedure
+    .input(
+      z.object({
+        workflowId: z.string().uuid(),
+        cursor: z
+          .object({ createdAt: z.string().datetime(), id: z.string().uuid() })
+          .optional(),
+        limit: z.number().int().min(1).max(50).default(20),
+      }),
+    )
+    .query(({ ctx, input }) =>
+      listWorkflowActivity(
+        input.workflowId,
+        actor(ctx.session),
+        {
+          cursor: input.cursor
+            ? { createdAt: new Date(input.cursor.createdAt), id: input.cursor.id }
+            : undefined,
+          limit: input.limit,
+        },
+        ctx.db,
+      ),
+    ),
+
+  listMyStages: protectedProcedure
+    .input(
+      z.object({
+        status: z.array(stageStatusSchema).optional(),
+        due: z.enum(["overdue", "today", "next_7_days", "no_due_date"]).optional(),
+        projectId: z.string().uuid().optional(),
+        query: z.string().trim().max(200).optional(),
+        limit: z.number().int().min(1).max(50).default(25),
+        cursor: z.string().uuid().optional(),
+      }),
+    )
+    .query(({ ctx, input }) =>
+      listAssignedWorkflowStages(actor(ctx.session), input, ctx.db),
+    ),
 });

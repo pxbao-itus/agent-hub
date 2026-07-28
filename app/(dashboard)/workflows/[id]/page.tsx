@@ -7,6 +7,8 @@ import { workflows, workflowStages, workflowStageArtifacts, artifacts, projects 
 import { eq, asc } from "drizzle-orm";
 import { canAccessArtifact } from "@/server/auth/access";
 import { canViewWorkflow, canManageWorkflow } from "@/server/lib/workflow-access";
+import { canViewProject } from "@/server/lib/project-access";
+import { canUpdateWorkflowStageStatus } from "@/server/services/workflow";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +16,7 @@ import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { DetailPageLayout, DetailMetadataSection } from "@/components/ui/detail-page-layout";
 import { DeleteWorkflowButton } from "../_components/delete-workflow-button";
 import { WorkflowPipeline } from "../_components/workflow-pipeline";
+import { WorkflowActivity } from "../_components/workflow-activity";
 import { GitBranch, FolderKanban } from "lucide-react";
 import { formatRelativeTime } from "@/lib/relative-time";
 
@@ -42,8 +45,16 @@ export default async function WorkflowDetailPage({ params }: { params: Promise<{
 
   const canManage = await canManageWorkflow(identity, workflow.ownerGroupType, workflow.ownerGroupId, db);
 
-  const [stageRows, stageArtifactRows, ownerPaths, linkedProject] = await Promise.all([
-    db.query.workflowStages.findMany({ where: eq(workflowStages.workflowId, workflow.id), orderBy: asc(workflowStages.position) }),
+  const [stageRows, stageArtifactRows, ownerPaths, projectCandidate] = await Promise.all([
+    db.query.workflowStages.findMany({
+      where: eq(workflowStages.workflowId, workflow.id),
+      with: {
+        assignee: {
+          columns: { id: true, name: true, username: true, image: true },
+        },
+      },
+      orderBy: asc(workflowStages.position),
+    }),
     db
       .select({ stageId: workflowStageArtifacts.stageId, artifact: artifacts })
       .from(workflowStageArtifacts)
@@ -52,8 +63,12 @@ export default async function WorkflowDetailPage({ params }: { params: Promise<{
       .where(eq(workflowStages.workflowId, workflow.id))
       .orderBy(asc(workflowStageArtifacts.position)),
     resolveOwnerSlugPaths([{ ownerType: workflow.ownerGroupType, ownerId: workflow.ownerGroupId }], db),
-    workflow.projectId ? db.query.projects.findFirst({ where: eq(projects.id, workflow.projectId), columns: { id: true, name: true } }) : null,
+    workflow.projectId ? db.query.projects.findFirst({ where: eq(projects.id, workflow.projectId) }) : null,
   ]);
+  const linkedProject =
+    projectCandidate && (await canViewProject(identity, projectCandidate, db))
+      ? projectCandidate
+      : null;
 
   const byStage = new Map<string, typeof artifacts.$inferSelect[]>();
   for (const row of stageArtifactRows) {
@@ -63,18 +78,26 @@ export default async function WorkflowDetailPage({ params }: { params: Promise<{
     byStage.get(row.stageId)!.push(row.artifact);
   }
 
-  const initialStages = stageRows.map((stage) => ({
-    id: stage.id,
-    name: stage.name,
-    position: stage.position,
-    status: stage.status,
-    artifacts: (byStage.get(stage.id) ?? []).map((a) => ({
-      id: a.id,
-      kind: a.kind,
-      title: a.title,
-      description: a.description,
+  const initialStages = await Promise.all(
+    stageRows.map(async (stage) => ({
+      id: stage.id,
+      name: stage.name,
+      description: stage.description,
+      acceptanceCriteria: stage.acceptanceCriteria,
+      assigneeId: stage.assigneeId,
+      assignee: stage.assignee,
+      dueDate: stage.dueDate,
+      position: stage.position,
+      status: stage.status,
+      canUpdateStatus: await canUpdateWorkflowStageStatus(identity, stage, workflow, db),
+      artifacts: (byStage.get(stage.id) ?? []).map((a) => ({
+        id: a.id,
+        kind: a.kind,
+        title: a.title,
+        description: a.description,
+      })),
     })),
-  }));
+  );
 
   const spacePath = ownerPaths.get(`${workflow.ownerGroupType}:${workflow.ownerGroupId}`) ?? "";
 
@@ -114,6 +137,9 @@ export default async function WorkflowDetailPage({ params }: { params: Promise<{
             ) : (
               <p className="text-sm text-muted-foreground">No project linked.</p>
             )}
+          </DetailMetadataSection>
+          <DetailMetadataSection title="Activity">
+            <WorkflowActivity workflowId={workflow.id} />
           </DetailMetadataSection>
         </>
       }

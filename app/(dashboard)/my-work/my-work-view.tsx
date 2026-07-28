@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
-import { AlertCircle, BellRing, CalendarDays, CheckCircle2, FileText, ListChecks, Loader2 } from "lucide-react";
+import { AlertCircle, BellRing, CalendarDays, CheckCircle2, FileText, GitBranch, ListChecks, Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -103,6 +103,17 @@ export function MyWorkView() {
   const work = trpc.assignment.listMyWork.useInfiniteQuery(input, {
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
+  const workflowStages = trpc.workflow.listMyStages.useInfiniteQuery(
+    {
+      due: input.due,
+      query: input.query,
+      limit: 25,
+    },
+    {
+      enabled: view === "assigned_to_me",
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    },
+  );
   const utils = trpc.useUtils();
   const updateWorkItem = trpc.assignment.updateWorkItem.useMutation({
     onSuccess: async () => {
@@ -121,7 +132,7 @@ export function MyWorkView() {
     <div className="space-y-6">
       <PageHeader
         title="My Work"
-        description="Docs and Plans assigned to you or coordinated by you."
+        description="Docs, Plans, and Workflow stages assigned to you or coordinated by you."
       />
 
       <div className="flex gap-1 overflow-x-auto border-b" role="tablist" aria-label="My Work views">
@@ -189,6 +200,46 @@ export function MyWorkView() {
           Needs attention
         </Button>
       </div>
+
+      {view === "assigned_to_me" && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <GitBranch className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Workflow stages</h2>
+          </div>
+          {workflowStages.isLoading ? (
+            <Skeleton className="h-20 w-full" />
+          ) : workflowStages.error ? (
+            <p className="text-sm text-destructive">Could not load assigned workflow stages.</p>
+          ) : (workflowStages.data?.pages.flatMap((page) => page.items) ?? []).length === 0 ? (
+            <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No workflow stages assigned to you.</p>
+          ) : (
+            <div className="divide-y rounded-lg border">
+              {workflowStages.data?.pages.flatMap((page) => page.items).map(({ stage, workflow }) => (
+                <Link
+                  key={stage.id}
+                  href={`/workflows/${workflow.id}`}
+                  className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/30"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{stage.name}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{workflow.name}</span>
+                  </span>
+                  {stage.dueDate && <span className="text-xs text-muted-foreground">Due {stage.dueDate}</span>}
+                  <Badge variant={stage.status === "done" ? "success" : stage.status === "doing" ? "warning" : "outline"}>
+                    {stage.status}
+                  </Badge>
+                </Link>
+              ))}
+            </div>
+          )}
+          {workflowStages.hasNextPage && (
+            <Button variant="outline" size="sm" onClick={() => workflowStages.fetchNextPage()} disabled={workflowStages.isFetchingNextPage}>
+              Load more stages
+            </Button>
+          )}
+        </section>
+      )}
 
       {work.isLoading ? (
         <div className="space-y-2">{Array.from({ length: 5 }, (_, index) => <Skeleton key={index} className="h-20 w-full" />)}</div>

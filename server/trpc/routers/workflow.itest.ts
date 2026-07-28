@@ -169,10 +169,11 @@ describe("workflow.list / listForProject — cone visibility (D-016)", () => {
     expect(list.find((w) => w.name === "Session bug fix process")).toBeDefined();
   });
 
-  it("listForProject returns nothing for a caller outside the cone", async () => {
+  it("listForProject hides the project from a caller outside the cone", async () => {
     const project1 = await mustProject("Session bug fix");
-    const list = await callerAs({ userId: outsider.id, systemRole: "user" }).listForProject({ projectId: project1.id });
-    expect(list).toEqual([]);
+    await expect(
+      callerAs({ userId: outsider.id, systemRole: "user" }).listForProject({ projectId: project1.id }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
 
@@ -324,6 +325,85 @@ describe("workflow.setStageStatus", () => {
     await expect(
       callerAs({ userId: marketingMember.id, systemRole: "user" }).setStageStatus({ stageId: stage.id, status: "done" }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+});
+
+describe("workflow execution metadata and activity", () => {
+  it("lets a manager assign an eligible viewer, who can then report status and find the stage in My Work", async () => {
+    const caller = callerAs({ userId: engMember.id, systemRole: "user" });
+    const workflow = await caller.create({
+      ownerGroupType: "team",
+      ownerGroupId: backend.id,
+      name: "Assigned execution test",
+      stages: ["Verify"],
+    });
+    createdWorkflowIds.push(workflow.id);
+    const [stage] = await db.select().from(schema.workflowStages).where(eq(schema.workflowStages.workflowId, workflow.id));
+
+    const updated = await caller.updateStageDetails({
+      stageId: stage.id,
+      description: "Run the regression suite.",
+      acceptanceCriteria: "- All checks pass",
+      assigneeId: orgViewer.id,
+      dueDate: "2030-01-15",
+    });
+    expect(updated).toMatchObject({
+      assigneeId: orgViewer.id,
+      dueDate: "2030-01-15",
+      description: "Run the regression suite.",
+    });
+
+    const viewer = callerAs({ userId: orgViewer.id, systemRole: "user" });
+    const result = await viewer.get({ id: workflow.id });
+    expect(result.stages[0].canUpdateStatus).toBe(true);
+    expect(result.stages[0].assignee?.id).toBe(orgViewer.id);
+
+    const status = await viewer.setStageStatus({ stageId: stage.id, status: "doing" });
+    expect(status.status).toBe("doing");
+    const myStages = await viewer.listMyStages({ limit: 25 });
+    expect(myStages.items.some((item) => item.stage.id === stage.id)).toBe(true);
+  });
+
+  it("rejects assignment to a user who cannot view the workflow", async () => {
+    const workflow = await callerAs({ userId: engMember.id, systemRole: "user" }).create({
+      ownerGroupType: "team",
+      ownerGroupId: backend.id,
+      name: "Invalid assignee test",
+      stages: ["Only"],
+    });
+    createdWorkflowIds.push(workflow.id);
+    const [stage] = await db.select().from(schema.workflowStages).where(eq(schema.workflowStages.workflowId, workflow.id));
+
+    await expect(
+      callerAs({ userId: engMember.id, systemRole: "user" }).updateStageDetails({
+        stageId: stage.id,
+        assigneeId: outsider.id,
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("writes one event for a meaningful change and none for a no-op", async () => {
+    const caller = callerAs({ userId: engMember.id, systemRole: "user" });
+    const workflow = await caller.create({
+      ownerGroupType: "team",
+      ownerGroupId: backend.id,
+      name: "Activity test",
+      stages: ["Only"],
+    });
+    createdWorkflowIds.push(workflow.id);
+    const [stage] = await db.select().from(schema.workflowStages).where(eq(schema.workflowStages.workflowId, workflow.id));
+    const before = await db.select().from(schema.workflowEvents).where(eq(schema.workflowEvents.workflowId, workflow.id));
+    expect(before.map((event) => event.type)).toEqual(["workflow.created"]);
+
+    await caller.setStageStatus({ stageId: stage.id, status: "doing" });
+    await caller.setStageStatus({ stageId: stage.id, status: "doing" });
+
+    const activity = await caller.activity({ workflowId: workflow.id, limit: 20 });
+    expect(activity.items.map((event) => event.type)).toEqual([
+      "stage.status.changed",
+      "workflow.created",
+    ]);
+    expect(activity.items[0].source).toBe("ui");
   });
 });
 

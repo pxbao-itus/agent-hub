@@ -9,11 +9,25 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { StageStatusButton } from "./stage-status-button";
 import { AttachStageArtifactDialog } from "./attach-stage-artifact-dialog";
+import { EditWorkflowStageDialog } from "./edit-workflow-stage-dialog";
 import { KIND_ICON, kindRoute } from "@/lib/kind";
-import { ChevronUp, ChevronDown, Trash2, Plus, FileText } from "lucide-react";
+import { MarkdownView } from "@/components/ui/markdown";
+import { ChevronUp, ChevronDown, Trash2, Plus, FileText, CalendarDays, UserRound } from "lucide-react";
 
 type StageArtifact = { id: string; kind: string; title: string; description: string | null };
-type Stage = { id: string; name: string; position: number; status: "todo" | "doing" | "done"; artifacts: StageArtifact[] };
+type Stage = {
+  id: string;
+  name: string;
+  description: string | null;
+  acceptanceCriteria: string | null;
+  assigneeId: string | null;
+  assignee: { id: string; name: string | null; username: string | null; image: string | null } | null;
+  dueDate: string | null;
+  position: number;
+  status: "todo" | "doing" | "done";
+  canUpdateStatus: boolean;
+  artifacts: StageArtifact[];
+};
 
 type Props = {
   workflowId: string;
@@ -31,16 +45,16 @@ export function WorkflowPipeline({ workflowId, canManage, initialStages }: Props
   const stages = data?.stages ?? initialStages;
 
   function invalidate() {
-    utils.workflow.get.invalidate({ id: workflowId });
+    void Promise.all([
+      utils.workflow.get.invalidate({ id: workflowId }),
+      utils.workflow.activity.invalidate({ workflowId }),
+      utils.workflow.listMyStages.invalidate(),
+    ]);
   }
 
   const reorder = trpc.workflow.reorderStages.useMutation({
     onSuccess: invalidate,
     onError: (e) => toast({ title: "Failed to reorder", description: e.message, variant: "destructive" }),
-  });
-  const renameStage = trpc.workflow.updateStage.useMutation({
-    onSuccess: invalidate,
-    onError: (e) => toast({ title: "Failed to rename", description: e.message, variant: "destructive" }),
   });
   const removeStage = trpc.workflow.removeStage.useMutation({
     onSuccess: () => { invalidate(); toast({ title: "Stage removed", variant: "success" }); },
@@ -102,33 +116,48 @@ export function WorkflowPipeline({ workflowId, canManage, initialStages }: Props
                   </button>
                 </div>
               )}
-              <StageStatusButton stageId={stage.id} status={stage.status} onUpdated={invalidate} />
-              {canManage ? (
-                <Input
-                  defaultValue={stage.name}
-                  onBlur={(e) => {
-                    const value = e.target.value.trim();
-                    if (value && value !== stage.name) renameStage.mutate({ stageId: stage.id, name: value });
-                  }}
-                  className="h-8 flex-1 font-medium"
-                />
-              ) : (
-                <span className="flex-1 font-medium">{stage.name}</span>
-              )}
+              <StageStatusButton stageId={stage.id} status={stage.status} canUpdate={stage.canUpdateStatus} onUpdated={invalidate} />
+              <span className="flex-1 font-medium">{stage.name}</span>
               {canManage && (
-                <button
-                  type="button"
-                  onClick={() => removeStage.mutate({ stageId: stage.id })}
-                  disabled={removeStage.isPending}
-                  className="shrink-0 text-muted-foreground hover:text-destructive"
-                  aria-label="Remove stage"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                <>
+                  <EditWorkflowStageDialog workflowId={workflowId} stage={stage} onUpdated={invalidate} />
+                  <button
+                    type="button"
+                    onClick={() => removeStage.mutate({ stageId: stage.id })}
+                    disabled={removeStage.isPending}
+                    className="shrink-0 text-muted-foreground hover:text-destructive"
+                    aria-label="Remove stage"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </>
               )}
             </div>
 
             <div className="space-y-2 p-3">
+              {(stage.assignee || stage.dueDate) && (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  {stage.assignee && (
+                    <span className="inline-flex items-center gap-1">
+                      <UserRound className="h-3.5 w-3.5" />
+                      {stage.assignee.name ?? `@${stage.assignee.username}`}
+                    </span>
+                  )}
+                  {stage.dueDate && (
+                    <span className="inline-flex items-center gap-1">
+                      <CalendarDays className="h-3.5 w-3.5" />
+                      Due {stage.dueDate}
+                    </span>
+                  )}
+                </div>
+              )}
+              {stage.description && <MarkdownView className="text-sm">{stage.description}</MarkdownView>}
+              {stage.acceptanceCriteria && (
+                <div className="rounded-md bg-muted/40 p-3">
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Acceptance criteria</p>
+                  <MarkdownView className="text-sm">{stage.acceptanceCriteria}</MarkdownView>
+                </div>
+              )}
               {stage.artifacts.length === 0 ? (
                 <p className="text-xs text-muted-foreground">Nothing attached yet.</p>
               ) : (

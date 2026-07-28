@@ -61,6 +61,7 @@ export type AssignmentPriority = "low" | "normal" | "high" | "urgent";
 /** Origin of a collaboration comment. MCP tokens still act as their owning user. */
 export const commentSourceEnum = pgEnum("comment_source", ["ui", "mcp"]);
 export type CommentSource = "ui" | "mcp";
+export type WorkflowEventSource = "ui" | "mcp" | "system";
 
 /** Per-user notification preference for comments on an artifact. */
 export const artifactSubscriptionModeEnum = pgEnum("artifact_subscription_mode", ["all", "mentions", "muted"]);
@@ -784,12 +785,20 @@ export const workflowStages = pgTable(
       .notNull()
       .references(() => workflows.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    description: text("description"),
+    acceptanceCriteria: text("acceptance_criteria"),
+    assigneeId: uuid("assignee_id").references(() => users.id, { onDelete: "set null" }),
+    dueDate: date("due_date"),
     position: integer("position").notNull().default(0),
     status: taskStatusEnum("status").notNull().default("todo"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("workflow_stages_workflow_idx").on(t.workflowId)]
+  (t) => [
+    index("workflow_stages_workflow_idx").on(t.workflowId),
+    index("workflow_stages_assignee_due_idx").on(t.assigneeId, t.dueDate),
+    index("workflow_stages_workflow_status_idx").on(t.workflowId, t.status),
+  ]
 );
 
 /**
@@ -814,6 +823,30 @@ export const workflowStageArtifacts = pgTable(
     unique("workflow_stage_artifacts_stage_artifact_uq").on(t.stageId, t.artifactId),
     index("workflow_stage_artifacts_artifact_idx").on(t.artifactId),
   ]
+);
+
+/**
+ * Append-only operational history for Workflow execution. This is separate
+ * from audit_events: audit covers security/destructive administration, while
+ * these rows explain stage progress and handoff to Workflow viewers.
+ */
+export const workflowEvents = pgTable(
+  "workflow_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workflowId: uuid("workflow_id")
+      .notNull()
+      .references(() => workflows.id, { onDelete: "cascade" }),
+    stageId: uuid("stage_id").references(() => workflowStages.id, { onDelete: "set null" }),
+    actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+    source: text("source").notNull().$type<WorkflowEventSource>(),
+    type: text("type").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("workflow_events_workflow_created_idx").on(t.workflowId, t.createdAt, t.id),
+  ],
 );
 
 /* -------------------------------------------------------------------------- */
@@ -1063,6 +1096,7 @@ export const workflowsRelations = relations(workflows, ({ one, many }) => ({
     references: [projects.id],
   }),
   stages: many(workflowStages),
+  events: many(workflowEvents),
 }));
 
 export const workflowStagesRelations = relations(workflowStages, ({ one, many }) => ({
@@ -1070,7 +1104,12 @@ export const workflowStagesRelations = relations(workflowStages, ({ one, many })
     fields: [workflowStages.workflowId],
     references: [workflows.id],
   }),
+  assignee: one(users, {
+    fields: [workflowStages.assigneeId],
+    references: [users.id],
+  }),
   artifacts: many(workflowStageArtifacts),
+  events: many(workflowEvents),
 }));
 
 export const workflowStageArtifactsRelations = relations(workflowStageArtifacts, ({ one }) => ({
@@ -1081,6 +1120,21 @@ export const workflowStageArtifactsRelations = relations(workflowStageArtifacts,
   artifact: one(artifacts, {
     fields: [workflowStageArtifacts.artifactId],
     references: [artifacts.id],
+  }),
+}));
+
+export const workflowEventsRelations = relations(workflowEvents, ({ one }) => ({
+  workflow: one(workflows, {
+    fields: [workflowEvents.workflowId],
+    references: [workflows.id],
+  }),
+  stage: one(workflowStages, {
+    fields: [workflowEvents.stageId],
+    references: [workflowStages.id],
+  }),
+  actor: one(users, {
+    fields: [workflowEvents.actorId],
+    references: [users.id],
   }),
 }));
 

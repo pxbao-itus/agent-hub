@@ -6,6 +6,7 @@ import { workflows, projects } from "@/server/db/schema";
 import { eq, and, or, desc, inArray } from "drizzle-orm";
 import { getAccessibleGroups } from "@/server/auth/access";
 import { attachWorkflowProgress, attachWorkflowManageFlags } from "@/server/lib/workflow-access";
+import { canViewProject } from "@/server/lib/project-access";
 import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -108,13 +109,18 @@ export default async function WorkflowsPage() {
   const projectRows = projectIds.length
     ? await db.query.projects.findMany({ where: inArray(projects.id, projectIds), columns: { id: true, name: true } })
     : [];
-  const projectNameById = new Map(projectRows.map((p) => [p.id, p.name]));
+  const viewableProjectRows = [];
+  for (const project of projectRows) {
+    const fullProject = await db.query.projects.findFirst({ where: eq(projects.id, project.id) });
+    if (fullProject && (await canViewProject(identity, fullProject, db))) viewableProjectRows.push(project);
+  }
+  const projectNameById = new Map(viewableProjectRows.map((p) => [p.id, p.name]));
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Workflows"
-        description="Processes made of ordered stages — the thread that ties docs, plans, and toolkits together across a lifecycle."
+        description="Processes made of ordered stages that connect docs, plans, prompts, and skills across a lifecycle."
         actions={
           <Button asChild>
             <Link href="/workflows/new">New workflow</Link>

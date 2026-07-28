@@ -26,10 +26,11 @@ const STATUS_CLASS: Record<Status, string> = {
 type Props = {
   stageId: string;
   status: Status;
+  canUpdate: boolean;
   onUpdated?: (stageId: string, newStatus: Status) => void;
 };
 
-export function StageStatusButton({ stageId, status, onUpdated }: Props) {
+export function StageStatusButton({ stageId, status, canUpdate, onUpdated }: Props) {
   const update = trpc.workflow.setStageStatus.useMutation({
     onSuccess: ({ id, status: s }) => {
       onUpdated?.(id, s as Status);
@@ -38,6 +39,14 @@ export function StageStatusButton({ stageId, status, onUpdated }: Props) {
   });
 
   const next = STATUS_CYCLE[status];
+
+  if (!canUpdate) {
+    return (
+      <span className={`font-mono text-sm font-bold ${STATUS_CLASS[status]}`} title={status}>
+        {STATUS_LABEL[status]}
+      </span>
+    );
+  }
 
   return (
     <button
