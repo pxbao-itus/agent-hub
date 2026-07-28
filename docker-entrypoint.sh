@@ -18,4 +18,7 @@ set -e
 echo "Applying database schema (drizzle-kit push)..."
 node_modules/.bin/drizzle-kit push --force
 
+echo "Backfilling immutable usernames..."
+node_modules/.bin/tsx server/scripts/backfill-usernames.ts
+
 exec "$@"

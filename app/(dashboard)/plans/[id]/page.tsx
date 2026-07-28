@@ -28,7 +28,9 @@ import { ShareDialog } from "../../_components/share-dialog";
 import { PlanLinkedDocs } from "./_components/plan-linked-docs";
 import { ArtifactProjectsSection } from "../../_components/artifact-projects-section";
 import { AssignmentPanel } from "../../_components/assignment-panel";
-import { AssignmentHistory } from "../../_components/assignment-history";
+import { ActivityTimeline } from "@/components/collaboration/activity-timeline";
+import { CollaborationPanel } from "@/components/collaboration/collaboration-panel";
+import { FollowMenu } from "@/components/collaboration/follow-menu";
 import { PlanVersionHistory } from "./_components/plan-version-history";
 
 const getPlan = cache(async (id: string) =>
@@ -158,8 +160,8 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
           <DetailMetadataSection title="Assignment">
             <AssignmentPanel artifactId={id} canEdit={canEdit} />
           </DetailMetadataSection>
-          <DetailMetadataSection title="Assignment history">
-            <AssignmentHistory artifactId={id} />
+          <DetailMetadataSection title="Activity">
+            <ActivityTimeline artifactId={id} />
           </DetailMetadataSection>
           {plan.versions.length > 0 && (
             <DetailMetadataSection title="Version history" count={plan.versions.length}>
@@ -190,6 +192,7 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
             {plan.description && <p className="text-sm text-muted-foreground">{plan.description}</p>}
           </div>
           <div className="flex flex-wrap gap-2 sm:shrink-0 sm:justify-end">
+            <FollowMenu artifactId={id} />
             <FavoriteButton artifactId={id} initialFavorited={favorited} />
             <DuplicateArtifactButton artifactId={id} kind="plan" />
             <ExportArtifactButton artifactId={id} title={plan.title} />
@@ -239,6 +242,8 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
             />
           </section>
         )}
+
+        <CollaborationPanel artifactId={id} />
       </div>
     </DetailPageLayout>
   );

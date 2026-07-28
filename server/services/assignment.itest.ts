@@ -145,6 +145,14 @@ describe("setAssigner", () => {
     expect(notifs[0].type).toBe("assignment");
     expect(notifs[0].actorId).toBe(engMember.id);
     expect((notifs[0].metadata as Record<string, unknown>).event).toBe("assigner.change");
+    expect(
+      await db.query.artifactSubscriptions.findFirst({
+        where: and(
+          eq(schema.artifactSubscriptions.artifactId, doc.id),
+          eq(schema.artifactSubscriptions.userId, marketingMember.id),
+        ),
+      }),
+    ).toMatchObject({ mode: "all" });
   });
 
   it("is idempotent: re-setting the same assigner reports changed:false and writes no new audit/notification row", async () => {
@@ -199,6 +207,14 @@ describe("addAssignee / removeAssignee", () => {
     expect(notifs).toHaveLength(1);
     expect(notifs[0].userId).toBe(marketingMember.id);
     expect((notifs[0].metadata as Record<string, unknown>).event).toBe("assignee.add");
+    expect(
+      await db.query.artifactSubscriptions.findFirst({
+        where: and(
+          eq(schema.artifactSubscriptions.artifactId, doc.id),
+          eq(schema.artifactSubscriptions.userId, marketingMember.id),
+        ),
+      }),
+    ).toMatchObject({ mode: "all" });
   });
 
   it("adding the same assignee twice is a no-op (alreadyAssigned:true, no new audit/notification)", async () => {

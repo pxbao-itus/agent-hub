@@ -14,6 +14,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   if (!session) redirect("/auth/signin");
 
   const displayName = session.user?.name ?? session.user?.email ?? "User";
+  const username = session.user?.username ?? null;
   const isSuperAdmin = session.user?.systemRole === "superadmin";
 
   return (
@@ -35,6 +36,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
         <div className="border-t px-3 py-3">
           <div className="mb-1 truncate px-2 text-sm font-medium">{displayName}</div>
+          {username && <div className="mb-2 truncate px-2 text-xs text-muted-foreground">@{username}</div>}
           {session.user?.systemRole === "superadmin" && (
             <div className="mb-2 px-2">
               <Badge variant="secondary">superadmin</Badge>
@@ -49,7 +51,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       </aside>
 
       {/* ── Mobile header + drawer ────────────────────────────────────────── */}
-      <MobileHeader displayName={displayName} isSuperAdmin={isSuperAdmin} />
+      <MobileHeader displayName={displayName} username={username} isSuperAdmin={isSuperAdmin} />
 
       {/* ── Main content ──────────────────────────────────────────────────── */}
       <main className="flex-1 overflow-y-auto">

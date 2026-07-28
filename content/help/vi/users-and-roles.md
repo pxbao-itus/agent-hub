@@ -2,6 +2,12 @@
 
 Agent Hub có hai lớp permission.
 
+Mỗi account có thêm một **username** duy nhất và cố định để mention. Username
+chỉ gồm chữ cái tiếng Anh viết thường và số, bắt đầu bằng chữ cái, và được hiển
+thị dưới dạng `@username`. Username vẫn định danh đúng account khi display name
+thay đổi. Hãy chọn cẩn thận khi tạo account vì username không thể chỉnh sửa về
+sau.
+
 **System role**
 
 - `user` — tài khoản platform thông thường.

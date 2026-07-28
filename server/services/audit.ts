@@ -19,13 +19,16 @@ export type AuditAction =
   | "token.revoke"
   | "project.member.add"
   | "project.member.remove"
+  | "project.artifact.add"
+  | "project.artifact.remove"
   | "workflow.delete"
   | "assignment.assigner.change"
   | "assignment.assignee.add"
   | "assignment.assignee.remove"
   | "assignment.status.change"
   | "assignment.priority.change"
-  | "assignment.due_date.change";
+  | "assignment.due_date.change"
+  | "comment.moderate.delete";
 
 export type AuditEntry = {
   actorId: string;

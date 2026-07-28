@@ -29,7 +29,7 @@ The default assigner is derived from ownership and creation context until an
 authorized editor changes it. Add multiple assignees only when responsibility
 is genuinely shared.
 
-Assignment changes appear in assignment history and may notify affected users.
+Assignment changes appear in the unified activity timeline and may notify affected users.
 Removing an assignee removes the responsibility record, not the person's
 underlying access.
 
@@ -42,6 +42,8 @@ Open **My Work** to review:
 - manageable work that has no assignees.
 
 Use status, priority, due date, kind, and due-state filters to focus the list.
+Turn on **Needs attention** to show work that is blocked, overdue, or has unread
+discussion activity.
 Assignment status applies to the whole Doc or Plan; it does not replace the
 individual task statuses inside a Plan.
 
@@ -52,6 +54,29 @@ reminders.
 
 Write-enabled MCP clients can list My Work and update the same assignment
 fields. Token scope and artifact permissions still apply.
+
+## Discuss and hand off work
+
+Each Doc and Plan has a flat Markdown discussion. Use `@username` to bring an
+accessible user into the conversation. If a username does not exist or that
+user cannot view the artifact, the comment is still saved but the text remains
+a plain mention and no notification is sent.
+
+Typing `@` opens a list of users who can be mentioned. The editor keeps the
+stable `@username`; after posting, the comment shows the user's display name
+and exposes the username on hover.
+
+You can edit your own comments. You can delete your own comments; artifact
+managers can also moderate them. Deleted comments remain as tombstones so the
+timeline keeps its context.
+
+Use the follow preference to receive all discussion updates, mentions only, or
+mute the artifact. Assignment may start following an artifact automatically,
+but an explicit preference such as muted is preserved.
+
+The Activity section combines comments, versions, assignment changes, and
+project association changes. The compact view shows recent events; open the
+full timeline when you need earlier history.
 
 ## Troubleshoot assignment
 

@@ -15,6 +15,7 @@ import { EditUserDialog } from "./edit-user-dialog";
 export type UserRow = {
   id: string;
   name: string | null;
+  username: string | null;
   email: string;
   image: string | null;
   systemRole: "user" | "superadmin";
@@ -121,9 +122,8 @@ export function UserTable({ users, currentUserId, query, offset, limit, hasMore 
                     </span>
                     <div className="min-w-0">
                       {u.name && <p className="truncate font-medium">{u.name}</p>}
-                      <p className={`truncate ${!u.name ? "font-medium text-foreground" : "text-xs text-muted-foreground"}`}>
-                        {u.email}
-                      </p>
+                      {u.username && <p className="truncate text-xs text-muted-foreground">@{u.username}</p>}
+                      <p className="truncate text-xs text-muted-foreground">{u.email}</p>
                     </div>
                   </div>
                 </td>
@@ -203,7 +203,13 @@ export function UserTable({ users, currentUserId, query, offset, limit, hasMore 
 
       {/* Edit dialog */}
       <EditUserDialog
-        user={editTarget ? { id: editTarget.id, name: editTarget.name, email: editTarget.email, hasPassword: editTarget.hasPassword } : null}
+        user={editTarget ? {
+          id: editTarget.id,
+          name: editTarget.name,
+          username: editTarget.username,
+          email: editTarget.email,
+          hasPassword: editTarget.hasPassword,
+        } : null}
         onClose={() => setEditTarget(null)}
       />
 

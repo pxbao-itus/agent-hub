@@ -30,6 +30,17 @@ Sau khi cấu hình:
 3. Lấy thử một artifact đã biết.
 4. Nếu bật write access, chỉ test trên artifact an toàn hoặc personal space.
 
+## Cộng tác thông qua agent
+
+Read token có thể dùng `list_comments` cho thảo luận trên Doc và Plan nằm trong
+scope. Write token có thể thêm, sửa, xóa comment và đặt follow preference. Đặt
+`@username` trực tiếp trong body để mention user. Tool sẽ báo mention không
+resolve được hoặc không có quyền truy cập nhưng không làm fail toàn bộ comment.
+
+Comment do MCP client tạo được ghi rõ source MCP. Comment ID không thể bypass
+token scope: update hoặc delete chỉ được phép khi artifact của comment vẫn nằm
+trong cả quyền user và scope của token.
+
 ## Xử lý lỗi và revoke
 
 Khi lỗi authentication, kiểm tra endpoint, `Bearer` token header, expiry và token

@@ -52,7 +52,7 @@ export const assignmentRouter = router({
       const rows = userIds.length
         ? await ctx.db.query.users.findMany({
             where: inArray(users.id, userIds),
-            columns: { id: true, name: true, email: true, image: true },
+            columns: { id: true, name: true, username: true, email: true, image: true },
           })
         : [];
       const byId = new Map(rows.map((u) => [u.id, u]));
@@ -87,6 +87,7 @@ export const assignmentRouter = router({
         sort: z.enum(["due_date", "priority", "updated"]).default("due_date"),
         cursor: z.string().optional(),
         limit: z.number().int().min(1).max(100).default(25),
+        attention: z.boolean().default(false),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -127,16 +128,35 @@ export const assignmentRouter = router({
 
       const q = `%${input.query}%`;
       const candidates = await ctx.db
-        .select({ id: users.id, name: users.name, email: users.email, image: users.image, systemRole: users.systemRole })
+        .select({
+          id: users.id,
+          name: users.name,
+          username: users.username,
+          email: users.email,
+          image: users.image,
+          systemRole: users.systemRole,
+        })
         .from(users)
-        .where(or(ilike(users.name, q), ilike(users.email, q)))
+        .where(or(ilike(users.name, q), ilike(users.username, q), ilike(users.email, q)))
         .limit(input.limit * 5);
 
-      const result: { id: string; name: string | null; email: string; image: string | null }[] = [];
+      const result: {
+        id: string;
+        name: string | null;
+        username: string | null;
+        email: string;
+        image: string | null;
+      }[] = [];
       for (const c of candidates) {
         if (result.length >= input.limit) break;
         const ok = await canAccessArtifact({ userId: c.id, systemRole: c.systemRole }, artifact, ctx.db);
-        if (ok) result.push({ id: c.id, name: c.name, email: c.email, image: c.image });
+        if (ok) result.push({
+          id: c.id,
+          name: c.name,
+          username: c.username,
+          email: c.email,
+          image: c.image,
+        });
       }
       return result;
     }),

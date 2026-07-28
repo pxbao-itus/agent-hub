@@ -3,6 +3,7 @@ import {
   artifactAssignments,
   artifactWorkItems,
   artifacts,
+  notifications,
   projectArtifacts,
   projects,
   users,
@@ -27,6 +28,7 @@ export type MyWorkInput = {
   sort?: MyWorkSort;
   cursor?: string;
   limit?: number;
+  attention?: boolean;
 };
 
 type Actor = { userId: string; systemRole: "user" | "superadmin" };
@@ -79,6 +81,28 @@ function dueCondition(due?: MyWorkDue) {
   return undefined;
 }
 
+function unreadActivityCondition(userId: string) {
+  return sql`exists (
+    select 1 from notifications n
+    where n.artifact_id = ${artifacts.id}
+      and n.user_id = ${userId}
+      and n.is_read = false
+      and n.type in ('comment', 'mention')
+  )`;
+}
+
+function needsAttentionCondition(userId: string) {
+  return or(
+    eq(artifactWorkItems.status, "blocked"),
+    and(
+      sql`${artifactWorkItems.dueDate} is not null`,
+      sql`${artifactWorkItems.dueDate} < current_date`,
+      sql`coalesce(${artifactWorkItems.status}, 'open') <> 'done'`,
+    ),
+    unreadActivityCondition(userId),
+  );
+}
+
 export async function listMyWork(actor: Actor, input: MyWorkInput, db: DbClient) {
   const limit = Math.min(Math.max(input.limit ?? 25, 1), 100);
   const offset = offsetFromCursor(input.cursor);
@@ -108,6 +132,7 @@ export async function listMyWork(actor: Actor, input: MyWorkInput, db: DbClient)
       ? inArray(sql`coalesce(${artifactWorkItems.priority}, 'normal')`, input.priority)
       : undefined,
     dueCondition(input.due),
+    input.attention ? needsAttentionCondition(actor.userId) : undefined,
     input.projectId
       ? sql`exists (
           select 1 from project_artifacts pa
@@ -150,6 +175,13 @@ export async function listMyWork(actor: Actor, input: MyWorkInput, db: DbClient)
       status: artifactWorkItems.status,
       priority: artifactWorkItems.priority,
       dueDate: artifactWorkItems.dueDate,
+      unreadActivityCount: sql<number>`(
+        select count(*)::int from ${notifications}
+        where ${notifications.artifactId} = ${artifacts.id}
+          and ${notifications.userId} = ${actor.userId}
+          and ${notifications.isRead} = false
+          and ${notifications.type} in ('comment', 'mention')
+      )`,
     })
     .from(artifacts)
     .leftJoin(artifactWorkItems, eq(artifactWorkItems.artifactId, artifacts.id))
@@ -218,7 +250,7 @@ export async function listMyWork(actor: Actor, input: MyWorkInput, db: DbClient)
   const userRows = userIds.length
     ? await db.query.users.findMany({
         where: inArray(users.id, userIds),
-        columns: { id: true, name: true, email: true, image: true },
+        columns: { id: true, name: true, username: true, email: true, image: true },
       })
     : [];
   const userById = new Map(userRows.map((user) => [user.id, user]));
@@ -253,6 +285,16 @@ export async function listMyWork(actor: Actor, input: MyWorkInput, db: DbClient)
       projects: visibleProjects.get(row.id) ?? [],
       canManage,
       canUpdateStatus: canManage || assigneeIds.includes(actor.userId),
+      attentionReasons: [
+        ...(row.status === "blocked" ? ["blocked" as const] : []),
+        ...(row.dueDate &&
+        row.dueDate < new Date().toLocaleDateString("en-CA") &&
+        row.status !== "done"
+          ? ["overdue" as const]
+          : []),
+        ...(Number(row.unreadActivityCount) > 0 ? ["unread_activity" as const] : []),
+      ],
+      unreadActivityCount: Number(row.unreadActivityCount),
     };
   });
 

@@ -12,12 +12,19 @@ import { artifactDetailPath } from "@/lib/artifact-routes";
 type NotificationRow = {
   type: string;
   metadata: unknown;
-  actor: { name: string | null; email: string | null } | null;
+  actor: { name: string | null; username: string | null; email: string | null } | null;
   artifact: { title: string };
+  comment: { id: string; excerpt: string | null; deletedAt: Date | null } | null;
 };
 
 function describeNotification(n: NotificationRow): string {
-  const actor = n.actor?.name ?? n.actor?.email ?? "Someone";
+  const actor = n.actor?.name ?? (n.actor?.username ? `@${n.actor.username}` : n.actor?.email) ?? "Someone";
+  if (n.type === "mention") {
+    return `${actor} mentioned you in "${n.artifact.title}"${n.comment?.excerpt ? `: ${n.comment.excerpt}` : ""}`;
+  }
+  if (n.type === "comment") {
+    return `${actor} commented on "${n.artifact.title}"${n.comment?.excerpt ? `: ${n.comment.excerpt}` : ""}`;
+  }
   if (n.type === "assignment") {
     const m = (n.metadata ?? {}) as Record<string, unknown>;
     if (m.event === "assigner.change") {
@@ -107,7 +114,8 @@ export function NotificationBell() {
               key={n.id}
               onClick={() => {
                 if (!n.isRead) markAsRead.mutate({ id: n.id });
-                router.push(artifactDetailPath(n.artifact.kind, n.artifact.id));
+                const base = artifactDetailPath(n.artifact.kind, n.artifact.id);
+                router.push(n.commentId ? `${base}#comment-${n.commentId}` : base);
               }}
               className="flex w-full flex-col gap-0.5 border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-muted/50"
             >

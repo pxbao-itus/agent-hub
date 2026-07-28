@@ -21,6 +21,7 @@ export type AuthorizedUser = {
   id: string;
   email: string;
   name: string | null;
+  username: string | null;
   systemRole: "user" | "superadmin";
 };
 
@@ -51,5 +52,11 @@ export async function authorizeCredentials(
   const valid = await verifyPassword(parsed.data.password, user.passwordHash);
   if (!valid) return null;
 
-  return { id: user.id, email: user.email, name: user.name, systemRole: user.systemRole };
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    username: user.username,
+    systemRole: user.systemRole,
+  };
 }

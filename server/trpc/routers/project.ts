@@ -214,6 +214,18 @@ export const projectRouter = router({
         .onConflictDoNothing()
         .returning();
 
+      if (row) {
+        await recordAudit(
+          {
+            actorId: userId,
+            action: "project.artifact.add",
+            targetType: "artifact",
+            targetId: input.artifactId,
+            metadata: { projectId: project.id, projectName: project.name },
+          },
+          ctx.db,
+        );
+      }
       return row ?? null;
     }),
 
@@ -250,10 +262,25 @@ export const projectRouter = router({
       }
 
       if (assignedIds.length > 0) {
-        await ctx.db
+        const inserted = await ctx.db
           .insert(projectArtifacts)
           .values(assignedIds.map((artifactId) => ({ projectId: input.projectId, artifactId })))
-          .onConflictDoNothing();
+          .onConflictDoNothing()
+          .returning({ artifactId: projectArtifacts.artifactId });
+        await Promise.all(
+          inserted.map(({ artifactId }) =>
+            recordAudit(
+              {
+                actorId: userId,
+                action: "project.artifact.add",
+                targetType: "artifact",
+                targetId: artifactId,
+                metadata: { projectId: project.id, projectName: project.name },
+              },
+              ctx.db,
+            ),
+          ),
+        );
       }
 
       return { assignedIds, skippedIds };
@@ -266,9 +293,22 @@ export const projectRouter = router({
       const project = await findProjectOrThrow(input.projectId, ctx.db);
       await requireManage({ userId, systemRole }, project.ownerGroupType, project.ownerGroupId, ctx.db);
 
-      await ctx.db
+      const [removed] = await ctx.db
         .delete(projectArtifacts)
-        .where(and(eq(projectArtifacts.projectId, input.projectId), eq(projectArtifacts.artifactId, input.artifactId)));
+        .where(and(eq(projectArtifacts.projectId, input.projectId), eq(projectArtifacts.artifactId, input.artifactId)))
+        .returning({ artifactId: projectArtifacts.artifactId });
+      if (removed) {
+        await recordAudit(
+          {
+            actorId: userId,
+            action: "project.artifact.remove",
+            targetType: "artifact",
+            targetId: input.artifactId,
+            metadata: { projectId: project.id, projectName: project.name },
+          },
+          ctx.db,
+        );
+      }
     }),
 
   addMember: protectedProcedure

@@ -15,6 +15,7 @@ export function CreateUserDialog() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [systemRole, setSystemRole] = useState<"user" | "superadmin">("user");
@@ -30,7 +31,7 @@ export function CreateUserDialog() {
   });
 
   function reset() {
-    setName(""); setEmail(""); setPassword(""); setSystemRole("user");
+    setName(""); setUsername(""); setEmail(""); setPassword(""); setSystemRole("user");
   }
 
   return (
@@ -56,6 +57,22 @@ export function CreateUserDialog() {
                 onChange={(e) => setName(e.target.value)}
                 disabled={create.isPending}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="cu-username">Username</Label>
+              <Input
+                id="cu-username"
+                placeholder="janedoe"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                disabled={create.isPending}
+                spellCheck={false}
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                Permanent @mention handle. Use 3–32 lowercase letters or numbers.
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -113,10 +130,11 @@ export function CreateUserDialog() {
               Cancel
             </Button>
             <Button
-              disabled={!email || create.isPending}
+              disabled={!username || !email || create.isPending}
               onClick={() =>
                 create.mutate({
                   name: name || undefined,
+                  username,
                   email,
                   password: password || undefined,
                   systemRole,

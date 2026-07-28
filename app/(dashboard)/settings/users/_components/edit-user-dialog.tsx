@@ -13,6 +13,7 @@ import { KeyRound } from "lucide-react";
 type TargetUser = {
   id: string;
   name: string | null;
+  username: string | null;
   email: string;
   hasPassword: boolean;
 };
@@ -66,6 +67,16 @@ export function EditUserDialog({ user, onClose }: Props) {
               onChange={(e) => setName(e.target.value)}
               disabled={update.isPending}
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="eu-username">Username</Label>
+            <Input
+              id="eu-username"
+              value={user.username ? `@${user.username}` : "Pending backfill"}
+              disabled
+            />
+            <p className="text-xs text-muted-foreground">Usernames are permanent mention handles.</p>
           </div>
 
           <div className="space-y-2">

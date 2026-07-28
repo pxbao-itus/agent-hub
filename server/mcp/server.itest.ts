@@ -157,7 +157,7 @@ describe("prompts primitive", () => {
 });
 
 describe("write gate", () => {
-  it("read-only scope exposes exactly the 19 read tools", async () => {
+  it("read-only scope exposes exactly the 20 read tools", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" }, {});
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
@@ -173,6 +173,7 @@ describe("write gate", () => {
         "list_docs",
         "list_groups",
         "list_kits",
+        "list_comments",
         "list_my_work",
         "list_plans",
         "list_projects",
@@ -186,10 +187,10 @@ describe("write gate", () => {
     );
   });
 
-  it("write:true scope adds the 24 write tools (43 total)", async () => {
+  it("write:true scope adds the 28 write tools (48 total)", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(43);
+    expect(tools).toHaveLength(48);
     const names = new Set(tools.map((t) => t.name));
     for (const n of [
       "update_task_status",
@@ -216,9 +217,88 @@ describe("write gate", () => {
       "add_assignee",
       "remove_assignee",
       "update_work_item",
+      "add_comment",
+      "update_comment",
+      "delete_comment",
+      "set_follow_preference",
     ]) {
       expect(names.has(n)).toBe(true);
     }
+  });
+});
+
+describe("collaboration tools", () => {
+  it("keeps read tokens read-only and exposes scoped comment listing", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" });
+    const { tools } = await client.listTools();
+    expect(tools.map((tool) => tool.name)).toContain("list_comments");
+    expect(tools.map((tool) => tool.name)).not.toContain("add_comment");
+
+    const result = await client.callTool({
+      name: "list_comments",
+      arguments: { kind: "doc", slug: doc1Slug },
+    });
+    expect(JSON.parse(text(result))).toMatchObject({ comments: expect.any(Array) });
+  });
+
+  it("supports MCP-authored mentions, update/delete, and follow preferences", async () => {
+    const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const created = await client.callTool({
+      name: "add_comment",
+      arguments: {
+        kind: "doc",
+        slug: doc1Slug,
+        body: `MCP handoff to @${engMember.username} and @missinguser`,
+      },
+    });
+    const createdText = text(created);
+    expect(createdText).toContain("source: mcp");
+    expect(createdText).toContain("@missinguser");
+    const commentId = createdText.match(/id: ([0-9a-f-]{36})/)?.[1];
+    expect(commentId).toBeTruthy();
+
+    const listed = JSON.parse(text(await client.callTool({
+      name: "list_comments",
+      arguments: { kind: "doc", slug: doc1Slug, limit: 100 },
+    })));
+    expect(listed.comments).toContainEqual(expect.objectContaining({
+      id: commentId,
+      source: "mcp",
+      mentions: expect.arrayContaining([engMember.username]),
+    }));
+
+    expect(text(await client.callTool({
+      name: "update_comment",
+      arguments: { commentId, body: "Updated MCP handoff" },
+    }))).toContain("updated");
+    expect(text(await client.callTool({
+      name: "set_follow_preference",
+      arguments: { kind: "doc", slug: doc1Slug, mode: "mentions" },
+    }))).toContain("mentions");
+    expect(text(await client.callTool({
+      name: "delete_comment",
+      arguments: { commentId },
+    }))).toContain("deleted");
+  });
+
+  it("does not let a comment id bypass token space scope", async () => {
+    const unrestricted = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
+    const created = text(await unrestricted.callTool({
+      name: "add_comment",
+      arguments: { kind: "plan", slug: plan2Slug, body: "Outside scoped team" },
+    }));
+    const commentId = created.match(/id: ([0-9a-f-]{36})/)?.[1];
+    expect(commentId).toBeTruthy();
+
+    const scoped = await connect(
+      { userId: engMember.id, systemRole: "user" },
+      { write: true, spaces: [{ groupType: "team", groupId: backend.id }] },
+    );
+    const result = await scoped.callTool({
+      name: "update_comment",
+      arguments: { commentId, body: "Scope bypass attempt" },
+    });
+    expect(text(result)).toContain("not found or not accessible");
   });
 });
 

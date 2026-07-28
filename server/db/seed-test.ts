@@ -143,12 +143,12 @@ async function main() {
   const [, orgAdmin, engMember, marketingMember, , orgViewer] = await db
     .insert(schema.users)
     .values([
-      { name: "QA Superadmin", email: "superadmin@test.local", passwordHash, systemRole: "superadmin" },
-      { name: "QA Org Admin", email: "org-admin@test.local", passwordHash },
-      { name: "QA Eng Member", email: "eng-member@test.local", passwordHash },
-      { name: "QA Marketing Member", email: "marketing-member@test.local", passwordHash },
-      { name: "QA Outsider", email: "outsider@test.local", passwordHash },
-      { name: "QA Org Viewer", email: "org-viewer@test.local", passwordHash },
+      { name: "QA Superadmin", username: "superadmin", email: "superadmin@test.local", passwordHash, systemRole: "superadmin" },
+      { name: "QA Org Admin", username: "orgadmin", email: "org-admin@test.local", passwordHash },
+      { name: "QA Eng Member", username: "engmember", email: "eng-member@test.local", passwordHash },
+      { name: "QA Marketing Member", username: "marketingmember", email: "marketing-member@test.local", passwordHash },
+      { name: "QA Outsider", username: "outsider", email: "outsider@test.local", passwordHash },
+      { name: "QA Org Viewer", username: "orgviewer", email: "org-viewer@test.local", passwordHash },
     ])
     .returning();
 

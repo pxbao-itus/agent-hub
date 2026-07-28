@@ -1,6 +1,8 @@
 import { eq, ne, and } from "drizzle-orm";
-import { artifactShares, notifications } from "@/server/db/schema";
+import { artifactShares, artifactSubscriptions, notifications } from "@/server/db/schema";
 import type { DbClient } from "@/server/db/types";
+
+type NotificationDb = Pick<DbClient, "select" | "insert">;
 
 /**
  * Fan out an in-app notification to everyone an artifact is directly shared
@@ -58,6 +60,98 @@ export async function notifyAssignmentChange(
       artifactId,
       actorId,
       metadata,
+    })),
+  );
+}
+
+async function commentRecipientSets(
+  artifactId: string,
+  mentionUserIds: string[],
+  actorId: string,
+  includeFollowers: boolean,
+  db: NotificationDb,
+) {
+  const subscriptions = await db
+    .select({
+      userId: artifactSubscriptions.userId,
+      mode: artifactSubscriptions.mode,
+    })
+    .from(artifactSubscriptions)
+    .where(eq(artifactSubscriptions.artifactId, artifactId));
+  const modeByUser = new Map(subscriptions.map((row) => [row.userId, row.mode]));
+
+  const mentions = [...new Set(mentionUserIds)].filter(
+    (userId) => userId !== actorId && modeByUser.get(userId) !== "muted",
+  );
+  const mentionSet = new Set(mentions);
+  const followers = includeFollowers
+    ? subscriptions
+        .filter(
+          (row) => row.mode === "all" && row.userId !== actorId && !mentionSet.has(row.userId),
+        )
+        .map((row) => row.userId)
+    : [];
+  return { mentions, followers };
+}
+
+export async function notifyCommentCreated(
+  artifactId: string,
+  commentId: string,
+  mentionUserIds: string[],
+  actorId: string,
+  db: NotificationDb,
+): Promise<void> {
+  const { mentions, followers } = await commentRecipientSets(
+    artifactId,
+    mentionUserIds,
+    actorId,
+    true,
+    db,
+  );
+  const rows = [
+    ...mentions.map((userId) => ({
+      userId,
+      type: "mention" as const,
+      artifactId,
+      commentId,
+      actorId,
+      metadata: { event: "comment.mention" },
+    })),
+    ...followers.map((userId) => ({
+      userId,
+      type: "comment" as const,
+      artifactId,
+      commentId,
+      actorId,
+      metadata: { event: "comment.create" },
+    })),
+  ];
+  if (rows.length > 0) await db.insert(notifications).values(rows);
+}
+
+export async function notifyNewMentions(
+  artifactId: string,
+  commentId: string,
+  mentionUserIds: string[],
+  actorId: string,
+  db: NotificationDb,
+): Promise<void> {
+  const { mentions } = await commentRecipientSets(
+    artifactId,
+    mentionUserIds,
+    actorId,
+    false,
+    db,
+  );
+  if (mentions.length === 0) return;
+  await db.insert(notifications).values(
+    mentions.map((userId) => ({
+      userId,
+      type: "mention" as const,
+      artifactId,
+      commentId,
+      actorId,
+      metadata: { event: "comment.mention" },
     })),
   );
 }

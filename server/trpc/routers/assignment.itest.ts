@@ -177,6 +177,13 @@ describe("assignment.updateWorkItem / listMyWork", () => {
     });
     const item = work.items.find((row) => row.artifact.id === doc.id);
     expect(item).toMatchObject({ status: "blocked", canManage: false, canUpdateStatus: true });
+
+    const attention = await viewer.listMyWork({
+      view: "assigned_to_me",
+      attention: true,
+      limit: 100,
+    });
+    expect(attention.items.find((row) => row.artifact.id === doc.id)?.attentionReasons).toContain("blocked");
   });
 });
 

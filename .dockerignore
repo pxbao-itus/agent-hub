@@ -4,6 +4,7 @@
 # not Linux → broken image), leak .env into the image, and bloat the context.
 node_modules
 .next
+.next-*
 .git
 .env
 .env.*

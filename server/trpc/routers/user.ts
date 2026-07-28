@@ -6,6 +6,7 @@ import { TRPCError } from "@trpc/server";
 import { hashPassword } from "@/server/auth/password";
 import { recordAudit } from "@/server/services/audit";
 import type { DbClient } from "@/server/db/types";
+import { usernameSchema } from "@/server/lib/username";
 
 // ── Guards ────────────────────────────────────────────────────────────────────
 
@@ -39,9 +40,9 @@ export const userRouter = router({
     .query(async ({ ctx, input }) => {
       const q = `%${input.query}%`;
       return ctx.db
-        .select({ id: users.id, name: users.name, email: users.email, image: users.image })
+        .select({ id: users.id, name: users.name, username: users.username, email: users.email, image: users.image })
         .from(users)
-        .where(or(ilike(users.name, q), ilike(users.email, q)))
+        .where(or(ilike(users.name, q), ilike(users.username, q), ilike(users.email, q)))
         .limit(input.limit);
     }),
 
@@ -60,12 +61,15 @@ export const userRouter = router({
       requireSuperAdmin(ctx.session.systemRole);
 
       const q = input.query ? `%${input.query}%` : undefined;
-      const whereClause = q ? or(ilike(users.name, q), ilike(users.email, q)) : undefined;
+      const whereClause = q
+        ? or(ilike(users.name, q), ilike(users.username, q), ilike(users.email, q))
+        : undefined;
 
       return ctx.db
         .select({
           id: users.id,
           name: users.name,
+          username: users.username,
           email: users.email,
           image: users.image,
           systemRole: users.systemRole,
@@ -93,6 +97,7 @@ export const userRouter = router({
     .input(
       z.object({
         name: z.string().min(1).max(100).optional(),
+        username: usernameSchema,
         email: z.string().email(),
         password: z.string().min(8).max(128).optional(),
         systemRole: z.enum(["user", "superadmin"]).default("user"),
@@ -101,10 +106,12 @@ export const userRouter = router({
     .mutation(async ({ ctx, input }) => {
       requireSuperAdmin(ctx.session.systemRole);
 
-      const existing = await ctx.db.query.users.findFirst({
-        where: eq(users.email, input.email),
-      });
-      if (existing) throw new TRPCError({ code: "CONFLICT", message: "Email already in use" });
+      const [existingEmail, existingUsername] = await Promise.all([
+        ctx.db.query.users.findFirst({ where: eq(users.email, input.email) }),
+        ctx.db.query.users.findFirst({ where: eq(users.username, input.username) }),
+      ]);
+      if (existingEmail) throw new TRPCError({ code: "CONFLICT", message: "Email already in use" });
+      if (existingUsername) throw new TRPCError({ code: "CONFLICT", message: "Username already in use" });
 
       const passwordHash = input.password ? await hashPassword(input.password) : null;
 
@@ -112,11 +119,12 @@ export const userRouter = router({
         .insert(users)
         .values({
           name: input.name ?? null,
+          username: input.username,
           email: input.email,
           passwordHash,
           systemRole: input.systemRole,
         })
-        .returning({ id: users.id, email: users.email, name: users.name });
+        .returning({ id: users.id, email: users.email, username: users.username, name: users.name });
 
       return user;
     }),
@@ -135,6 +143,7 @@ export const userRouter = router({
           password: z.string().min(8).max(128).optional(),
           removePassword: z.boolean().optional(),
         })
+        .strict()
         .refine(
           (d) => !(d.password && d.removePassword),
           { message: "Cannot set password and remove it at the same time" },
@@ -167,7 +176,7 @@ export const userRouter = router({
         .update(users)
         .set(patch)
         .where(eq(users.id, input.userId))
-        .returning({ id: users.id, email: users.email, name: users.name });
+        .returning({ id: users.id, email: users.email, username: users.username, name: users.name });
 
       return updated;
     }),

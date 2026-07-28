@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { eq, asc, desc, and, or, sql, inArray } from "drizzle-orm";
 import { db } from "@/server/db";
-import { artifacts, artifactVersions, artifactTasks, artifactLinks, workflows, workflowStages, workflowStageArtifacts, projects, projectArtifacts, orgs, departments, teams, users } from "@/server/db/schema";
+import { artifacts, artifactVersions, artifactTasks, artifactLinks, artifactComments, workflows, workflowStages, workflowStageArtifacts, projects, projectArtifacts, orgs, departments, teams, users } from "@/server/db/schema";
 import { getAccessibleGroups, getSharedArtifactIds, effectiveGroupRole, canMutatePrompt } from "@/server/auth/access";
 import { canViewWorkflow, canManageWorkflow, attachWorkflowProgress } from "@/server/lib/workflow-access";
 import { canViewProject, canManageProject, attachProjectCounts } from "@/server/lib/project-access";
@@ -19,6 +19,8 @@ import { flattenKitMembers } from "@/server/lib/kit";
 import { createPlan, addPlanLink } from "@/server/services/plan";
 import { addAssignee, getAssignmentDetail, removeAssignee, setAssigner, updateWorkItem } from "@/server/services/assignment";
 import { listMyWork } from "@/server/services/my-work";
+import { createComment, deleteComment, listComments, updateComment } from "@/server/services/comment";
+import { setSubscription } from "@/server/services/subscription";
 import { slugify } from "@/lib/slug";
 import type { ArtifactKind } from "@/server/db/schema";
 
@@ -864,6 +866,54 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
   );
 
   const scopedWorkItemIds = new Set([...planRows, ...docRows].map((artifact) => artifact.id));
+  const collaborationBySlug = {
+    doc: docBySlug,
+    plan: planBySlug,
+  };
+
+  server.tool(
+    "list_comments",
+    "List discussion comments for an accessible Doc or Plan. Results include tombstones, source attribution, mentions, and a cursor for earlier comments.",
+    {
+      kind: z.enum(["doc", "plan"]),
+      slug: z.string().describe("The scoped Doc or Plan slug"),
+      limit: z.number().int().min(1).max(100).default(20),
+      before: z.string().optional().describe("Cursor returned by an earlier list_comments call"),
+    },
+    async ({ kind, slug, limit, before }) => {
+      const artifact = collaborationBySlug[kind].get(slug);
+      if (!artifact) {
+        return { content: [{ type: "text" as const, text: `${kind === "doc" ? "Doc" : "Plan"} '${slug}' not found or not accessible.` }] };
+      }
+      const result = await listComments(artifact, identityUser, { cursor: before, limit }, db);
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            comments: result.items.map((comment) => ({
+              id: comment.id,
+              author: comment.author
+                ? {
+                    name: comment.author.name,
+                    username: comment.author.username,
+                  }
+                : null,
+              source: comment.source,
+              createdAt: comment.createdAt,
+              updatedAt: comment.updatedAt,
+              deleted: Boolean(comment.deletedAt),
+              body: comment.deletedAt ? null : comment.body,
+              mentions: comment.mentions.flatMap((mention) =>
+                mention.user.username ? [mention.user.username] : [],
+              ),
+            })),
+            nextCursor: result.nextCursor,
+          }),
+        }],
+      };
+    },
+  );
+
   server.tool(
     "list_my_work",
     "List Docs and Plans assigned to you, coordinated by you, or still unassigned. Results respect this token's access scope.",
@@ -1338,6 +1388,91 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
   // Write tools are only registered when the token has write=true
   if (scope.write === true) {
     const accessiblePlanIds = new Set(planRows.map((p) => p.id));
+    const accessibleCollaborationIds = new Set([...planRows, ...docRows].map((artifact) => artifact.id));
+
+    server.tool(
+      "add_comment",
+      "Add a Markdown comment to an accessible Doc or Plan. Put @username directly in the body to mention a user. Only available with a write-enabled token.",
+      {
+        kind: z.enum(["doc", "plan"]),
+        slug: z.string().describe("The scoped Doc or Plan slug"),
+        body: z.string().min(1).max(20_000),
+      },
+      async ({ kind, slug, body }) => {
+        const artifact = collaborationBySlug[kind].get(slug);
+        if (!artifact) {
+          return { content: [{ type: "text" as const, text: `${kind === "doc" ? "Doc" : "Plan"} '${slug}' not found or not accessible.` }] };
+        }
+        const result = await createComment(artifact, { body }, identityUser, "mcp", db);
+        const warning = result.unresolvedMentions.length
+          ? ` Unresolved or inaccessible mentions: ${result.unresolvedMentions.map((username) => `@${username}`).join(", ")}.`
+          : "";
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Comment added (id: ${result.comment.id}, source: mcp).${warning}`,
+          }],
+        };
+      },
+    );
+
+    server.tool(
+      "update_comment",
+      "Update one of your comments. The comment must belong to a Doc or Plan in this token's scope. Only available with a write-enabled token.",
+      {
+        commentId: z.string().uuid(),
+        body: z.string().min(1).max(20_000),
+      },
+      async ({ commentId, body }) => {
+        const comment = await db.query.artifactComments.findFirst({
+          where: eq(artifactComments.id, commentId),
+          columns: { artifactId: true },
+        });
+        if (!comment || !accessibleCollaborationIds.has(comment.artifactId)) {
+          return { content: [{ type: "text" as const, text: `Comment '${commentId}' not found or not accessible.` }] };
+        }
+        const result = await updateComment(commentId, { body }, identityUser, db);
+        const warning = result.unresolvedMentions.length
+          ? ` Unresolved or inaccessible mentions: ${result.unresolvedMentions.map((username) => `@${username}`).join(", ")}.`
+          : "";
+        return { content: [{ type: "text" as const, text: `Comment updated.${warning}` }] };
+      },
+    );
+
+    server.tool(
+      "delete_comment",
+      "Delete one of your comments, or moderate a comment when you manage its artifact. The comment must be in this token's scope. Only available with a write-enabled token.",
+      { commentId: z.string().uuid() },
+      async ({ commentId }) => {
+        const comment = await db.query.artifactComments.findFirst({
+          where: eq(artifactComments.id, commentId),
+          columns: { artifactId: true },
+        });
+        if (!comment || !accessibleCollaborationIds.has(comment.artifactId)) {
+          return { content: [{ type: "text" as const, text: `Comment '${commentId}' not found or not accessible.` }] };
+        }
+        await deleteComment(commentId, identityUser, db);
+        return { content: [{ type: "text" as const, text: "Comment deleted." }] };
+      },
+    );
+
+    server.tool(
+      "set_follow_preference",
+      "Set your notification preference for an accessible Doc or Plan. Only available with a write-enabled token.",
+      {
+        kind: z.enum(["doc", "plan"]),
+        slug: z.string().describe("The scoped Doc or Plan slug"),
+        mode: z.enum(["all", "mentions", "muted"]),
+      },
+      async ({ kind, slug, mode }) => {
+        const artifact = collaborationBySlug[kind].get(slug);
+        if (!artifact) {
+          return { content: [{ type: "text" as const, text: `${kind === "doc" ? "Doc" : "Plan"} '${slug}' not found or not accessible.` }] };
+        }
+        await setSubscription(artifact, mode, identityUser, db);
+        return { content: [{ type: "text" as const, text: `Follow preference set to '${mode}'.` }] };
+      },
+    );
 
     server.tool(
       "update_task_status",

@@ -37,7 +37,7 @@ async function main() {
 
   const [user] = await db
     .insert(users)
-    .values({ name: "Demo User", email: "demo@example.com" })
+    .values({ name: "Demo User", username: "demouser", email: "demo@example.com" })
     .returning();
 
   // Membership stored at the lowest level (team); org/dept access is derived via hierarchy (option A).

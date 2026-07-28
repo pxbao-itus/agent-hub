@@ -26,13 +26,14 @@ export default async function UsersPage({
 
   const likeQ = query ? `%${query}%` : undefined;
   const whereClause = likeQ
-    ? or(ilike(users.name, likeQ), ilike(users.email, likeQ))
+    ? or(ilike(users.name, likeQ), ilike(users.username, likeQ), ilike(users.email, likeQ))
     : undefined;
 
   const rows = await db
     .select({
       id: users.id,
       name: users.name,
+      username: users.username,
       email: users.email,
       image: users.image,
       systemRole: users.systemRole,

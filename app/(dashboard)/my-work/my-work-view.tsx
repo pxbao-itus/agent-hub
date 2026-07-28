@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
-import { AlertCircle, CalendarDays, CheckCircle2, FileText, ListChecks, Loader2 } from "lucide-react";
+import { AlertCircle, BellRing, CalendarDays, CheckCircle2, FileText, ListChecks, Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -66,6 +66,7 @@ export function MyWorkView() {
   const rawPriority = searchParams.get("priority");
   const due = searchParams.get("due");
   const sort = searchParams.get("sort");
+  const attention = searchParams.get("attention") === "1";
   const status = rawStatus && rawStatus in STATUS_LABELS ? rawStatus as Status : undefined;
   const priority = rawPriority && rawPriority in PRIORITY_LABELS ? rawPriority as Priority : undefined;
 
@@ -96,7 +97,8 @@ export function MyWorkView() {
     query: searchParams.get("q") || undefined,
     sort: sort === "priority" || sort === "updated" ? sort : "due_date",
     limit: 25,
-  }), [view, kind, status, priority, due, sort, searchParams]);
+    attention,
+  }), [view, kind, status, priority, due, sort, attention, searchParams]);
 
   const work = trpc.assignment.listMyWork.useInfiniteQuery(input, {
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
@@ -177,6 +179,15 @@ export function MyWorkView() {
           <SelectItem value="priority">Priority</SelectItem>
           <SelectItem value="updated">Recently updated</SelectItem>
         </FilterSelect>
+        <Button
+          type="button"
+          variant={attention ? "default" : "outline"}
+          aria-pressed={attention}
+          onClick={() => updateParam("attention", attention ? undefined : "1")}
+        >
+          <BellRing className="h-4 w-4" />
+          Needs attention
+        </Button>
       </div>
 
       {work.isLoading ? (
@@ -187,7 +198,7 @@ export function MyWorkView() {
         <EmptyState
           icon={view === "unassigned" ? CheckCircle2 : ListChecks}
           message={view === "assigned_to_me" ? "No work assigned to you" : view === "coordinated_by_me" ? "No work coordinated by you" : "All manageable work has assignees"}
-          description="Try another view or clear the active filters."
+          description={attention ? "Nothing is blocked, overdue, or waiting for you to read." : "Try another view or clear the active filters."}
         />
       ) : (
         <>
@@ -264,6 +275,15 @@ function ArtifactSummary({ item }: { item: WorkItem }) {
         <span className="truncate">{item.artifact.title}</span>
       </Link>
       {item.projects.length > 0 && <p className="mt-1 truncate text-xs text-muted-foreground">{item.projects.map((project) => project.name).join(", ")}</p>}
+      {item.attentionReasons.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {item.attentionReasons.includes("blocked") && <Badge variant="destructive">Blocked</Badge>}
+          {item.attentionReasons.includes("overdue") && <Badge variant="warning">Overdue</Badge>}
+          {item.attentionReasons.includes("unread_activity") && (
+            <Badge variant="secondary">{item.unreadActivityCount} unread</Badge>
+          )}
+        </div>
+      )}
     </div>
   );
 }

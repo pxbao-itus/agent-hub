@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { authConfig } from "@/auth.config";
 import { authorizeCredentials } from "@/server/auth/credentials";
+import { assignGeneratedUsername } from "@/server/lib/username";
 
 const providers = [
   Credentials({
@@ -25,9 +26,21 @@ const providers = [
     : []),
 ];
 
+const baseAdapter = DrizzleAdapter(db);
+const adapter = {
+  ...baseAdapter,
+  async createUser(data: Parameters<NonNullable<typeof baseAdapter.createUser>>[0]) {
+    if (!baseAdapter.createUser) throw new Error("Auth adapter does not support user creation.");
+    const user = await baseAdapter.createUser(data);
+    const candidate = data.email?.split("@")[0] || data.name || `user${user.id.replaceAll("-", "").slice(0, 8)}`;
+    await assignGeneratedUsername(user.id, candidate, db);
+    return user;
+  },
+};
+
 export const { handlers, signIn, signOut, auth } = NextAuth({
   ...authConfig,
-  adapter: DrizzleAdapter(db),
+  adapter,
   providers,
   session: { strategy: "jwt" },
   callbacks: {
@@ -39,12 +52,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           where: eq(schema.users.id, user.id),
         });
         token.systemRole = dbUser?.systemRole ?? "user";
+        token.username = dbUser?.username ?? undefined;
       }
       return token;
     },
     session({ session, token }) {
       if (token.id) session.user.id = token.id as string;
       session.user.systemRole = (token.systemRole as "user" | "superadmin") ?? "user";
+      session.user.username = (token.username as string | undefined) ?? null;
       return session;
     },
   },

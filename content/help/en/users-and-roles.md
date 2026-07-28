@@ -2,6 +2,12 @@
 
 Agent Hub has two permission layers.
 
+Every account also has a unique, permanent **username** used for mentions. It
+contains lowercase English letters and numbers, starts with a letter, and is
+shown as `@username`. A username identifies the account even when its display
+name changes. Choose it carefully when creating an account because it cannot be
+edited later.
+
 **System roles**
 
 - `user` — normal platform account.

@@ -6,6 +6,7 @@ import { canAccessArtifact, canMutatePrompt } from "@/server/auth/access";
 import { recordAudit } from "@/server/services/audit";
 import { notifyAssignmentChange } from "@/server/services/notification";
 import { getVersionAuthorName } from "@/server/lib/version-author";
+import { ensureAssignmentSubscription } from "@/server/services/subscription";
 
 export type AssignableArtifact = {
   id: string;
@@ -293,6 +294,7 @@ export async function setAssigner(
       { event: "assigner.change", oldAssignerId, oldAssignerName: oldName, newAssignerId, newAssignerName: newName },
       db,
     ),
+    ensureAssignmentSubscription(artifact.id, newAssignerId, db),
   ]);
 
   return { ok: true, oldAssignerId, changed: true };
@@ -335,6 +337,7 @@ export async function addAssignee(
       db,
     ),
     notifyAssignmentChange(artifact.id, recipients, actorId, { event: "assignee.add", userId, userName: name }, db),
+    ensureAssignmentSubscription(artifact.id, userId, db),
   ]);
 
   return { ok: true, alreadyAssigned: false };

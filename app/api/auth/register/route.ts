@@ -5,9 +5,11 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getRateLimiter, getClientIp } from "@/server/lib/rate-limit";
 import { rateLimitConfig } from "@/server/lib/rate-limit/config";
+import { usernameSchema } from "@/server/lib/username";
 
 const registerSchema = z.object({
   name: z.string().min(1).max(100),
+  username: usernameSchema,
   email: z.string().email(),
   password: z.string().min(8).max(128),
 });
@@ -28,17 +30,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid input." }, { status: 400 });
   }
 
-  const { name, email, password } = parsed.data;
+  const { name, username, email, password } = parsed.data;
 
-  const existing = await db.query.users.findFirst({
-    where: eq(schema.users.email, email),
-  });
-  if (existing) {
-    return NextResponse.json({ error: "An account with this email already exists." }, { status: 409 });
+  const [existingEmail, existingUsername] = await Promise.all([
+    db.query.users.findFirst({ where: eq(schema.users.email, email) }),
+    db.query.users.findFirst({ where: eq(schema.users.username, username) }),
+  ]);
+  if (existingEmail || existingUsername) {
+    return NextResponse.json(
+      { error: existingEmail ? "An account with this email already exists." : "This username is already in use." },
+      { status: 409 },
+    );
   }
 
   const passwordHash = await hashPassword(password);
-  await db.insert(schema.users).values({ name, email, passwordHash });
+  try {
+    await db.insert(schema.users).values({ name, username, email, passwordHash });
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
+      return NextResponse.json({ error: "Email or username is already in use." }, { status: 409 });
+    }
+    throw error;
+  }
 
   return NextResponse.json({ ok: true }, { status: 201 });
 }

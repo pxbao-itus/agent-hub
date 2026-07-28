@@ -12,6 +12,9 @@ import { Label } from "@/components/ui/label";
 
 const schema = z.object({
   name: z.string().min(1, "Name is required"),
+  username: z
+    .string()
+    .regex(/^[a-z][a-z0-9]{2,31}$/, "Use 3–32 lowercase letters or numbers, starting with a letter"),
   email: z.string().email("Invalid email address"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   confirmPassword: z.string(),
@@ -35,7 +38,7 @@ export function SignUpForm() {
     const res = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: data.name, email: data.email, password: data.password }),
+      body: JSON.stringify({ name: data.name, username: data.username, email: data.email, password: data.password }),
     });
 
     if (!res.ok) {
@@ -57,6 +60,21 @@ export function SignUpForm() {
         <Label htmlFor="name">Name</Label>
         <Input id="name" placeholder="Your name" autoComplete="name" {...register("name")} />
         {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="username">Username</Label>
+        <Input
+          id="username"
+          placeholder="janedoe"
+          autoComplete="username"
+          spellCheck={false}
+          {...register("username")}
+        />
+        <p className="text-xs text-muted-foreground">
+          Your permanent @mention handle. Lowercase letters and numbers only.
+        </p>
+        {errors.username && <p className="text-xs text-destructive">{errors.username.message}</p>}
       </div>
 
       <div className="space-y-2">

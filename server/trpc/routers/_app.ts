@@ -18,6 +18,7 @@ import { auditRouter } from "./audit";
 import { tokenRouter } from "./token";
 import { userRouter } from "./user";
 import { searchRouter } from "./search";
+import { commentRouter } from "./comment";
 
 export const appRouter = router({
   /** Health check: confirms the app is up and the DB is reachable. */
@@ -50,6 +51,7 @@ export const appRouter = router({
   token: tokenRouter,
   user: userRouter,
   search: searchRouter,
+  comment: commentRouter,
 });
 
 export type AppRouter = typeof appRouter;

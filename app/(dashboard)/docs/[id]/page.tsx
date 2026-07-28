@@ -26,7 +26,9 @@ import { DeleteDocButton } from "../_components/delete-doc-button";
 import { ShareDialog } from "../../_components/share-dialog";
 import { ArtifactProjectsSection } from "../../_components/artifact-projects-section";
 import { AssignmentPanel } from "../../_components/assignment-panel";
-import { AssignmentHistory } from "../../_components/assignment-history";
+import { ActivityTimeline } from "@/components/collaboration/activity-timeline";
+import { CollaborationPanel } from "@/components/collaboration/collaboration-panel";
+import { FollowMenu } from "@/components/collaboration/follow-menu";
 import { DocVersionHistory } from "./_components/doc-version-history";
 import { FileText, ClipboardList, BookText, Wrench, Package } from "lucide-react";
 
@@ -146,8 +148,8 @@ export default async function DocDetailPage({ params }: { params: Promise<{ id: 
           <DetailMetadataSection title="Assignment">
             <AssignmentPanel artifactId={id} canEdit={canEdit} />
           </DetailMetadataSection>
-          <DetailMetadataSection title="Assignment history">
-            <AssignmentHistory artifactId={id} />
+          <DetailMetadataSection title="Activity">
+            <ActivityTimeline artifactId={id} />
           </DetailMetadataSection>
           {doc.versions.length > 0 && (
             <DetailMetadataSection title="Version history" count={doc.versions.length}>
@@ -178,6 +180,7 @@ export default async function DocDetailPage({ params }: { params: Promise<{ id: 
             {doc.description && <p className="text-sm text-muted-foreground">{doc.description}</p>}
           </div>
           <div className="flex flex-wrap gap-2 sm:shrink-0 sm:justify-end">
+            <FollowMenu artifactId={id} />
             <FavoriteButton artifactId={id} initialFavorited={favorited} />
             <DuplicateArtifactButton artifactId={id} kind="doc" />
             <ExportArtifactButton artifactId={id} title={doc.title} />
@@ -236,6 +239,8 @@ export default async function DocDetailPage({ params }: { params: Promise<{ id: 
             <Link href={`/plans/new?linkDoc=${id}`}>Create plan from this doc</Link>
           </Button>
         </section>
+
+        <CollaborationPanel artifactId={id} />
       </div>
     </DetailPageLayout>
   );

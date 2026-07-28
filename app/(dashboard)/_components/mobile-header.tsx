@@ -7,7 +7,15 @@ import { Button } from "@/components/ui/button";
 import { SidebarNav } from "./sidebar-nav";
 import { NotificationBell } from "./notification-bell";
 
-export function MobileHeader({ displayName, isSuperAdmin }: { displayName: string; isSuperAdmin?: boolean }) {
+export function MobileHeader({
+  displayName,
+  username,
+  isSuperAdmin,
+}: {
+  displayName: string;
+  username?: string | null;
+  isSuperAdmin?: boolean;
+}) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -55,6 +63,7 @@ export function MobileHeader({ displayName, isSuperAdmin }: { displayName: strin
 
         <div className="border-t px-3 py-3">
           <div className="truncate px-2 text-sm font-medium">{displayName}</div>
+          {username && <div className="truncate px-2 text-xs text-muted-foreground">@{username}</div>}
         </div>
       </aside>
     </>

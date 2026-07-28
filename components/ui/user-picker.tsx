@@ -8,7 +8,13 @@ import { Button } from "./button";
 import { ChevronsUpDown, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type PickedUser = { id: string; name: string | null; email: string; image: string | null };
+export type PickedUser = {
+  id: string;
+  name: string | null;
+  username: string | null;
+  email: string;
+  image: string | null;
+};
 
 type SearchResult = { data: PickedUser[] | undefined; isFetching: boolean };
 
@@ -74,7 +80,7 @@ export function UserPicker({ value, onChange, disabled, useSearch = useDefaultSe
           {value ? (
             <span className="flex items-center gap-2">
               <UserAvatar user={value} />
-              <span className="truncate">{value.name ?? value.email}</span>
+              <span className="truncate">{value.name ?? value.username ?? value.email}</span>
             </span>
           ) : (
             "Search users…"
@@ -85,7 +91,7 @@ export function UserPicker({ value, onChange, disabled, useSearch = useDefaultSe
       <PopoverContent className="w-80 p-0" align="start">
         <Command shouldFilter={false}>
           <CommandInput
-            placeholder="Search by name or email…"
+            placeholder="Search by username, name, or email…"
             value={inputValue}
             onValueChange={setInputValue}
           />
@@ -106,6 +112,7 @@ export function UserPicker({ value, onChange, disabled, useSearch = useDefaultSe
                     <UserAvatar user={u} />
                     <div className="min-w-0 flex-1">
                       {u.name && <p className="truncate text-sm font-medium">{u.name}</p>}
+                      {u.username && <p className="truncate text-xs text-muted-foreground">@{u.username}</p>}
                       <p className={cn("truncate text-xs text-muted-foreground", !u.name && "text-sm font-medium text-foreground")}>
                         {u.email}
                       </p>

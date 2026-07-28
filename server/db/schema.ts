@@ -13,6 +13,7 @@ import {
   unique,
   index,
   uniqueIndex,
+  check,
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
@@ -57,9 +58,17 @@ export type AssignmentStatus = "open" | "in_progress" | "blocked" | "done";
 export const assignmentPriorityEnum = pgEnum("assignment_priority", ["low", "normal", "high", "urgent"]);
 export type AssignmentPriority = "low" | "normal" | "high" | "urgent";
 
-/** What triggered an in-app notification (Phase 53 generalizes beyond version bumps). */
-export const notificationTypeEnum = pgEnum("notification_type", ["version", "assignment"]);
-export type NotificationType = "version" | "assignment";
+/** Origin of a collaboration comment. MCP tokens still act as their owning user. */
+export const commentSourceEnum = pgEnum("comment_source", ["ui", "mcp"]);
+export type CommentSource = "ui" | "mcp";
+
+/** Per-user notification preference for comments on an artifact. */
+export const artifactSubscriptionModeEnum = pgEnum("artifact_subscription_mode", ["all", "mentions", "muted"]);
+export type ArtifactSubscriptionMode = "all" | "mentions" | "muted";
+
+/** What triggered an in-app notification. */
+export const notificationTypeEnum = pgEnum("notification_type", ["version", "assignment", "comment", "mention"]);
+export type NotificationType = "version" | "assignment" | "comment" | "mention";
 
 /** Visibility scope of a prompt. */
 export const visibilityEnum = pgEnum("visibility", [
@@ -72,19 +81,32 @@ export const visibilityEnum = pgEnum("visibility", [
 /* Auth (compatible with @auth/drizzle-adapter) + basic auth                  */
 /* -------------------------------------------------------------------------- */
 
-export const users = pgTable("users", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name"),
-  email: text("email").notNull().unique(),
-  emailVerified: timestamp("email_verified", { withTimezone: true }),
-  image: text("image"),
-  /** Password hash for basic auth (Credentials). Null when user only has OAuth. */
-  passwordHash: text("password_hash"),
-  /** Platform-level role. superadmin bypasses all org/group access checks. */
-  systemRole: systemRoleEnum("system_role").notNull().default("user"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name"),
+    email: text("email").notNull().unique(),
+    /**
+     * Immutable mention handle. Nullable only so existing self-hosted databases
+     * can add the column before the idempotent Phase 57 backfill runs.
+     */
+    username: text("username"),
+    emailVerified: timestamp("email_verified", { withTimezone: true }),
+    image: text("image"),
+    /** Password hash for basic auth (Credentials). Null when user only has OAuth. */
+    passwordHash: text("password_hash"),
+    /** Platform-level role. superadmin bypasses all org/group access checks. */
+    systemRole: systemRoleEnum("system_role").notNull().default("user"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("users_username_uq")
+      .on(t.username)
+      .where(sql`${t.username} is not null`),
+  ],
+);
 
 /** OAuth accounts (Auth.js adapter shape). */
 export const accounts = pgTable(
@@ -457,6 +479,70 @@ export const artifactWorkItems = pgTable(
   ],
 );
 
+/** Flat Markdown discussion on a Doc/Plan. Deleted rows remain as tombstones. */
+export const artifactComments = pgTable(
+  "artifact_comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    artifactId: uuid("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    body: text("body"),
+    source: commentSourceEnum("source").notNull().default("ui"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
+  },
+  (t) => [
+    index("artifact_comments_artifact_created_idx").on(t.artifactId, t.createdAt, t.id),
+    index("artifact_comments_author_created_idx").on(t.authorId, t.createdAt),
+    check(
+      "artifact_comments_body_tombstone_ck",
+      sql`((${t.deletedAt} is null and ${t.body} is not null) or (${t.deletedAt} is not null and ${t.body} is null))`,
+    ),
+  ],
+);
+
+/** Resolved @username mentions; body text remains the human-readable snapshot. */
+export const artifactCommentMentions = pgTable(
+  "artifact_comment_mentions",
+  {
+    commentId: uuid("comment_id")
+      .notNull()
+      .references(() => artifactComments.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.commentId, t.userId] }),
+    index("artifact_comment_mentions_user_idx").on(t.userId),
+  ],
+);
+
+/** Explicit per-user comment notification preference for an artifact. */
+export const artifactSubscriptions = pgTable(
+  "artifact_subscriptions",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    artifactId: uuid("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    mode: artifactSubscriptionModeEnum("mode").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.artifactId] }),
+    index("artifact_subscriptions_artifact_mode_idx").on(t.artifactId, t.mode),
+  ],
+);
+
 /**
  * In-app notification. `type` discriminates the trigger: 'version' (an
  * artifact shared with `userId` per `artifactShares` got a new version —
@@ -477,6 +563,7 @@ export const notifications = pgTable(
       .notNull()
       .references(() => artifacts.id, { onDelete: "cascade" }),
     artifactVersionId: uuid("artifact_version_id").references(() => artifactVersions.id, { onDelete: "cascade" }),
+    commentId: uuid("comment_id").references(() => artifactComments.id, { onDelete: "set null" }),
     actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
     metadata: jsonb("metadata"),
     isRead: boolean("is_read").notNull().default(false),
@@ -485,6 +572,7 @@ export const notifications = pgTable(
   (t) => [
     index("notifications_user_idx").on(t.userId),
     index("notifications_user_unread_idx").on(t.userId, t.isRead),
+    index("notifications_user_artifact_unread_type_idx").on(t.userId, t.artifactId, t.isRead, t.type),
   ]
 );
 
@@ -805,6 +893,8 @@ export const artifactsRelations = relations(artifacts, ({ one, many }) => ({
   tasks: many(artifactTasks),
   shares: many(artifactShares),
   workItem: one(artifactWorkItems),
+  comments: many(artifactComments),
+  subscriptions: many(artifactSubscriptions),
   outgoingLinks: many(artifactLinks, { relationName: "source" }),
   incomingLinks: many(artifactLinks, { relationName: "target" }),
 }));
@@ -896,6 +986,46 @@ export const artifactWorkItemsRelations = relations(artifactWorkItems, ({ one })
   }),
 }));
 
+export const artifactCommentsRelations = relations(artifactComments, ({ one, many }) => ({
+  artifact: one(artifacts, {
+    fields: [artifactComments.artifactId],
+    references: [artifacts.id],
+  }),
+  author: one(users, {
+    relationName: "commentAuthor",
+    fields: [artifactComments.authorId],
+    references: [users.id],
+  }),
+  deletedByUser: one(users, {
+    relationName: "commentDeletedBy",
+    fields: [artifactComments.deletedBy],
+    references: [users.id],
+  }),
+  mentions: many(artifactCommentMentions),
+}));
+
+export const artifactCommentMentionsRelations = relations(artifactCommentMentions, ({ one }) => ({
+  comment: one(artifactComments, {
+    fields: [artifactCommentMentions.commentId],
+    references: [artifactComments.id],
+  }),
+  user: one(users, {
+    fields: [artifactCommentMentions.userId],
+    references: [users.id],
+  }),
+}));
+
+export const artifactSubscriptionsRelations = relations(artifactSubscriptions, ({ one }) => ({
+  artifact: one(artifacts, {
+    fields: [artifactSubscriptions.artifactId],
+    references: [artifacts.id],
+  }),
+  user: one(users, {
+    fields: [artifactSubscriptions.userId],
+    references: [users.id],
+  }),
+}));
+
 export const notificationsRelations = relations(notifications, ({ one }) => ({
   user: one(users, {
     relationName: "notificationRecipient",
@@ -914,6 +1044,10 @@ export const notificationsRelations = relations(notifications, ({ one }) => ({
   artifactVersion: one(artifactVersions, {
     fields: [notifications.artifactVersionId],
     references: [artifactVersions.id],
+  }),
+  comment: one(artifactComments, {
+    fields: [notifications.commentId],
+    references: [artifactComments.id],
   }),
 }));
 

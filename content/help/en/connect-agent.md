@@ -30,6 +30,18 @@ After configuration:
 3. Retrieve one known artifact.
 4. If write access is enabled, test only in a safe artifact or personal space.
 
+## Collaborate through an agent
+
+A read token can use `list_comments` for discussions on Docs and Plans inside
+its scope. A write-enabled token can add, update, or delete comments and set
+your follow preference. Put `@username` directly in a comment body to mention
+someone. The tool reports unresolved or inaccessible mentions without failing
+the whole comment.
+
+Comments created by an MCP client are visibly attributed to MCP. Comment IDs do
+not bypass token scope: later update or delete calls are allowed only while the
+comment's artifact remains inside both your access and the token scope.
+
 ## Troubleshoot and revoke
 
 For authentication errors, verify the endpoint, `Bearer` token header, expiry,

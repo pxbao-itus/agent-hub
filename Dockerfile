@@ -58,7 +58,11 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # over image size, for a single-instance self-host (D-013).
 COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --chown=nextjs:nodejs drizzle.config.ts ./
+COPY --chown=nextjs:nodejs tsconfig.json ./
 COPY --chown=nextjs:nodejs server/db/schema.ts ./server/db/schema.ts
+COPY --chown=nextjs:nodejs server/db/index.ts server/db/types.ts ./server/db/
+COPY --chown=nextjs:nodejs server/lib/username.ts ./server/lib/username.ts
+COPY --chown=nextjs:nodejs server/scripts/backfill-usernames.ts ./server/scripts/backfill-usernames.ts
 COPY --chown=nextjs:nodejs docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
 

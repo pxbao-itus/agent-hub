@@ -14,7 +14,10 @@ Instead of copy-pasting prompts and instructions between projects, keep them in 
 - ✅ **Plans** — structured task lists (todo / doing / done) that agents can read and update.
 - 📄 **Docs** — free-form markdown docs, linkable to the plans they inform.
 - 👥 **Assignments + My Work** — coordinate Docs and Plans with assigners,
-  assignees, status, priority, due dates, personal work views, and audit history.
+  assignees, status, priority, due dates, personal work views, and attention signals.
+- 💬 **Collaboration** — Markdown discussions on Docs and Plans, stable
+  `@username` mentions, follow preferences, notifications, and a unified
+  activity timeline across comments, versions, assignments, and projects.
 - 🕑 **Versioning** — every save creates an immutable version, with diff and rollback.
 - 🔎 **Semantic + hybrid search** — full-text (BM25) fused with vector similarity (bge-m3 + pgvector) via Reciprocal Rank Fusion, across every artifact kind. A global search page and a `Cmd/Ctrl-K` command palette. Degrades gracefully to keyword-only when embeddings are disabled.
 - 🏢 **Org-based access control** — an artifact's owner can be a user, team, department, or org; permissions inherit upward. Plus per-user sharing for one-off grants.
@@ -47,13 +50,13 @@ cp .env.example .env
 # Edit .env:
 #   AUTH_SECRET   — run: openssl rand -base64 32
 #   NEXTAUTH_URL  — set to your public URL (e.g. https://hub.example.com)
-#   ROOT_EMAIL / ROOT_PASSWORD — for the first superadmin (see below)
+#   ROOT_EMAIL / ROOT_PASSWORD / ROOT_USERNAME — for the first superadmin
 
 # Build and start (Postgres + app) — the app container applies the database
 # schema itself on every boot, so this is the only command you need.
 docker compose up -d --build
 
-# Create a superadmin account (first run only; reads ROOT_EMAIL/ROOT_PASSWORD from .env)
+# Create a superadmin account (first run only; reads ROOT_* from .env)
 docker compose exec app npx tsx server/scripts/create-superadmin.ts
 
 # App is now running at http://localhost:3000
@@ -138,6 +141,10 @@ Once connected:
 - Agents can inspect and coordinate Doc/Plan work with **`list_my_work`**,
   **`set_assigner`**, **`add_assignee`**, **`remove_assignee`**, and
   **`update_work_item`** when their token has the required access and write scope.
+- Agents can read discussions with **`list_comments`**. Write-enabled tokens
+  can use **`add_comment`**, **`update_comment`**, **`delete_comment`**, and
+  **`set_follow_preference`**; comments created this way are marked as MCP
+  activity and support the same `@username` mention rules as the UI.
 
 ## User guide
 

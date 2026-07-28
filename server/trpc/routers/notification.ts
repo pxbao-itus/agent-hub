@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, and, desc, count } from "drizzle-orm";
+import { eq, and, desc, count, inArray } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
 import { notifications } from "@/server/db/schema";
 
@@ -8,15 +8,28 @@ export const notificationRouter = router({
   list: protectedProcedure
     .input(z.object({ limit: z.number().int().min(1).max(50).default(20) }))
     .query(async ({ ctx, input }) => {
-      return ctx.db.query.notifications.findMany({
+      const rows = await ctx.db.query.notifications.findMany({
         where: eq(notifications.userId, ctx.session.userId),
         orderBy: desc(notifications.createdAt),
         limit: input.limit,
         with: {
-          actor: { columns: { id: true, name: true, email: true } },
+          actor: { columns: { id: true, name: true, username: true, email: true } },
           artifact: { columns: { id: true, kind: true, title: true } },
+          comment: { columns: { id: true, body: true, deletedAt: true } },
         },
       });
+      return rows.map((row) => ({
+        ...row,
+        comment: row.comment
+          ? {
+              id: row.comment.id,
+              deletedAt: row.comment.deletedAt,
+              excerpt: row.comment.deletedAt
+                ? null
+                : `${row.comment.body?.slice(0, 160) ?? ""}${(row.comment.body?.length ?? 0) > 160 ? "…" : ""}`,
+            }
+          : null,
+      }));
     }),
 
   unreadCount: protectedProcedure.query(async ({ ctx }) => {
@@ -45,4 +58,21 @@ export const notificationRouter = router({
       .where(and(eq(notifications.userId, ctx.session.userId), eq(notifications.isRead, false)));
     return { ok: true };
   }),
+
+  markArtifactActivityRead: protectedProcedure
+    .input(z.object({ artifactId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db
+        .update(notifications)
+        .set({ isRead: true })
+        .where(
+          and(
+            eq(notifications.userId, ctx.session.userId),
+            eq(notifications.artifactId, input.artifactId),
+            eq(notifications.isRead, false),
+            inArray(notifications.type, ["comment", "mention"]),
+          ),
+        );
+      return { ok: true };
+    }),
 });
