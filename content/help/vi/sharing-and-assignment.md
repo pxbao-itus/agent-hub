@@ -36,12 +36,16 @@ truy cập có sẵn của user.
 Mở **My Work** để xem:
 
 - Doc và Plan được assign cho bạn;
+- Workflow stage mà bạn là user chịu trách nhiệm;
 - công việc bạn điều phối với vai trò effective assigner;
 - công việc bạn có quyền quản lý nhưng chưa có assignee.
 
 Dùng bộ lọc status, priority, due date, loại artifact và trạng thái hạn để thu
 gọn danh sách. Assignment status áp dụng cho toàn bộ Doc hoặc Plan; nó không
 thay thế status của từng task bên trong Plan.
+Trách nhiệm trên Workflow stage là khái niệm riêng: user chịu trách nhiệm được
+báo cáo status của stage đó, nhưng không được cấp thêm quyền xem Workflow hoặc
+quyền sửa cấu trúc.
 
 Bật **Needs attention** để chỉ xem công việc đang blocked, quá hạn hoặc có hoạt
 động thảo luận chưa đọc.

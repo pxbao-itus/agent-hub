@@ -12,8 +12,11 @@ Instead of copy-pasting prompts and instructions between projects, keep them in 
 - 🛠️ **Skills** — reusable instruction sets (SKILL.md) with bundled files, delivered to agents on demand.
 - ✅ **Plans** — structured task lists (todo / doing / done) that agents can read and update.
 - 📄 **Docs** — free-form markdown docs, linkable to the plans they inform.
-- 👥 **Assignments + My Work** — coordinate Docs and Plans with assigners,
-  assignees, status, priority, due dates, personal work views, and attention signals.
+- 👥 **Assignments + My Work** — coordinate Docs, Plans, and responsible
+  Workflow stages with assignees, status, due dates, personal work views, and
+  attention signals.
+- 🔀 **Workflow execution** — ordered stages with Markdown context, acceptance
+  criteria, responsible users, due dates, artifact references, and activity.
 - 💬 **Collaboration** — Markdown discussions on Docs and Plans, stable
   `@username` mentions, follow preferences, notifications, and a unified
   activity timeline across comments, versions, assignments, and projects.
@@ -143,7 +146,7 @@ Once connected:
 - Use **`search_artifacts`** to find anything by meaning or keyword across all kinds.
 - Pull specific artifacts with **`get_skill`**, **`get_plan`**, **`get_doc`** (and their `list_*` counterparts).
 - Agents can update plan progress with **`update_task_status`**.
-- Agents can inspect and coordinate Doc/Plan work with **`list_my_work`**,
+- Agents can inspect assigned Workflow stages and coordinate Doc/Plan work with **`list_my_work`**,
   **`set_assigner`**, **`add_assignee`**, **`remove_assignee`**, and
   **`update_work_item`** when their token has the required access and write scope.
 - Agents can read discussions with **`list_comments`**. Write-enabled tokens

@@ -38,6 +38,7 @@ underlying access.
 Open **My Work** to review:
 
 - Docs and Plans assigned to you;
+- Workflow stages for which you are the responsible user;
 - work you coordinate as the effective assigner;
 - manageable work that has no assignees.
 
@@ -46,6 +47,9 @@ Turn on **Needs attention** to show work that is blocked, overdue, or has unread
 discussion activity.
 Assignment status applies to the whole Doc or Plan; it does not replace the
 individual task statuses inside a Plan.
+Workflow stage responsibility is separate: it allows the responsible user to
+report that stage's status, but never grants Workflow access or structural edit
+permission.
 
 An assignee can update status. Changing priority, due date, assigner, or the
 assignee list requires artifact edit permission. Due dates are informational in
