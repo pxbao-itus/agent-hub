@@ -18,6 +18,11 @@ import { type TokenScope, applyScopeToOwners, promptPassesScopeTags } from "./sc
 import { createPlan, addPlanLink } from "@/server/services/plan";
 import { addAssignee, getAssignmentDetail, removeAssignee, setAssigner, updateWorkItem } from "@/server/services/assignment";
 import { listMyWork } from "@/server/services/my-work";
+import {
+  attachArtifactToWorkflowStage,
+  listAssignedWorkflowStages,
+  setWorkflowStageStatus,
+} from "@/server/services/workflow";
 import { createComment, deleteComment, listComments, updateComment } from "@/server/services/comment";
 import { setSubscription } from "@/server/services/subscription";
 import { slugify } from "@/lib/slug";
@@ -707,7 +712,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
 
   server.tool(
     "list_my_work",
-    "List Docs and Plans assigned to you, coordinated by you, or still unassigned. Results respect this token's access scope.",
+    "List Docs, Plans, and assigned Workflow stages. Results respect this token's access scope.",
     {
       view: z.enum(["assigned_to_me", "coordinated_by_me", "unassigned"]).default("assigned_to_me"),
       kind: z.enum(["doc", "plan"]).optional(),
@@ -733,7 +738,17 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         db,
       );
       const items = result.items.filter((item) => scopedWorkItemIds.has(item.artifact.id)).slice(0, limit);
-      if (items.length === 0) {
+      const assignedStages =
+        view === "assigned_to_me"
+          ? (
+              await listAssignedWorkflowStages(
+                identityUser,
+                { due, limit, status: undefined },
+                db,
+              )
+            ).items
+          : [];
+      if (items.length === 0 && assignedStages.length === 0) {
         return { content: [{ type: "text" as const, text: "No matching work items." }] };
       }
       const lines = items.map((item) => {
@@ -743,6 +758,11 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         const slug = [...source.entries()].find(([, artifact]) => artifact.id === item.artifact.id)?.[0] ?? item.artifact.id;
         return `- [${item.artifact.kind}] ${slug}: ${item.artifact.title} — status=${item.status}, priority=${item.priority}, due=${item.dueDate ?? "none"}`;
       });
+      for (const { stage, workflow } of assignedStages) {
+        lines.push(
+          `- [workflow-stage] ${workflow.name} / ${stage.name} — status=${stage.status}, due=${stage.dueDate ?? "none"}, workflow_id=${workflow.id}, stage_id=${stage.id}`,
+        );
+      }
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     },
   );
@@ -790,7 +810,13 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
           columns: { id: true, name: true },
         }),
       ]);
-      const projectNameById = new Map(projectRows.map((p) => [p.id, p.name]));
+      const projectNameById = new Map<string, string>();
+      for (const project of projectRows) {
+        const fullProject = await db.query.projects.findFirst({ where: eq(projects.id, project.id) });
+        if (fullProject && (await canViewProject(identityUser, fullProject, db))) {
+          projectNameById.set(project.id, project.name);
+        }
+      }
       const doingStageByWorkflow = new Map<string, string>();
       for (const s of allStages) {
         if (s.status === "doing" && !doingStageByWorkflow.has(s.workflowId)) {
@@ -831,6 +857,11 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
       const [stageRows, stageArtifactRows, project] = await Promise.all([
         db.query.workflowStages.findMany({
           where: eq(workflowStages.workflowId, workflow.id),
+          with: {
+            assignee: {
+              columns: { id: true, name: true, username: true },
+            },
+          },
           orderBy: asc(workflowStages.position),
         }),
         db
@@ -840,9 +871,10 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
           .where(eq(workflowStages.workflowId, workflow.id))
           .orderBy(asc(workflowStageArtifacts.position)),
         workflow.projectId
-          ? db.query.projects.findFirst({ where: eq(projects.id, workflow.projectId), columns: { name: true } })
+          ? db.query.projects.findFirst({ where: eq(projects.id, workflow.projectId) })
           : Promise.resolve(null),
       ]);
+      const visibleProject = project && (await canViewProject(identityUser, project, db)) ? project : null;
 
       const artifactIdsByStage = new Map<string, string[]>();
       for (const row of stageArtifactRows) {
@@ -853,7 +885,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
       const parts: string[] = [];
       parts.push(`# ${workflow.name}`);
       if (workflow.description) parts.push(`_${workflow.description}_`);
-      if (project) parts.push(`_Project: ${project.name}_`);
+      if (visibleProject) parts.push(`_Project: ${visibleProject.name}_`);
       parts.push("");
 
       const done = stageRows.filter((s) => s.status === "done").length;
@@ -863,6 +895,14 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
       for (const stage of stageRows) {
         const check = stage.status === "done" ? "[x]" : stage.status === "doing" ? "[~]" : "[ ]";
         parts.push(`## ${check} ${stage.name} (id: ${stage.id})`);
+        if (stage.assignee) {
+          parts.push(`Responsible: ${stage.assignee.name ?? `@${stage.assignee.username}`}`);
+        }
+        if (stage.dueDate) parts.push(`Due: ${stage.dueDate}`);
+        if (stage.description) parts.push(stage.description);
+        if (stage.acceptanceCriteria) {
+          parts.push(`Acceptance criteria:\n${stage.acceptanceCriteria}`);
+        }
         const artifactIds = artifactIdsByStage.get(stage.id) ?? [];
         const refs = artifactIds.flatMap((aid) => {
           const meta = searchMeta.get(aid);
@@ -1316,7 +1356,15 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         if (!workflow || !(await canViewWorkflow(identityUser, workflow, db))) {
           return { content: [{ type: "text" as const, text: `Access denied: stage '${stageId}' is not in an accessible workflow.` }] };
         }
-        await db.update(workflowStages).set({ status, updatedAt: new Date() }).where(eq(workflowStages.id, stageId));
+        try {
+          await setWorkflowStageStatus(
+            { stageId, status },
+            { actor: identityUser, source: "mcp" },
+            db,
+          );
+        } catch {
+          return { content: [{ type: "text" as const, text: `Access denied: you can't update stage '${stageId}'.` }] };
+        }
         const stages = await db.query.workflowStages.findMany({
           where: eq(workflowStages.workflowId, workflow.id),
           orderBy: asc(workflowStages.position),
@@ -1359,16 +1407,11 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
         }
         const [artifactId, meta] = found;
 
-        const [{ maxPos }] = await db
-          .select({ maxPos: sql<number>`coalesce(max(position), -1)` })
-          .from(workflowStageArtifacts)
-          .where(eq(workflowStageArtifacts.stageId, stageId));
-
-        const [row] = await db
-          .insert(workflowStageArtifacts)
-          .values({ stageId, artifactId, position: maxPos + 1 })
-          .onConflictDoNothing()
-          .returning();
+        const row = await attachArtifactToWorkflowStage(
+          { stageId, artifactId },
+          { actor: identityUser, source: "mcp" },
+          db,
+        );
 
         const verb = row ? "Attached" : "Already attached";
         return {
