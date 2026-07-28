@@ -134,6 +134,14 @@ Once connected:
 - Pull specific artifacts with **`get_skill`**, **`get_kit`**, **`get_plan`**, **`get_doc`** (and their `list_*` counterparts).
 - Agents can update plan progress with **`update_task_status`**.
 
+## User guide
+
+After signing in, open **Help** from the navigation for the bilingual
+English–Vietnamese user guide. Each main screen also provides a contextual
+**Guide** link that opens the relevant topic in a new tab. The guide focuses on
+stable concepts and workflows for artifacts, projects, permissions, MCP, and
+administration.
+
 ## License
 
 Intended license: **MIT**. The `LICENSE` file will be added with the first tagged release.

@@ -10,10 +10,26 @@ import { cn } from "@/lib/utils";
 
 export type PickedUser = { id: string; name: string | null; email: string; image: string | null };
 
+type SearchResult = { data: PickedUser[] | undefined; isFetching: boolean };
+
+function useDefaultSearch(query: string): SearchResult {
+  return trpc.user.search.useQuery({ query }, { enabled: query.length >= 2, staleTime: 10_000 });
+}
+
 type Props = {
   value?: PickedUser | null;
   onChange: (user: PickedUser | null) => void;
   disabled?: boolean;
+  /**
+   * Override the search source — defaults to the platform-wide user.search
+   * (used for sharing, which is how you'd grant someone access in the first
+   * place). Callers whose picked user must ALREADY have some pre-existing
+   * access (e.g. assignment) pass a scoped search hook instead, so the list
+   * never offers someone who'd be rejected on save.
+   */
+  useSearch?: (query: string) => SearchResult;
+  /** Shown when a search comes back empty. Defaults to a generic "No users found." */
+  emptyHint?: string;
 };
 
 function UserAvatar({ user }: { user: PickedUser }) {
@@ -25,7 +41,7 @@ function UserAvatar({ user }: { user: PickedUser }) {
   );
 }
 
-export function UserPicker({ value, onChange, disabled }: Props) {
+export function UserPicker({ value, onChange, disabled, useSearch = useDefaultSearch, emptyHint = "No users found." }: Props) {
   const [open, setOpen] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -35,10 +51,7 @@ export function UserPicker({ value, onChange, disabled }: Props) {
     return () => clearTimeout(t);
   }, [inputValue]);
 
-  const { data: results = [], isFetching } = trpc.user.search.useQuery(
-    { query: debouncedQuery },
-    { enabled: debouncedQuery.length >= 2, staleTime: 10_000 },
-  );
+  const { data: results = [], isFetching } = useSearch(debouncedQuery);
 
   function handleSelect(user: PickedUser) {
     onChange(user);
@@ -84,7 +97,7 @@ export function UserPicker({ value, onChange, disabled }: Props) {
               <CommandEmpty>Searching…</CommandEmpty>
             )}
             {debouncedQuery.length >= 2 && !isFetching && results.length === 0 && (
-              <CommandEmpty>No users found.</CommandEmpty>
+              <CommandEmpty>{emptyHint}</CommandEmpty>
             )}
             {results.length > 0 && (
               <CommandGroup>

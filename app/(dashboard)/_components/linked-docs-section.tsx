@@ -6,8 +6,9 @@ import { trpc } from "@/lib/trpc/client";
 import { Badge } from "@/components/ui/badge";
 import { AddDocLinkButton } from "./doc-picker";
 import { MarkdownView } from "@/components/ui/markdown";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
-import { FileText, ChevronDown, ChevronRight, Trash2 } from "lucide-react";
+import { FileText, ChevronDown, ChevronRight, Eye, Trash2 } from "lucide-react";
 
 type DocLink = {
   id: string;
@@ -25,10 +26,12 @@ type Props = {
   sourceId: string;
   initialLinks: DocLink[];
   canEdit: boolean;
+  compact?: boolean;
 };
 
-export function LinkedDocsSection({ sourceId, initialLinks, canEdit }: Props) {
+export function LinkedDocsSection({ sourceId, initialLinks, canEdit, compact = false }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [previewTarget, setPreviewTarget] = useState<DocLink["target"]>(null);
   const utils = trpc.useUtils();
 
   const { data: links, refetch } = trpc.link.listForSource.useQuery(
@@ -110,7 +113,7 @@ export function LinkedDocsSection({ sourceId, initialLinks, canEdit }: Props) {
                       >▼</button>
                     </div>
                   )}
-                  {hasBody && (
+                  {hasBody && !compact && (
                     <button
                       type="button"
                       onClick={() => toggleExpand(link.target!.id)}
@@ -123,14 +126,24 @@ export function LinkedDocsSection({ sourceId, initialLinks, canEdit }: Props) {
                       }
                     </button>
                   )}
-                  {!hasBody && <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                  {(!hasBody || compact) && <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
                   <Link href={`/docs/${link.target.id}`} className="flex-1 min-w-0 group">
                     <p className="text-sm font-medium truncate group-hover:underline">{link.target.title}</p>
                     {link.target.description && (
                       <p className="text-xs text-muted-foreground truncate">{link.target.description}</p>
                     )}
                   </Link>
-                  <Badge variant="secondary" className="shrink-0 text-[10px]">doc</Badge>
+                  {!compact && <Badge variant="secondary" className="shrink-0 text-[10px]">doc</Badge>}
+                  {compact && hasBody && (
+                    <button
+                      type="button"
+                      onClick={() => setPreviewTarget(link.target)}
+                      className="shrink-0 text-muted-foreground hover:text-foreground"
+                      aria-label={`Preview ${link.target.title}`}
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                   {canEdit && (
                     <button
                       type="button"
@@ -161,6 +174,21 @@ export function LinkedDocsSection({ sourceId, initialLinks, canEdit }: Props) {
           onAdded={() => refetch()}
         />
       )}
+
+      <Dialog open={!!previewTarget} onOpenChange={(open) => !open && setPreviewTarget(null)}>
+        <DialogContent className="w-[min(92vw,56rem)] max-w-none">
+          <DialogHeader>
+            <DialogTitle>{previewTarget?.title ?? "Doc preview"}</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[72vh] overflow-y-auto rounded-md border bg-muted/10 p-4">
+            {previewTarget?.body ? (
+              <MarkdownView>{previewTarget.body}</MarkdownView>
+            ) : (
+              <p className="text-sm text-muted-foreground">This doc has no content.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

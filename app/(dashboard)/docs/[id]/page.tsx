@@ -15,8 +15,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BodyViewer } from "@/components/ui/body-viewer";
 import { McpUsage } from "@/components/ui/mcp-usage";
-import { ArtifactMeta } from "@/components/ui/artifact-meta";
+import { ArtifactMetadataFacts } from "@/components/ui/artifact-metadata-facts";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { DetailPageLayout, DetailMetadataSection } from "@/components/ui/detail-page-layout";
 import { DuplicateArtifactButton } from "@/components/ui/duplicate-artifact-button";
 import { ExportArtifactButton } from "@/components/ui/export-artifact-button";
 import { FavoriteButton } from "@/components/ui/favorite-button";
@@ -24,6 +25,8 @@ import { isFavorited } from "@/server/lib/favorites";
 import { DeleteDocButton } from "../_components/delete-doc-button";
 import { ShareDialog } from "../../_components/share-dialog";
 import { ArtifactProjectsSection } from "../../_components/artifact-projects-section";
+import { AssignmentPanel } from "../../_components/assignment-panel";
+import { AssignmentHistory } from "../../_components/assignment-history";
 import { DocVersionHistory } from "./_components/doc-version-history";
 import { FileText, ClipboardList, BookText, Wrench, Package } from "lucide-react";
 
@@ -110,145 +113,130 @@ export default async function DocDetailPage({ params }: { params: Promise<{ id: 
   const docProjects = await attachProjectManageFlags(viewableProjects, identity, db);
 
   return (
-    <div className="space-y-8">
-      <Breadcrumb items={[{ label: "Docs", href: "/docs" }, { label: doc.title }]} />
-
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl font-bold">{doc.title}</h1>
-            <Badge variant="secondary">doc</Badge>
-            <Badge variant="outline">{doc.visibility}</Badge>
-          </div>
-          {doc.description && <p className="text-sm text-muted-foreground">{doc.description}</p>}
-          {doc.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 pt-1">
-              {doc.tags.map((tag) => (
-                <Badge key={tag} variant="secondary">{tag}</Badge>
-              ))}
-            </div>
-          )}
-          {currentVersion && (
-            <ArtifactMeta
+    <DetailPageLayout
+      breadcrumb={<Breadcrumb items={[{ label: "Docs", href: "/docs" }, { label: doc.title }]} />}
+      metadataLabel={`Metadata for ${doc.title}`}
+      metadata={
+        <>
+          <DetailMetadataSection title="Details">
+            <ArtifactMetadataFacts
+              visibility={doc.visibility}
+              tags={doc.tags}
               updatedAt={doc.updatedAt}
               authorName={authorName}
-              versionNo={currentVersion.versionNo}
+              versionNo={currentVersion?.versionNo}
               fetchCount={doc.fetchCount}
               lastFetchedAt={doc.lastFetchedAt}
             />
+          </DetailMetadataSection>
+          <DetailMetadataSection title="MCP">
+            <McpUsage kind="doc" fullSlug={fullSlug} variant="compact" />
+          </DetailMetadataSection>
+          <DetailMetadataSection title="Projects" count={docProjects.length}>
+            <ArtifactProjectsSection
+              artifactId={id}
+              initialProjects={docProjects.map((p) => ({
+                id: p.id,
+                name: p.name,
+                description: p.description,
+                canManage: p.canManage,
+              }))}
+            />
+          </DetailMetadataSection>
+          <DetailMetadataSection title="Assignment">
+            <AssignmentPanel artifactId={id} canEdit={canEdit} />
+          </DetailMetadataSection>
+          <DetailMetadataSection title="Assignment history">
+            <AssignmentHistory artifactId={id} />
+          </DetailMetadataSection>
+          {doc.versions.length > 0 && (
+            <DetailMetadataSection title="Version history" count={doc.versions.length}>
+              <DocVersionHistory
+                docId={id}
+                versions={doc.versions.map((v) => ({
+                  id: v.id,
+                  versionNo: v.versionNo,
+                  body: v.body,
+                  changelog: v.changelog,
+                  createdAt: v.createdAt,
+                }))}
+                currentVersionId={doc.currentVersionId}
+                canEdit={canEdit}
+              />
+            </DetailMetadataSection>
           )}
-        </div>
-        <div className="flex shrink-0 gap-2">
-          <FavoriteButton artifactId={id} initialFavorited={favorited} />
-          <DuplicateArtifactButton artifactId={id} kind="doc" />
-          <ExportArtifactButton artifactId={id} title={doc.title} />
-          {canShare && <ShareDialog artifactId={id} artifactTitle={doc.title} />}
-          {canEdit && (
-            <>
-              <Button asChild variant="outline" size="sm">
-                <Link href={`/docs/${id}/edit`}>Edit</Link>
-              </Button>
-              <DeleteDocButton docId={id} />
-            </>
-          )}
-        </div>
-      </div>
-
-      <McpUsage kind="doc" fullSlug={fullSlug} />
-
-      {/* Body */}
-      {currentVersion && (
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Content</h2>
-            <span className="text-xs text-muted-foreground">v{currentVersion.versionNo}</span>
+        </>
+      }
+    >
+      <div className="space-y-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="break-words text-2xl font-bold">{doc.title}</h1>
+              <Badge variant="secondary">doc</Badge>
+            </div>
+            {doc.description && <p className="text-sm text-muted-foreground">{doc.description}</p>}
           </div>
-          <BodyViewer body={currentVersion.body} defaultMode="rendered" />
-        </section>
-      )}
+          <div className="flex flex-wrap gap-2 sm:shrink-0 sm:justify-end">
+            <FavoriteButton artifactId={id} initialFavorited={favorited} />
+            <DuplicateArtifactButton artifactId={id} kind="doc" />
+            <ExportArtifactButton artifactId={id} title={doc.title} />
+            {canShare && <ShareDialog artifactId={id} artifactTitle={doc.title} />}
+            {canEdit && (
+              <>
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/docs/${id}/edit`}>Edit</Link>
+                </Button>
+                <DeleteDocButton docId={id} />
+              </>
+            )}
+          </div>
+        </div>
 
-      {/* Referenced by */}
-      {accessibleSources.length > 0 && (
+        {currentVersion && (
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Content</h2>
+              <span className="text-xs text-muted-foreground">v{currentVersion.versionNo}</span>
+            </div>
+            <BodyViewer body={currentVersion.body} defaultMode="rendered" />
+          </section>
+        )}
+
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Referenced by ({accessibleSources.length})
+            Referenced by{accessibleSources.length > 0 ? ` (${accessibleSources.length})` : ""}
           </h2>
-          <div className="divide-y rounded-md border">
-            {accessibleSources.map((link) => {
-              const src = link.source!;
-              const Icon = KIND_ICON[src.kind] ?? FileText;
-              const href = `${KIND_HREF[src.kind] ?? "/"}/${src.id}`;
-              return (
-                <Link
-                  key={link.id}
-                  href={href}
-                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/50 transition-colors"
-                >
-                  <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{src.title}</p>
-                    {src.description && (
-                      <p className="truncate text-xs text-muted-foreground">{src.description}</p>
-                    )}
-                  </div>
-                  <Badge variant="outline" className="shrink-0 text-[10px]">{src.kind}</Badge>
-                </Link>
-              );
-            })}
-          </div>
-          <div className="flex gap-2 pt-1">
-            <Button asChild size="sm" variant="outline">
-              <Link href={`/plans/new?linkDoc=${id}`}>Create plan from this doc</Link>
-            </Button>
-          </div>
-        </section>
-      )}
-
-      {accessibleSources.length === 0 && (
-        <section className="space-y-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Referenced by</h2>
-          <p className="text-sm text-muted-foreground">No plans reference this doc yet.</p>
+          {accessibleSources.length > 0 ? (
+            <div className="divide-y rounded-md border">
+              {accessibleSources.map((link) => {
+                const src = link.source!;
+                const Icon = KIND_ICON[src.kind] ?? FileText;
+                const href = `${KIND_HREF[src.kind] ?? "/"}/${src.id}`;
+                return (
+                  <Link
+                    key={link.id}
+                    href={href}
+                    className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-muted/50"
+                  >
+                    <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{src.title}</p>
+                      {src.description && <p className="truncate text-xs text-muted-foreground">{src.description}</p>}
+                    </div>
+                    <Badge variant="outline" className="shrink-0 text-[10px]">{src.kind}</Badge>
+                  </Link>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No plans reference this doc yet.</p>
+          )}
           <Button asChild size="sm" variant="outline">
             <Link href={`/plans/new?linkDoc=${id}`}>Create plan from this doc</Link>
           </Button>
         </section>
-      )}
-
-      {/* Projects */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Projects {docProjects.length > 0 ? `(${docProjects.length})` : ""}
-        </h2>
-        <ArtifactProjectsSection
-          artifactId={id}
-          initialProjects={docProjects.map((p) => ({
-            id: p.id,
-            name: p.name,
-            description: p.description,
-            canManage: p.canManage,
-          }))}
-        />
-      </section>
-
-      {/* Version history */}
-      {doc.versions.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Version history</h2>
-          <DocVersionHistory
-            docId={id}
-            versions={doc.versions.map((v) => ({
-              id: v.id,
-              versionNo: v.versionNo,
-              body: v.body,
-              changelog: v.changelog,
-              createdAt: v.createdAt,
-            }))}
-            currentVersionId={doc.currentVersionId}
-            canEdit={canEdit}
-          />
-        </section>
-      )}
-    </div>
+      </div>
+    </DetailPageLayout>
   );
 }

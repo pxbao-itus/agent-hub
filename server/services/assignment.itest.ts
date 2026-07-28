@@ -122,7 +122,12 @@ describe("setAssigner", () => {
     expect(audit).toHaveLength(1);
     expect(audit[0].action).toBe("assignment.assigner.change");
     expect(audit[0].actorId).toBe(engMember.id);
-    expect(audit[0].metadata).toEqual({ oldAssignerId: engMember.id, newAssignerId: marketingMember.id });
+    expect(audit[0].metadata).toEqual({
+      oldAssignerId: engMember.id,
+      oldAssignerName: engMember.name ?? engMember.email,
+      newAssignerId: marketingMember.id,
+      newAssignerName: marketingMember.name ?? marketingMember.email,
+    });
 
     // Recipients are [new, old] minus the actor — engMember is both old assigner
     // and actor here, so only marketingMember (the new assigner) gets notified.

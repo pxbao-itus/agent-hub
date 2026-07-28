@@ -7,6 +7,7 @@ import { SidebarNav } from "./_components/sidebar-nav";
 import { MobileHeader } from "./_components/mobile-header";
 import { NotificationBell } from "./_components/notification-bell";
 import { CommandPalette } from "@/components/command-palette";
+import { ContextualGuideLink } from "@/components/help/contextual-guide-link";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -52,7 +53,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
       {/* ── Main content ──────────────────────────────────────────────────── */}
       <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-4xl px-4 py-6 md:px-8 md:py-8">{children}</div>
+        <div className="mx-auto w-full max-w-[1600px] px-4 py-6 md:px-8 md:py-8">
+          <ContextualGuideLink />
+          {children}
+        </div>
       </main>
     </div>
   );

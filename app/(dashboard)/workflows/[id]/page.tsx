@@ -11,9 +11,11 @@ import { resolveOwnerSlugPaths } from "@/server/lib/owner-path";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { DetailPageLayout, DetailMetadataSection } from "@/components/ui/detail-page-layout";
 import { DeleteWorkflowButton } from "../_components/delete-workflow-button";
 import { WorkflowPipeline } from "../_components/workflow-pipeline";
 import { GitBranch, FolderKanban } from "lucide-react";
+import { formatRelativeTime } from "@/lib/relative-time";
 
 async function getWorkflow(id: string) {
   return db.query.workflows.findFirst({ where: eq(workflows.id, id) });
@@ -77,42 +79,70 @@ export default async function WorkflowDetailPage({ params }: { params: Promise<{
   const spacePath = ownerPaths.get(`${workflow.ownerGroupType}:${workflow.ownerGroupId}`) ?? "";
 
   return (
-    <div className="space-y-8">
-      <Breadcrumb items={[{ label: "Workflows", href: "/workflows" }, { label: workflow.name }]} />
-
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <GitBranch className="h-5 w-5 text-muted-foreground" />
-            <h1 className="text-2xl font-bold">{workflow.name}</h1>
-            {spacePath && <Badge variant="outline">{spacePath}</Badge>}
-            {linkedProject && (
-              <Link href={`/projects/${linkedProject.id}`}>
-                <Badge variant="secondary" className="gap-1">
-                  <FolderKanban className="h-3 w-3" />
-                  {linkedProject.name}
-                </Badge>
+    <DetailPageLayout
+      breadcrumb={<Breadcrumb items={[{ label: "Workflows", href: "/workflows" }, { label: workflow.name }]} />}
+      metadataLabel={`Metadata for ${workflow.name}`}
+      metadata={
+        <>
+          <DetailMetadataSection title="Details">
+            <dl className="space-y-3 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <dt className="text-muted-foreground">Space</dt>
+                <dd className="min-w-0 truncate text-right" title={spacePath || workflow.ownerGroupType}>
+                  {spacePath || workflow.ownerGroupType}
+                </dd>
+              </div>
+              <div className="flex items-start justify-between gap-3">
+                <dt className="text-muted-foreground">Stages</dt>
+                <dd>{initialStages.length}</dd>
+              </div>
+              <div className="flex items-start justify-between gap-3">
+                <dt className="text-muted-foreground">Updated</dt>
+                <dd className="text-right">{formatRelativeTime(workflow.updatedAt)}</dd>
+              </div>
+            </dl>
+          </DetailMetadataSection>
+          <DetailMetadataSection title="Project">
+            {linkedProject ? (
+              <Link
+                href={`/projects/${linkedProject.id}`}
+                className="flex items-center gap-2 rounded-md border px-3 py-2.5 transition-colors hover:bg-muted/30"
+              >
+                <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate text-sm font-medium">{linkedProject.name}</span>
               </Link>
+            ) : (
+              <p className="text-sm text-muted-foreground">No project linked.</p>
             )}
+          </DetailMetadataSection>
+        </>
+      }
+    >
+      <div className="space-y-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <GitBranch className="h-5 w-5 text-muted-foreground" />
+              <h1 className="break-words text-2xl font-bold">{workflow.name}</h1>
+              <Badge variant="secondary">workflow</Badge>
+            </div>
+            {workflow.description && <p className="text-sm text-muted-foreground">{workflow.description}</p>}
           </div>
-          {workflow.description && (
-            <p className="text-sm text-muted-foreground">{workflow.description}</p>
+          {canManage && (
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/workflows/${id}/edit`}>Edit</Link>
+              </Button>
+              <DeleteWorkflowButton workflowId={id} />
+            </div>
           )}
         </div>
-        {canManage && (
-          <div className="flex shrink-0 gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/workflows/${id}/edit`}>Edit</Link>
-            </Button>
-            <DeleteWorkflowButton workflowId={id} />
-          </div>
-        )}
-      </div>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Stages</h2>
-        <WorkflowPipeline workflowId={id} canManage={canManage} initialStages={initialStages} />
-      </section>
-    </div>
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Stages</h2>
+          <WorkflowPipeline workflowId={id} canManage={canManage} initialStages={initialStages} />
+        </section>
+      </div>
+    </DetailPageLayout>
   );
 }

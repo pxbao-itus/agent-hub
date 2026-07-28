@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { LayoutDashboard, BookText, Wrench, Package, ClipboardList, FileText, FolderKanban, GitBranch, Compass, Building2, Key, Sun, Moon, Users, Search, Upload, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, BookText, Wrench, Package, ClipboardList, FileText, FolderKanban, GitBranch, Compass, Building2, Key, Sun, Moon, Users, Search, Upload, ShieldCheck, CircleHelp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -107,6 +107,15 @@ export function SidebarNav({
               <NavItem label="Audit log" href="/settings/audit" icon={ShieldCheck} />
             </>
           )}
+        </ul>
+      </div>
+
+      <div>
+        <p className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Support
+        </p>
+        <ul className="space-y-0.5">
+          <NavItem label="Help" href="/help" icon={CircleHelp} />
         </ul>
       </div>
 

@@ -9,6 +9,31 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { formatRelativeTime } from "@/lib/relative-time";
 import { artifactDetailPath } from "@/lib/artifact-routes";
 
+type NotificationRow = {
+  type: string;
+  metadata: unknown;
+  actor: { name: string | null; email: string | null } | null;
+  artifact: { title: string };
+};
+
+function describeNotification(n: NotificationRow): string {
+  const actor = n.actor?.name ?? n.actor?.email ?? "Someone";
+  if (n.type === "assignment") {
+    const m = (n.metadata ?? {}) as Record<string, unknown>;
+    if (m.event === "assigner.change") {
+      const to = (m.newAssignerName as string | null) ?? "no one";
+      return `${actor} made ${to} the assigner of "${n.artifact.title}"`;
+    }
+    if (m.event === "assignee.add") {
+      return `${actor} added ${(m.userName as string | null) ?? "someone"} as an assignee on "${n.artifact.title}"`;
+    }
+    if (m.event === "assignee.remove") {
+      return `${actor} removed ${(m.userName as string | null) ?? "someone"} as an assignee on "${n.artifact.title}"`;
+    }
+  }
+  return `${actor} updated ${n.artifact.title}`;
+}
+
 export function NotificationBell() {
   const router = useRouter();
   const utils = trpc.useUtils();
@@ -78,7 +103,7 @@ export function NotificationBell() {
               className="flex w-full flex-col gap-0.5 border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-muted/50"
             >
               <span className={n.isRead ? "text-muted-foreground" : "font-medium"}>
-                {(n.actor?.name ?? n.actor?.email ?? "Someone") + " updated " + n.artifact.title}
+                {describeNotification(n)}
               </span>
               <span className="text-xs text-muted-foreground">{formatRelativeTime(n.createdAt)}</span>
             </button>

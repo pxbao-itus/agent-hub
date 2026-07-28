@@ -122,7 +122,7 @@ export async function setAssigner(
         action: "assignment.assigner.change",
         targetType: "artifact",
         targetId: artifact.id,
-        metadata: { oldAssignerId, newAssignerId },
+        metadata: { oldAssignerId, oldAssignerName: oldName, newAssignerId, newAssignerName: newName },
       },
       db,
     ),

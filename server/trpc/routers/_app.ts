@@ -9,6 +9,7 @@ import { planRouter } from "./plan";
 import { docRouter } from "./doc";
 import { linkRouter } from "./link";
 import { shareRouter } from "./share";
+import { assignmentRouter } from "./assignment";
 import { notificationRouter } from "./notification";
 import { favoriteRouter } from "./favorite";
 import { projectRouter } from "./project";
@@ -40,6 +41,7 @@ export const appRouter = router({
   doc: docRouter,
   link: linkRouter,
   share: shareRouter,
+  assignment: assignmentRouter,
   notification: notificationRouter,
   favorite: favoriteRouter,
   project: projectRouter,

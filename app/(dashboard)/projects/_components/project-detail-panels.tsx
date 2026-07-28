@@ -16,12 +16,21 @@ type Props = {
   canManage: boolean;
   initialArtifacts: ArtifactRow[];
   initialMembers: MemberRow[];
+  hideHeading?: boolean;
 };
+type Section = "artifacts" | "members";
 
 const KIND_ICON: Record<string, React.ElementType> = { doc: FileText, plan: ClipboardList };
 const KIND_HREF: Record<string, string> = { doc: "/docs", plan: "/plans" };
 
-export function ProjectDetailPanels({ projectId, canManage, initialArtifacts, initialMembers }: Props) {
+function ProjectDetailPanel({
+  projectId,
+  canManage,
+  initialArtifacts,
+  initialMembers,
+  hideHeading,
+  section,
+}: Props & { section: Section }) {
   const utils = trpc.useUtils();
   const { data } = trpc.project.get.useQuery(
     { id: projectId },
@@ -54,8 +63,8 @@ export function ProjectDetailPanels({ projectId, canManage, initialArtifacts, in
 
   const assignedIds = new Set(artifactsList.map((a) => a.id));
 
-  return (
-    <>
+  if (section === "artifacts") {
+    return (
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -98,12 +107,17 @@ export function ProjectDetailPanels({ projectId, canManage, initialArtifacts, in
           </div>
         )}
       </section>
+    );
+  }
 
+  return (
       <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Members ({membersList.length})
-          </h2>
+        <div className={`flex items-center ${hideHeading ? "justify-end" : "justify-between"}`}>
+          {!hideHeading && (
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Members ({membersList.length})
+            </h2>
+          )}
           {canManage && <AddProjectMemberDialog projectId={projectId} onAdded={invalidate} />}
         </div>
         {membersList.length === 0 ? (
@@ -137,6 +151,13 @@ export function ProjectDetailPanels({ projectId, canManage, initialArtifacts, in
           </div>
         )}
       </section>
-    </>
   );
+}
+
+export function ProjectArtifactsPanel(props: Props) {
+  return <ProjectDetailPanel {...props} section="artifacts" />;
+}
+
+export function ProjectMembersPanel(props: Props) {
+  return <ProjectDetailPanel {...props} hideHeading section="members" />;
 }

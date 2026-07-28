@@ -12,7 +12,6 @@ import { getVersionAuthorName } from "@/server/lib/version-author";
 import { slugify } from "@/lib/slug";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DuplicateArtifactButton } from "@/components/ui/duplicate-artifact-button";
 import { ExportArtifactButton } from "@/components/ui/export-artifact-button";
 import { FavoriteButton } from "@/components/ui/favorite-button";
@@ -21,8 +20,9 @@ import { DeletePromptButton } from "./_components/delete-prompt-button";
 import { VersionHistory } from "./_components/version-history";
 import { BodyViewer } from "@/components/ui/body-viewer";
 import { McpUsage } from "@/components/ui/mcp-usage";
-import { ArtifactMeta } from "@/components/ui/artifact-meta";
+import { ArtifactMetadataFacts } from "@/components/ui/artifact-metadata-facts";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { DetailPageLayout, DetailMetadataSection } from "@/components/ui/detail-page-layout";
 import { ShareDialog } from "../../_components/share-dialog";
 import { LinkedDocsSection } from "../../_components/linked-docs-section";
 
@@ -80,124 +80,108 @@ export default async function PromptDetailPage({ params }: { params: Promise<{ i
     if (ok) linkedDocs.push(link);
   }
 
-  return (
-    <div className="space-y-8">
-      <Breadcrumb items={[{ label: "Prompts", href: "/prompts" }, { label: prompt.title }]} />
+  const linkedDocRows = linkedDocs.map((l) => ({
+    id: l.id,
+    position: l.position,
+    target: l.target ? {
+      id: l.target.id,
+      title: l.target.title,
+      description: l.target.description,
+      slug: l.target.slug,
+      body: l.target.versions[0]?.body ?? null,
+    } : null,
+  }));
 
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold">{prompt.title}</h1>
-            <Badge variant="outline">{prompt.visibility}</Badge>
-          </div>
-          {prompt.description && (
-            <p className="text-sm text-muted-foreground">{prompt.description}</p>
-          )}
-          {prompt.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 pt-1">
-              {prompt.tags.map((tag) => (
-                <Badge key={tag} variant="secondary">{tag}</Badge>
-              ))}
-            </div>
-          )}
-          {currentVersion && (
-            <ArtifactMeta
+  return (
+    <DetailPageLayout
+      breadcrumb={<Breadcrumb items={[{ label: "Prompts", href: "/prompts" }, { label: prompt.title }]} />}
+      metadataLabel={`Metadata for ${prompt.title}`}
+      metadata={
+        <>
+          <DetailMetadataSection title="Details">
+            <ArtifactMetadataFacts
+              visibility={prompt.visibility}
+              tags={prompt.tags}
               updatedAt={prompt.updatedAt}
               authorName={authorName}
-              versionNo={currentVersion.versionNo}
+              versionNo={currentVersion?.versionNo}
               fetchCount={prompt.fetchCount}
               lastFetchedAt={prompt.lastFetchedAt}
             />
+          </DetailMetadataSection>
+          <DetailMetadataSection title="MCP">
+            <McpUsage kind="prompt" fullSlug={fullSlug} variant="compact" />
+          </DetailMetadataSection>
+          {(canEdit || linkedDocs.length > 0) && (
+            <DetailMetadataSection title="Linked docs" count={linkedDocs.length}>
+              <LinkedDocsSection sourceId={id} initialLinks={linkedDocRows} canEdit={canEdit} compact />
+            </DetailMetadataSection>
           )}
-        </div>
-        <div className="flex shrink-0 gap-2">
-          <FavoriteButton artifactId={id} initialFavorited={favorited} />
-          <DuplicateArtifactButton artifactId={id} kind="prompt" />
-          <ExportArtifactButton artifactId={id} title={prompt.title} />
-          {canShare && <ShareDialog artifactId={id} artifactTitle={prompt.title} />}
-          {canEdit && (
-            <>
-              <Button asChild variant="outline" size="sm">
-                <Link href={`/prompts/${id}/edit`}>Edit</Link>
-              </Button>
-              <DeletePromptButton promptId={id} />
-            </>
+          {prompt.versions.length > 0 && (
+            <DetailMetadataSection title="Version history" count={prompt.versions.length}>
+              <VersionHistory
+                promptId={id}
+                versions={prompt.versions}
+                currentVersionId={prompt.currentVersionId}
+                canEdit={canEdit}
+              />
+            </DetailMetadataSection>
           )}
-        </div>
-      </div>
-
-      <McpUsage kind="prompt" fullSlug={fullSlug} />
-
-      {/* Current body */}
-      {currentVersion && (
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Prompt body
-            </h2>
-            <span className="text-xs text-muted-foreground">v{currentVersion.versionNo}</span>
+        </>
+      }
+    >
+      <div className="space-y-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="break-words text-2xl font-bold">{prompt.title}</h1>
+              <Badge>prompt</Badge>
+            </div>
+            {prompt.description && <p className="text-sm text-muted-foreground">{prompt.description}</p>}
           </div>
-          <BodyViewer body={currentVersion.body} defaultMode="raw" />
-        </section>
-      )}
+          <div className="flex flex-wrap gap-2 sm:shrink-0 sm:justify-end">
+            <FavoriteButton artifactId={id} initialFavorited={favorited} />
+            <DuplicateArtifactButton artifactId={id} kind="prompt" />
+            <ExportArtifactButton artifactId={id} title={prompt.title} />
+            {canShare && <ShareDialog artifactId={id} artifactTitle={prompt.title} />}
+            {canEdit && (
+              <>
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/prompts/${id}/edit`}>Edit</Link>
+                </Button>
+                <DeletePromptButton promptId={id} />
+              </>
+            )}
+          </div>
+        </div>
 
-      {/* Variables */}
-      {prompt.variables.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Variables</h2>
-          <div className="divide-y rounded-md border">
-            {prompt.variables.map((v) => (
-              <div key={v.id} className="flex items-center justify-between px-4 py-2.5">
-                <code className="text-sm font-mono">{"{{" + v.name + "}}"}</code>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  {v.defaultValue && <span>default: {v.defaultValue}</span>}
-                  {v.required && <Badge variant="outline">required</Badge>}
+        {currentVersion && (
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Prompt body</h2>
+              <span className="text-xs text-muted-foreground">v{currentVersion.versionNo}</span>
+            </div>
+            <BodyViewer body={currentVersion.body} defaultMode="raw" />
+          </section>
+        )}
+
+        {prompt.variables.length > 0 && (
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Variables</h2>
+            <div className="divide-y rounded-md border">
+              {prompt.variables.map((v) => (
+                <div key={v.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+                  <code className="font-mono text-sm">{"{{" + v.name + "}}"}</code>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {v.defaultValue && <span>default: {v.defaultValue}</span>}
+                    {v.required && <Badge variant="outline">required</Badge>}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Linked docs */}
-      {(canEdit || linkedDocs.length > 0) && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Linked docs {linkedDocs.length > 0 ? `(${linkedDocs.length})` : ""}
-          </h2>
-          <LinkedDocsSection
-            sourceId={id}
-            initialLinks={linkedDocs.map((l) => ({
-              id: l.id,
-              position: l.position,
-              target: l.target ? {
-                id: l.target.id,
-                title: l.target.title,
-                description: l.target.description,
-                slug: l.target.slug,
-                body: l.target.versions[0]?.body ?? null,
-              } : null,
-            }))}
-            canEdit={canEdit}
-          />
-        </section>
-      )}
-
-      {/* Version history */}
-      {prompt.versions.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Version history
-          </h2>
-          <VersionHistory
-            promptId={id}
-            versions={prompt.versions}
-            currentVersionId={prompt.currentVersionId}
-            canEdit={canEdit}
-          />
-        </section>
-      )}
-    </div>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+    </DetailPageLayout>
   );
 }
