@@ -1,40 +1,54 @@
 ## When to use the CLI
 
-MCP lets an agent retrieve content on demand. Use the Agent Hub CLI when a tool
-expects Skills or scripts to exist in a local filesystem such as
-`.claude/skills/`.
+MCP lets an agent retrieve content on demand. Use the Agent Hub CLI when Claude
+Code or Codex should discover a Skill natively from the local filesystem.
 
-The CLI pulls Skills from a running Agent Hub instance.
+Claude is the default target and installs into `.claude/skills/`. Codex installs
+into `.agents/skills/`.
 
 ## Connect and pull
 
 Build or install the CLI according to the project CLI README, then:
 
 1. Log in with the Agent Hub base URL and an MCP token.
-2. Pull a Skill by slug to install its instruction file and bundled files.
-3. Review generated files before allowing an agent to execute scripts.
+2. Pull one Skill by slug, or use `pull skill --all` for every Skill currently
+   accessible to the token.
+3. Select `--target codex` when the installation is for Codex; omitted target
+   means Claude.
+4. Review generated files before allowing an agent to execute scripts.
 
 The login configuration is stored under your user profile with restricted file
 permissions. Keep the token private.
 
 ## Track and synchronize
 
-The workspace lock file records installed content and versions. Use `status` to
-preview differences without writing. Use `sync` to retrieve newer tracked
-versions.
+The workspace lock file records each remote Skill and its independent Claude
+or Codex installation. Use `status` or `--dry-run` to preview differences
+without writing. Use `sync` to refresh the selected target's tracked Skills.
 
-If a file changed locally and the server also has a newer version, normal sync
-reports a conflict and preserves the local file. Use force overwrite only after
-reviewing or backing up the local change.
+Agent Hub is authoritative for managed Skills. Pull and sync overwrite local
+changes, replace the complete managed Skill tree, and remove stale bundled
+files.
 
-Files removed or renamed in a newer server Skill are cleaned up during sync.
-Do not manually edit the lock file.
+A managed Skill is also removed locally when it disappears from the token's
+current accessible set. Deletion, lost membership, visibility changes and
+narrower token scope intentionally have the same result. Untracked local
+Skills are never overwritten or removed. Do not manually edit the lock file.
+
+Filesystem and lock-file changes use a recoverable transaction. After an
+interrupted apply, the next pull or sync restores the previous complete
+snapshot before continuing.
+
+Claude Skills are invoked as `/skill-name`. Codex Skills are invoked as
+`$skill-name` or selected through `/skills`.
 
 ## Safe use
 
 - Review bundled scripts as you would code from another repository.
 - Use a scoped token.
-- Run `status` before synchronization in a modified workspace.
-- Commit intentional local work before a forced overwrite.
+- Run `status` or `--dry-run` before bulk synchronization after permissions or
+  token scope changed.
+- Store intentional customizations in Agent Hub rather than editing a managed
+  local copy.
 
 For token setup, see [Connect an AI agent](/help/connect-agent).

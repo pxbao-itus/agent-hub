@@ -19,7 +19,10 @@ thay vì sao chép cả repository.
 
 Agent kết nối qua MCP có thể xem hoặc lấy Skill mà nó được phép truy cập. Khi
 agent cần chạy script hoặc dùng file trên filesystem, sử dụng Agent Hub CLI để
-pull Skill vào workspace local.
+pull Skill vào workspace local. Claude là native target mặc định và gọi kết quả
+bằng `/skill-name`; dùng `--target codex` để cài cùng Skill cho Codex, sau đó
+chọn qua `/skills` hoặc gọi bằng `$skill-name`. Bulk pull mirror mọi Skill mà
+token hiện tại truy cập được.
 
 Mỗi lần lưu tạo version mới cho body và bundled files. Nên review version trước
 khi cập nhật Skill được dùng rộng rãi vì agent có thể lấy version mới nhất ngay

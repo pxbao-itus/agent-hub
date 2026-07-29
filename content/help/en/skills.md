@@ -21,7 +21,10 @@ files over a copy of an entire repository.
 
 An MCP-connected agent can inspect or retrieve an accessible Skill. When the
 agent must execute scripts or use files from disk, use the Agent Hub CLI to pull
-the Skill into the local workspace.
+the Skill into the local workspace. Claude is the default native target and
+invokes the result as `/skill-name`; use `--target codex` to install the same
+Skill for Codex, where it can be selected through `/skills` or invoked as
+`$skill-name`. Bulk pull mirrors every Skill currently accessible to the token.
 
 Each save creates a new version of the Skill body and its bundled files. Review
 the version before updating a widely used Skill, because connected agents may

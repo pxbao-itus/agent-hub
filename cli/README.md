@@ -1,8 +1,8 @@
 # agent-hub-cli
 
-Tier 3 delivery for [Agent Hub](../README.md): pulls skills from a running
-Agent Hub instance onto the local filesystem for tools that read
-`.claude/skills/` directly instead of going through MCP.
+Tier 3 delivery for [Agent Hub](../README.md): installs Skills from a running
+Agent Hub instance as native local Skills for Claude Code or Codex instead of
+fetching their instructions through MCP on every use.
 
 Zero dependencies beyond the Go standard library — it speaks raw
 JSON-RPC-over-HTTP to `/api/mcp` (calling `pull_skill`), with no MCP SDK and no
@@ -21,20 +21,61 @@ Requires Go 1.23+. Run `go test ./...` to run the test suite.
 
 ```sh
 agent-hub login <base-url> <mcp-token>   # e.g. agent-hub login https://hub.example.com mcp_...
-agent-hub pull skill <slug>              # -> .claude/skills/<slug>/SKILL.md + bundled files
+agent-hub pull skill <slug>              # Claude default -> .claude/skills/<name>/
+agent-hub pull skill <slug> --target codex
+agent-hub pull skill <slug> --as local-name
+agent-hub pull skill --all               # mirror every accessible Skill to Claude
+agent-hub pull skill --all --target codex
 ```
 
 Get an MCP token from **Settings → MCP Tokens** in the app. Config is saved to `~/.agent-hub/config.json` (directory `0700`, file `0600`).
 
 ```sh
-agent-hub sync [--force]   # re-pulls everything tracked in .agent-hub-lock.json
-agent-hub status           # same diff, read-only — writes nothing
+agent-hub status [--target claude|codex]
+agent-hub sync [--target claude|codex] [--dry-run]
 ```
 
-Conflict rule (§5, `plans/42-cli-filesystem-sync.md`): if a file was edited locally **and** the server has a newer version, `sync` leaves it alone and reports a conflict — pass `--force` to overwrite the local edit.
+`claude` is the default target:
 
-Stale files (a file removed or renamed in a skill's *server* version) are cleaned up automatically on `sync` — fixed in the Go rewrite; the retired TypeScript CLI left them behind.
+| Target | Project directory | Invoke |
+| --- | --- | --- |
+| Claude Code | `.claude/skills/<name>/` | `/<name>` |
+| Codex | `.agents/skills/<name>/` | `$<name>` or `/skills` |
+
+The CLI renders a native `SKILL.md` frontmatter header when the Agent Hub body
+does not already contain one. Existing frontmatter extensions and bundled
+files are preserved. The short artifact slug is the default native name; use
+`--as` to resolve a collision.
+
+## Authoritative mirror
+
+Agent Hub is the source of truth for every installation recorded in
+`.agent-hub-lock.json`:
+
+- repeated pull or sync overwrites local edits inside a managed Skill;
+- stale bundled files are removed;
+- a managed Skill absent from the token's current accessible set is removed
+  locally, whether the cause is deletion, visibility, membership, sharing, or
+  token scope;
+- an untracked local Skill is never overwritten or deleted;
+- Claude and Codex installations are tracked independently.
+
+Filesystem changes and `.agent-hub-lock.json` are committed as one recoverable
+transaction. If a CLI process stops during apply, the next mutating pull or
+sync restores the last complete snapshot before continuing.
+
+`sync` updates the selected target's already tracked collection and removes
+tracked Skills that are no longer accessible. It does not add newly accessible
+Skills; run `pull skill --all` to install the complete current set.
+
+Use `--dry-run` to preview a pull or sync without writing:
+
+```sh
+agent-hub pull skill --all --target claude --dry-run
+agent-hub sync --target codex --dry-run
+```
 
 Older lock files may still contain Kit tracking from a pre-release Agent Hub
 build. The CLI warns and removes that obsolete tracking the next time it writes
-the manifest. Previously generated local files are always preserved.
+the manifest. Existing v1 Claude Skill entries are migrated to the multi-target
+manifest and native short-name layout on their next successful update.

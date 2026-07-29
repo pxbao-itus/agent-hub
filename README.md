@@ -172,6 +172,21 @@ Once connected:
   **`set_follow_preference`**; comments created this way are marked as MCP
   activity and support the same `@username` mention rules as the UI.
 
+For native local Skills, build the zero-dependency Go CLI in `cli/`, log in
+with the same MCP token, then pull one Skill or the complete accessible set:
+
+```shell
+agent-hub pull skill <slug>                    # Claude: .claude/skills, /name
+agent-hub pull skill --all
+agent-hub pull skill <slug> --target codex     # Codex: .agents/skills, $name
+agent-hub pull skill --all --target codex
+```
+
+Agent Hub is authoritative for CLI-managed Skills: repeated pull/sync
+overwrites their local copies and removes managed Skills that disappear from
+the token's accessible set. Untracked local Skills are never modified. See
+[`cli/README.md`](cli/README.md) for dry-run, aliases, status and sync.
+
 ## User guide
 
 After signing in, open **Help** from the navigation for the bilingual
