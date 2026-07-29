@@ -13,13 +13,12 @@ func main() {
 	template := flag.String("template", "", "installer template path")
 	output := flag.String("output", "", "installer output path")
 	version := flag.String("version", "", "CLI semantic version")
-	baseURL := flag.String("base-url", "", "immutable release base URL")
 	flag.Parse()
-	if *template == "" || *output == "" || *version == "" || *baseURL == "" {
-		fmt.Fprintln(os.Stderr, "--template, --output, --version and --base-url are required")
+	if *template == "" || *output == "" || *version == "" {
+		fmt.Fprintln(os.Stderr, "--template, --output and --version are required")
 		os.Exit(1)
 	}
-	if err := releasepack.RenderInstaller(*template, *output, *version, *baseURL); err != nil {
+	if err := releasepack.RenderInstaller(*template, *output, *version); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

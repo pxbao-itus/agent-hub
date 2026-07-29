@@ -3,6 +3,7 @@ import Link from "next/link";
 import {
   Apple,
   CheckCircle2,
+  ChevronDown,
   Clock3,
   Download,
   ExternalLink,
@@ -44,14 +45,28 @@ function applicationOrigin(): string {
   }
 }
 
+function manualInstallCommand(archiveName: string): string {
+  return [
+    `ARCHIVE="$HOME/Downloads/${archiveName}"`,
+    'TEMP_DIR="$(mktemp -d)"',
+    'tar -xzf "$ARCHIVE" -C "$TEMP_DIR"',
+    'mkdir -p "$HOME/.local/bin"',
+    'install -m 0755 "$TEMP_DIR/agenthub" "$HOME/.local/bin/agenthub"',
+    'rm -rf "$TEMP_DIR"',
+    'export PATH="$HOME/.local/bin:$PATH"',
+    "agenthub version",
+  ].join("\n");
+}
+
 export default async function CliPage({ searchParams }: Props) {
   const release = loadCliReleaseConfig();
   const { skill: skillParam } = await searchParams;
   const skill = normalizeCliSkillSlug(skillParam);
   const origin = applicationOrigin();
-  const loginCommand = `agent-hub login ${shellQuote(origin)} YOUR_TOKEN_HERE`;
-  const installCommand = release.configured
-    ? `curl -fsSL ${shellQuote(release.installScriptUrl)} | sh`
+  const loginCommand = `agenthub login ${shellQuote(origin)} YOUR_TOKEN_HERE`;
+  const secureReleaseOrigin = origin.startsWith("https://");
+  const installCommand = release.configured && secureReleaseOrigin
+    ? `curl -fsSL ${shellQuote(`${origin}${release.installScriptUrl}`)} | sh -s -- --release-base-url ${shellQuote(`${origin}${release.baseUrl}`)}`
     : null;
 
   return (
@@ -59,7 +74,15 @@ export default async function CliPage({ searchParams }: Props) {
       <header className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-2xl font-bold">Agent Hub CLI</h1>
-          <Badge variant="warning">Preview</Badge>
+          <Badge
+            variant={
+              release.configured && release.channel === "stable"
+                ? "success"
+                : "warning"
+            }
+          >
+            {release.configured && release.channel === "stable" ? "Stable" : "Preview"}
+          </Badge>
           {release.configured && (
             <Badge variant="outline">v{release.version}</Badge>
           )}
@@ -128,9 +151,9 @@ export default async function CliPage({ searchParams }: Props) {
           <CardHeader className="pb-3">
             <CardTitle className="text-sm">CLI downloads are not configured</CardTitle>
             <CardDescription>
-              An administrator must set CLI_RELEASE_VERSION and
-              CLI_RELEASE_BASE_URL to one immutable HTTPS release. You can still
-              build the CLI from source using the public repository.
+              An administrator must place a valid release.json and its immutable
+              release assets in public/releases/cli. You can still build the CLI
+              from source using the public repository.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -151,14 +174,31 @@ export default async function CliPage({ searchParams }: Props) {
           <CardContent className="space-y-3">
             {installCommand ? (
               <CodeBlock>{installCommand}</CodeBlock>
+            ) : release.configured ? (
+              <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
+                Terminal installation requires this Agent Hub instance to use
+                HTTPS. For local HTTP testing, download an archive and follow the
+                manual installation steps.
+              </div>
             ) : (
               <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
-                Configure an immutable CLI release to enable installation.
+                Add a local CLI release manifest and assets to enable installation.
               </div>
             )}
             <p className="text-xs text-muted-foreground">
               The installer is unsigned Preview software. It never changes your
               shell profile or macOS security settings.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Upgrading from a pre-0.2 release? After verifying{" "}
+              <code className="rounded bg-muted px-1 py-0.5">
+                agenthub version
+              </code>
+              , you may remove the old binary with{" "}
+              <code className="rounded bg-muted px-1 py-0.5">
+                {'rm "$HOME/.local/bin/agent-hub"'}
+              </code>
+              .
             </p>
             {release.configured && (
               <Button asChild variant="ghost" size="sm">
@@ -183,7 +223,7 @@ export default async function CliPage({ searchParams }: Props) {
             </div>
             <CardDescription>
               Choose your Mac architecture, extract the archive and place
-              agent-hub somewhere in PATH.
+              agenthub somewhere in PATH.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -215,24 +255,69 @@ export default async function CliPage({ searchParams }: Props) {
               )}
             </div>
             {release.configured && (
-              <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs">
-                <a
-                  href={release.checksumsUrl}
-                  className="text-primary hover:underline"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  SHA-256 checksums
-                </a>
-                <a
-                  href={release.releaseNotesUrl}
-                  className="text-primary hover:underline"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Release notes
-                </a>
-              </div>
+              <>
+                <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs">
+                  <a
+                    href={release.checksumsUrl}
+                    className="text-primary hover:underline"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    SHA-256 checksums
+                  </a>
+                  <a
+                    href={release.manifestUrl}
+                    className="text-primary hover:underline"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Release manifest
+                  </a>
+                </div>
+
+                <details className="group border-t pt-4">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-md px-2 py-2 text-sm font-medium hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    Show manual installation steps
+                    <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" />
+                  </summary>
+
+                  <div className="mt-3 space-y-4 px-2 pb-1">
+                    <div>
+                      <h3 className="text-sm font-semibold">
+                        Install a downloaded archive
+                      </h3>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Run the command matching the archive you downloaded. It
+                        installs the binary to ~/.local/bin without sudo. Update
+                        ARCHIVE if your browser saved the file outside Downloads.
+                      </p>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium">Apple Silicon</p>
+                        <CodeBlock>
+                          {manualInstallCommand(release.archives.arm64.name)}
+                        </CodeBlock>
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium">Intel Mac</p>
+                        <CodeBlock>
+                          {manualInstallCommand(release.archives.amd64.name)}
+                        </CodeBlock>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground">
+                      The export updates PATH for the current terminal. Add{" "}
+                      <code className="rounded bg-muted px-1 py-0.5">
+                        {'export PATH="$HOME/.local/bin:$PATH"'}
+                      </code>{" "}
+                      to ~/.zshrc to keep the command available in new terminals.
+                    </p>
+                  </div>
+                </details>
+              </>
             )}
           </CardContent>
         </Card>
@@ -249,7 +334,7 @@ export default async function CliPage({ searchParams }: Props) {
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <StepCard number="1" title="Verify the installation">
-            <CodeBlock>agent-hub version</CodeBlock>
+            <CodeBlock>agenthub version</CodeBlock>
           </StepCard>
           <StepCard number="2" title="Create an MCP token">
             <p className="text-sm text-muted-foreground">
@@ -271,7 +356,7 @@ export default async function CliPage({ searchParams }: Props) {
           </StepCard>
           <StepCard number="4" title="Pull accessible Skills">
             <CodeBlock>
-              {"# Claude Code (default)\nagent-hub pull skill --all\n\n# Codex\nagent-hub pull skill --all --target codex"}
+              {"# Claude Code (default)\nagenthub pull skill --all\n\n# Codex\nagenthub pull skill --all --target codex"}
             </CodeBlock>
           </StepCard>
         </div>
@@ -287,7 +372,7 @@ export default async function CliPage({ searchParams }: Props) {
           </CardHeader>
           <CardContent>
             <CodeBlock>
-              {`# Claude Code (default)\nagent-hub pull skill ${shellQuote(skill)}\n\n# Codex\nagent-hub pull skill ${shellQuote(skill)} --target codex`}
+              {`# Claude Code (default)\nagenthub pull skill ${shellQuote(skill)}\n\n# Codex\nagenthub pull skill ${shellQuote(skill)} --target codex`}
             </CodeBlock>
           </CardContent>
         </Card>

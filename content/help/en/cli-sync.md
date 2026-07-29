@@ -20,7 +20,7 @@ sudo, edit your shell profile, or change macOS security settings.
 
 After installation:
 
-1. Run `agent-hub version`.
+1. Run `agenthub version`.
 2. Create an MCP token and log in using the command shown on the CLI page.
 3. Pull one Skill by slug, or use `pull skill --all` for every Skill currently
    accessible to the token.
@@ -57,6 +57,14 @@ snapshot before continuing.
 Claude Skills are invoked as `/skill-name`. Codex Skills are invoked as
 `$skill-name` or selected through `/skills`.
 
+Default installs use `agenthub-<short-slug>` as their native name. An explicit
+`--as custom-name` remains exactly `custom-name`. Existing managed default names
+are migrated transactionally on the next pull or sync.
+
+Use `agenthub clean` to preview the managed Claude and Codex Skills and confirm
+their removal from the current workspace. Add `--target claude|codex` to limit
+the operation, `--dry-run` to preview only, or `--yes` for automation.
+
 ## Safe use
 
 - Review bundled scripts as you would code from another repository.
@@ -66,6 +74,6 @@ Claude Skills are invoked as `/skill-name`. Codex Skills are invoked as
 - Store intentional customizations in Agent Hub rather than editing a managed
   local copy.
 - Re-run the same versioned installer to update. Remove
-  `~/.local/bin/agent-hub` to uninstall the default installation.
+  `~/.local/bin/agenthub` to uninstall the default installation.
 
 For token setup, see [Connect an AI agent](/help/connect-agent).

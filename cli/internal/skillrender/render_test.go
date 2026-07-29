@@ -47,11 +47,14 @@ func TestResolveInstallNamePriority(t *testing.T) {
 	if got, _ := ResolveInstallName(withName, "explicit-name"); got != "explicit-name" {
 		t.Fatalf("explicit alias = %q", got)
 	}
-	if got, _ := ResolveInstallName(withName, ""); got != "author-name" {
-		t.Fatalf("frontmatter name = %q", got)
+	if got, _ := ResolveInstallName(withName, ""); got != "agenthub-pr-review" {
+		t.Fatalf("default prefixed name = %q", got)
 	}
-	if got, _ := ResolveInstallName(bundle("body"), ""); got != "pr-review" {
-		t.Fatalf("local slug = %q", got)
+	if got, _ := ResolveLegacyInstallName(withName); got != "author-name" {
+		t.Fatalf("legacy frontmatter name = %q", got)
+	}
+	if got, _ := ResolveLegacyInstallName(bundle("body")); got != "pr-review" {
+		t.Fatalf("legacy local slug = %q", got)
 	}
 }
 

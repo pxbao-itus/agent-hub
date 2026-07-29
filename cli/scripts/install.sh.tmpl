@@ -2,14 +2,14 @@
 set -eu
 
 default_version="__CLI_VERSION__"
-default_release_base_url="__CLI_RELEASE_BASE_URL__"
 
 version=$default_version
 install_directory="${HOME:-}/.local/bin"
+release_base_url=
 
 usage() {
   cat >&2 <<'EOF'
-Usage: install.sh [--version X.Y.Z] [--install-dir PATH]
+Usage: install.sh --release-base-url HTTPS_URL [--version X.Y.Z] [--install-dir PATH]
 EOF
   exit 2
 }
@@ -24,6 +24,11 @@ while [ "$#" -gt 0 ]; do
     --install-dir)
       [ "$#" -ge 2 ] || usage
       install_directory=$2
+      shift 2
+      ;;
+    --release-base-url)
+      [ "$#" -ge 2 ] || usage
+      release_base_url=${2%/}
       shift 2
       ;;
     -h|--help)
@@ -79,6 +84,37 @@ if ! printf '%s\n' "$version" | awk -F. '
   exit 2
 fi
 
+[ -n "$release_base_url" ] || {
+  echo "--release-base-url is required" >&2
+  usage
+}
+case "$release_base_url" in
+  https://*) ;;
+  *)
+    echo "Release base URL must use HTTPS" >&2
+    exit 2
+    ;;
+esac
+case "$release_base_url" in
+  *[!A-Za-z0-9_~+%./:-]*)
+    echo "Release base URL contains unsupported characters" >&2
+    exit 2
+    ;;
+esac
+release_host_and_path=${release_base_url#https://}
+release_host=${release_host_and_path%%/*}
+[ -n "$release_host" ] || {
+  echo "Release base URL must include a host" >&2
+  exit 2
+}
+case "$release_base_url" in
+  */cli-v"$version") ;;
+  *)
+    echo "Release base URL must end with /cli-v$version" >&2
+    exit 2
+    ;;
+esac
+
 operating_system=$(uname -s)
 machine=$(uname -m)
 if [ "$operating_system" != "Darwin" ]; then
@@ -95,9 +131,7 @@ case "$machine" in
     ;;
 esac
 
-release_root=${default_release_base_url%/cli-v$default_version}
-release_base_url=$release_root/cli-v$version
-archive_name=agent-hub_${version}_darwin_${architecture}.tar.gz
+archive_name=agenthub_${version}_darwin_${architecture}.tar.gz
 
 umask 077
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/agent-hub-install.XXXXXX")
@@ -145,7 +179,7 @@ if [ "$actual_checksum" != "$expected_checksum" ]; then
 fi
 
 archive_entries=$(tar -tzf "$archive_path")
-expected_entries=$(printf '%s\n' LICENSE README.md agent-hub)
+expected_entries=$(printf '%s\n' LICENSE README.md agenthub)
 if [ "$archive_entries" != "$expected_entries" ]; then
   echo "Release archive contains unexpected files" >&2
   exit 1
@@ -154,9 +188,9 @@ fi
 extracted_directory=$temporary_directory/extracted
 mkdir -p "$extracted_directory"
 tar -xzf "$archive_path" -C "$extracted_directory"
-extracted_binary=$extracted_directory/agent-hub
+extracted_binary=$extracted_directory/agenthub
 if [ ! -f "$extracted_binary" ] || [ -L "$extracted_binary" ]; then
-  echo "Release archive does not contain a safe agent-hub binary" >&2
+  echo "Release archive does not contain a safe agenthub binary" >&2
   exit 1
 fi
 
@@ -170,7 +204,7 @@ if [ -L "$install_directory" ]; then
   exit 1
 fi
 
-destination=$install_directory/agent-hub
+destination=$install_directory/agenthub
 if [ -L "$destination" ]; then
   echo "Refusing symlinked destination: $destination" >&2
   exit 1
@@ -191,4 +225,4 @@ case ":${PATH:-}:" in
     echo "  export PATH=\"$install_directory:\$PATH\""
     ;;
 esac
-echo "Run: agent-hub version"
+echo "Run: agenthub version"

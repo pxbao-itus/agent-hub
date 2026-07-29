@@ -6,9 +6,9 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,7 +18,6 @@ import (
 )
 
 var semverPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
-var safeReleaseURLPattern = regexp.MustCompile(`^[A-Za-z0-9:/._~%+-]+$`)
 
 type InputFile struct {
 	Source string
@@ -42,7 +41,7 @@ func ArchiveName(version, arch string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported macOS architecture %q", arch)
 	}
-	return fmt.Sprintf("agent-hub_%s_darwin_%s.tar.gz", version, arch), nil
+	return fmt.Sprintf("agenthub_%s_darwin_%s.tar.gz", version, arch), nil
 }
 
 func CreateArchive(destination string, epoch time.Time, files []InputFile) error {
@@ -170,34 +169,21 @@ func WriteChecksums(destination string, archives []string) error {
 	return os.WriteFile(destination, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 }
 
-func RenderInstaller(templatePath, destination, version, baseURL string) error {
+func RenderInstaller(templatePath, destination, version string) error {
 	if err := ValidateVersion(version); err != nil {
 		return err
-	}
-	parsed, err := url.Parse(baseURL)
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" ||
-		parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return fmt.Errorf("release base URL must be an HTTPS URL without credentials, query or fragment")
-	}
-	baseURL = strings.TrimRight(baseURL, "/")
-	if !safeReleaseURLPattern.MatchString(baseURL) {
-		return fmt.Errorf("release base URL contains characters unsafe for the installer template")
-	}
-	if !strings.HasSuffix(baseURL, "/cli-v"+version) {
-		return fmt.Errorf("release base URL must end with /cli-v%s", version)
 	}
 	template, err := os.ReadFile(templatePath)
 	if err != nil {
 		return err
 	}
 	content := string(template)
-	for _, token := range []string{"__CLI_VERSION__", "__CLI_RELEASE_BASE_URL__"} {
+	for _, token := range []string{"__CLI_VERSION__"} {
 		if strings.Count(content, token) != 1 {
 			return fmt.Errorf("installer template must contain %s exactly once", token)
 		}
 	}
 	content = strings.Replace(content, "__CLI_VERSION__", version, 1)
-	content = strings.Replace(content, "__CLI_RELEASE_BASE_URL__", baseURL, 1)
 
 	tmp, err := os.CreateTemp(filepath.Dir(destination), ".agent-hub-installer-*.tmp")
 	if err != nil {
@@ -221,4 +207,48 @@ func RenderInstaller(templatePath, destination, version, baseURL string) error {
 		return err
 	}
 	return os.Rename(tmpPath, destination)
+}
+
+type releaseManifest struct {
+	SchemaVersion int                   `json:"schemaVersion"`
+	Version       string                `json:"version"`
+	Channel       string                `json:"channel"`
+	ReleasePath   string                `json:"releasePath"`
+	Assets        releaseManifestAssets `json:"assets"`
+}
+
+type releaseManifestAssets struct {
+	DarwinArm64 string `json:"darwinArm64"`
+	DarwinAmd64 string `json:"darwinAmd64"`
+	Checksums   string `json:"checksums"`
+	Installer   string `json:"installer"`
+}
+
+func WriteManifest(destination, version, channel string) error {
+	if err := ValidateVersion(version); err != nil {
+		return err
+	}
+	if channel != "preview" && channel != "stable" {
+		return fmt.Errorf("unsupported release channel %q", channel)
+	}
+	arm64, _ := ArchiveName(version, "arm64")
+	amd64, _ := ArchiveName(version, "amd64")
+	manifest := releaseManifest{
+		SchemaVersion: 1,
+		Version:       version,
+		Channel:       channel,
+		ReleasePath:   "cli-v" + version,
+		Assets: releaseManifestAssets{
+			DarwinArm64: arm64,
+			DarwinAmd64: amd64,
+			Checksums:   "checksums.txt",
+			Installer:   "install.sh",
+		},
+	}
+	content, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	content = append(content, '\n')
+	return os.WriteFile(destination, content, 0o644)
 }

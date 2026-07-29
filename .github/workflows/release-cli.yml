@@ -56,24 +56,26 @@ jobs:
         run: |
           ./cli/scripts/package-release.sh \
             "$VERSION" \
-            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}" \
-            "$GITHUB_WORKSPACE/dist"
+            "$GITHUB_WORKSPACE/dist" \
+            preview
 
       - name: Verify checksums
-        working-directory: dist
+        working-directory: dist/cli-v${{ steps.version.outputs.value }}
         run: shasum -a 256 -c checksums.txt
 
       - name: Attest release archives and installer
         uses: actions/attest@v4
         with:
-          subject-checksums: dist/checksums.txt
+          subject-checksums: dist/cli-v${{ steps.version.outputs.value }}/checksums.txt
 
       - name: Publish immutable release assets
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.value }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          gh release create "$GITHUB_REF_NAME" \
+            dist/release.json \
+            "dist/cli-v$VERSION"/* \
             --verify-tag \
             --title "Agent Hub CLI $VERSION" \
             --generate-notes

@@ -14,7 +14,7 @@ import (
 
 const (
 	filename      = ".agent-hub-lock.json"
-	SchemaVersion = 2
+	SchemaVersion = 3
 )
 
 type LegacyEntry struct {
@@ -24,6 +24,7 @@ type LegacyEntry struct {
 
 type Installation struct {
 	InstallName     string   `json:"installName"`
+	CustomName      bool     `json:"customName,omitempty"`
 	VersionNo       int      `json:"versionNo"`
 	RendererVersion int      `json:"rendererVersion"`
 	ContentHash     string   `json:"contentHash"`
@@ -197,4 +198,16 @@ func (m *Manifest) OwnerOfInstallName(targetName target.Name, installName string
 		}
 	}
 	return "", false
+}
+
+func (m *Manifest) Empty() bool {
+	return len(m.Skills) == 0 && len(m.Commands) == 0
+}
+
+func Remove(rootDir string) error {
+	err := os.Remove(filepath.Join(rootDir, filename))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }

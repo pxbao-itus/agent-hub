@@ -19,7 +19,7 @@ không sửa shell profile và không thay đổi thiết lập bảo mật macO
 
 Sau khi cài:
 
-1. Chạy `agent-hub version`.
+1. Chạy `agenthub version`.
 2. Tạo MCP token và login bằng lệnh trên trang CLI.
 3. Pull một Skill theo slug, hoặc dùng `pull skill --all` để cài mọi Skill mà
    token hiện tại truy cập được.
@@ -55,6 +55,14 @@ hoàn chỉnh trước đó rồi mới tiếp tục.
 Claude gọi Skill bằng `/skill-name`. Codex gọi bằng `$skill-name` hoặc chọn qua
 `/skills`.
 
+Tên mặc định có dạng `agenthub-<short-slug>`. Nếu dùng `--as custom-name`, tên
+được giữ chính xác là `custom-name`. Tên mặc định cũ của managed Skill được
+migrate bằng transaction ở lần pull hoặc sync tiếp theo.
+
+Dùng `agenthub clean` để xem danh sách managed Skill của Claude và Codex rồi
+xác nhận xóa khỏi workspace hiện tại. Thêm `--target claude|codex` để giới hạn
+target, `--dry-run` để chỉ preview hoặc `--yes` cho automation.
+
 ## Sử dụng an toàn
 
 - Review bundled script như code từ một repository khác.
@@ -63,6 +71,6 @@ Claude gọi Skill bằng `/skill-name`. Codex gọi bằng `$skill-name` hoặc
   scope thay đổi.
 - Lưu custom có chủ đích lên Agent Hub thay vì sửa managed local copy.
 - Chạy lại installer versioned để update. Xóa
-  `~/.local/bin/agent-hub` để uninstall vị trí mặc định.
+  `~/.local/bin/agenthub` để uninstall vị trí mặc định.
 
 Xem [Kết nối AI agent](/help/connect-agent) để thiết lập token.

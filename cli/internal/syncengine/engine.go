@@ -16,6 +16,7 @@ type Action string
 
 const (
 	ActionInstall        Action = "install"
+	ActionRename         Action = "rename"
 	ActionUpdate         Action = "update"
 	ActionOverwriteLocal Action = "overwrite-local"
 	ActionUnchanged      Action = "unchanged"
@@ -39,6 +40,7 @@ type preparedSkill struct {
 	renderedBody string
 	contentHash  string
 	action       Action
+	customName   bool
 }
 
 func bundleFiles(files []mcp.FileEntry) []hashutil.FileContent {
@@ -57,9 +59,23 @@ func Prepare(
 	projectDir string,
 ) (preparedSkill, error) {
 	existing, hasExisting := m.Get(bundle.Slug, targetName)
-	installName := alias
-	if installName == "" && hasExisting && existing.RendererVersion > 0 {
+	installName := ""
+	customName := alias != ""
+	if customName {
+		installName = alias
+	} else if hasExisting && existing.CustomName {
 		installName = existing.InstallName
+		customName = true
+	} else if hasExisting && existing.RendererVersion < skillrender.RendererVersion {
+		legacyDefault, legacyErr := skillrender.ResolveLegacyInstallName(bundle)
+		isLegacyDefault := legacyErr == nil && existing.InstallName == legacyDefault
+		isV1Default := existing.RendererVersion == 0 &&
+			(existing.InstallName == bundle.Slug ||
+				existing.InstallName == skillrender.ShortSlug(bundle.Slug))
+		if !isLegacyDefault && !isV1Default {
+			installName = existing.InstallName
+			customName = true
+		}
 	}
 	var err error
 	if installName == "" {
@@ -118,6 +134,8 @@ func Prepare(
 				action = ActionUnchanged
 			case diskHash != existing.ContentHash:
 				action = ActionOverwriteLocal
+			case oldName != installName:
+				action = ActionRename
 			default:
 				action = ActionUpdate
 			}
@@ -131,6 +149,7 @@ func Prepare(
 		renderedBody: rendered,
 		contentHash:  remoteHash,
 		action:       action,
+		customName:   customName,
 	}, nil
 }
 
@@ -159,6 +178,7 @@ func Apply(prepared preparedSkill, m *manifest.Manifest, projectDir string) (Res
 	}
 	m.Set(prepared.bundle.Slug, prepared.target, manifest.Installation{
 		InstallName:     prepared.installName,
+		CustomName:      prepared.customName,
 		VersionNo:       prepared.bundle.VersionNo,
 		RendererVersion: skillrender.RendererVersion,
 		ContentHash:     prepared.contentHash,

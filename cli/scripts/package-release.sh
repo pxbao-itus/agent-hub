@@ -2,15 +2,15 @@
 set -eu
 
 usage() {
-  echo "Usage: $0 <version> <release-base-url> [output-directory]" >&2
+  echo "Usage: $0 <version> [output-directory] [preview|stable]" >&2
   exit 2
 }
 
-[ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage
+[ "$#" -ge 1 ] && [ "$#" -le 3 ] || usage
 
 version=$1
-release_base_url=${2%/}
-output_directory=${3:-dist}
+output_directory=${2:-dist}
+channel=${3:-preview}
 script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cli_directory=$(CDPATH= cd -- "$script_directory/.." && pwd)
 repository_directory=$(CDPATH= cd -- "$cli_directory/.." && pwd)
@@ -20,12 +20,9 @@ case "$output_directory" in
   *) output_directory=$(pwd)/$output_directory ;;
 esac
 
-case "$release_base_url" in
-  https://*) ;;
-  *)
-    echo "release base URL must use HTTPS" >&2
-    exit 2
-    ;;
+case "$channel" in
+  preview|stable) ;;
+  *) usage ;;
 esac
 
 commit=$(git -C "$repository_directory" rev-parse --verify HEAD)
@@ -34,11 +31,17 @@ temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/agent-hub-release.XXXXXX")
 trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
 
 mkdir -p "$output_directory"
+release_directory=$output_directory/cli-v$version
+if [ -e "$output_directory/release.json" ] || [ -e "$release_directory" ]; then
+  echo "output already contains release metadata for cli-v$version" >&2
+  exit 1
+fi
+mkdir -p "$release_directory"
 arm64_archive=
 amd64_archive=
 
 for architecture in arm64 amd64; do
-  binary="$temporary_directory/agent-hub-$architecture"
+  binary="$temporary_directory/agenthub-$architecture"
   (
     cd "$cli_directory"
     CGO_ENABLED=0 GOOS=darwin GOARCH=$architecture go build \
@@ -55,7 +58,7 @@ for architecture in arm64 amd64; do
       --binary "$binary" \
       --license "$repository_directory/LICENSE" \
       --readme "$cli_directory/README.md" \
-      --output "$output_directory" \
+      --output "$release_directory" \
       --epoch "$epoch"
   )
   case "$architecture" in
@@ -68,19 +71,26 @@ done
   cd "$cli_directory"
   go run ./cmd/renderinstaller \
     --template "$cli_directory/scripts/install.sh.tmpl" \
-    --output "$output_directory/install.sh" \
-    --version "$version" \
-    --base-url "$release_base_url"
+    --output "$release_directory/install.sh" \
+    --version "$version"
 )
 
 (
   cd "$cli_directory"
   go run ./cmd/checksums \
-    --output "$output_directory/checksums.txt" \
+    --output "$release_directory/checksums.txt" \
     "$arm64_archive" \
     "$amd64_archive" \
-    "$output_directory/install.sh"
+    "$release_directory/install.sh"
+)
+
+(
+  cd "$cli_directory"
+  go run ./cmd/releasemanifest \
+    --output "$output_directory/release.json" \
+    --version "$version" \
+    --channel "$channel"
 )
 
 echo "Release assets written to $output_directory"
-echo "Release base URL: $release_base_url"
+echo "Copy this directory to public/releases/cli on the Agent Hub host."

@@ -10,7 +10,10 @@ import (
 	"agent-hub-cli/internal/target"
 )
 
-const RendererVersion = 1
+const (
+	RendererVersion = 2
+	defaultPrefix   = "agenthub-"
+)
 
 var validName = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`)
 
@@ -29,7 +32,7 @@ func ValidateName(name string) error {
 	return nil
 }
 
-func localSlug(remoteSlug string) string {
+func ShortSlug(remoteSlug string) string {
 	parts := strings.Split(remoteSlug, ".")
 	return parts[len(parts)-1]
 }
@@ -91,6 +94,16 @@ func ResolveInstallName(bundle mcp.SkillBundle, alias string) (string, error) {
 		}
 		return alias, nil
 	}
+	candidate := defaultPrefix + ShortSlug(bundle.Slug)
+	if err := ValidateName(candidate); err != nil {
+		return "", fmt.Errorf("cannot derive an Agent Hub Skill name from %q: %w; use --as <name>", bundle.Slug, err)
+	}
+	return candidate, nil
+}
+
+// ResolveLegacyInstallName reproduces the pre-v2 naming rule so sync can
+// distinguish a historical default name from a user-selected --as name.
+func ResolveLegacyInstallName(bundle mcp.SkillBundle) (string, error) {
 	fm, err := parseFrontmatter(bundle.Body)
 	if err != nil {
 		return "", err
@@ -100,10 +113,10 @@ func ResolveInstallName(bundle mcp.SkillBundle, alias string) (string, error) {
 		candidate = fm.name
 	}
 	if candidate == "" {
-		candidate = localSlug(bundle.Slug)
+		candidate = ShortSlug(bundle.Slug)
 	}
 	if err := ValidateName(candidate); err != nil {
-		return "", fmt.Errorf("cannot derive a native Skill name from %q: %w; use --as <name>", bundle.Slug, err)
+		return "", fmt.Errorf("cannot derive a legacy native Skill name from %q: %w", bundle.Slug, err)
 	}
 	return candidate, nil
 }

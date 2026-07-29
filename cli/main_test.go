@@ -17,7 +17,7 @@ func TestPrintVersion(t *testing.T) {
 	if err := printVersion(&output, nil); err != nil {
 		t.Fatal(err)
 	}
-	if got := output.String(); got != "agent-hub 0.1.0 (commit abc1234)\n" {
+	if got := output.String(); got != "agenthub 0.1.0 (commit abc1234)\n" {
 		t.Fatalf("output = %q", got)
 	}
 	if err := printVersion(&output, []string{"extra"}); err == nil {

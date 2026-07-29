@@ -31,7 +31,7 @@ func parseValue(args []string, index *int, option string) (string, error) {
 
 func parsePull(args []string) (pullOptions, error) {
 	if len(args) == 0 || args[0] != "skill" {
-		return pullOptions{}, fmt.Errorf("usage: agent-hub pull skill <slug>|--all [--target claude|codex] [--as name] [--dry-run]")
+		return pullOptions{}, fmt.Errorf("usage: agenthub pull skill <slug>|--all [--target claude|codex] [--as name] [--dry-run]")
 	}
 	opts := pullOptions{target: target.Claude}
 	for i := 1; i < len(args); i++ {
@@ -106,8 +106,9 @@ func printSummary(results []syncengine.Result, dryRun bool) {
 		counts[result.Action]++
 	}
 	fmt.Printf(
-		"Summary: installed=%d updated=%d overwritten=%d unchanged=%d removed=%d\n",
+		"Summary: installed=%d renamed=%d updated=%d overwritten=%d unchanged=%d removed=%d\n",
 		counts[syncengine.ActionInstall],
+		counts[syncengine.ActionRename],
 		counts[syncengine.ActionUpdate],
 		counts[syncengine.ActionOverwriteLocal],
 		counts[syncengine.ActionUnchanged],

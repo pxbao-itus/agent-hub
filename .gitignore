@@ -11,6 +11,8 @@ build/
 dist/
 *.tsbuildinfo
 next-env.d.ts
+public/releases/cli/*
+!public/releases/cli/.gitkeep
 
 # Môi trường & secrets
 .env

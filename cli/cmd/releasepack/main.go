@@ -15,7 +15,7 @@ import (
 func main() {
 	version := flag.String("version", "", "CLI semantic version")
 	arch := flag.String("arch", "", "macOS architecture")
-	binary := flag.String("binary", "", "path to built agent-hub binary")
+	binary := flag.String("binary", "", "path to built agenthub binary")
 	license := flag.String("license", "", "path to LICENSE")
 	readme := flag.String("readme", "", "path to CLI README")
 	output := flag.String("output", "", "output directory")
@@ -38,7 +38,7 @@ func main() {
 	}
 	destination := filepath.Join(*output, name)
 	err = releasepack.CreateArchive(destination, time.Unix(epochSeconds, 0), []releasepack.InputFile{
-		{Source: *binary, Name: "agent-hub", Mode: 0o755},
+		{Source: *binary, Name: "agenthub", Mode: 0o755},
 		{Source: *license, Name: "LICENSE", Mode: 0o644},
 		{Source: *readme, Name: "README.md", Mode: 0o644},
 	})

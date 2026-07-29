@@ -23,6 +23,8 @@ services:
     ports:
       - "3000:3000"
     env_file: .env
+    volumes:
+      - ./public/releases/cli:/app/public/releases/cli:ro
     environment:
       DATABASE_URL: postgresql://agenthub:agenthub@db:5432/agenthub
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}

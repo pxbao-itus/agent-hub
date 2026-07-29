@@ -8,7 +8,7 @@ func TestString(t *testing.T) {
 		Version, Commit = oldVersion, oldCommit
 	})
 	Version, Commit = "1.2.3", "abc1234"
-	if got := String(); got != "agent-hub 1.2.3 (commit abc1234)" {
+	if got := String(); got != "agenthub 1.2.3 (commit abc1234)" {
 		t.Fatalf("String() = %q", got)
 	}
 }

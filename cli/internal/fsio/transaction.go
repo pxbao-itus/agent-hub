@@ -38,6 +38,11 @@ type Transaction struct {
 	state      transactionState
 }
 
+type ManagedSkillRef struct {
+	Target      target.Name
+	InstallName string
+}
+
 func validateJournalName(value, label string) error {
 	if value == "" || value == "." || value == ".." ||
 		filepath.Base(value) != value || strings.ContainsAny(value, `/\`) {
@@ -278,21 +283,43 @@ func BeginTransaction(
 	targetName target.Name,
 	installNames []string,
 ) (*Transaction, error) {
+	refs := make([]ManagedSkillRef, 0, len(installNames))
+	for _, installName := range installNames {
+		refs = append(refs, ManagedSkillRef{Target: targetName, InstallName: installName})
+	}
+	return BeginMultiTargetTransaction(projectDir, refs)
+}
+
+// BeginMultiTargetTransaction snapshots managed Skill directories across
+// Claude and Codex as one recoverable operation.
+func BeginMultiTargetTransaction(
+	projectDir string,
+	refs []ManagedSkillRef,
+) (*Transaction, error) {
 	if err := RecoverPending(projectDir); err != nil {
 		return nil, err
 	}
-	unique := make(map[string]bool, len(installNames))
-	names := make([]string, 0, len(installNames))
-	for _, name := range installNames {
-		if err := validateJournalName(name, "Skill install name"); err != nil {
+	unique := make(map[string]bool, len(refs))
+	skills := make([]ManagedSkillRef, 0, len(refs))
+	for _, ref := range refs {
+		if _, err := target.Parse(string(ref.Target)); err != nil {
 			return nil, err
 		}
-		if !unique[name] {
-			unique[name] = true
-			names = append(names, name)
+		if err := validateJournalName(ref.InstallName, "Skill install name"); err != nil {
+			return nil, err
+		}
+		key := string(ref.Target) + "\x00" + ref.InstallName
+		if !unique[key] {
+			unique[key] = true
+			skills = append(skills, ref)
 		}
 	}
-	sort.Strings(names)
+	sort.Slice(skills, func(i, j int) bool {
+		if skills[i].Target == skills[j].Target {
+			return skills[i].InstallName < skills[j].InstallName
+		}
+		return skills[i].Target < skills[j].Target
+	})
 
 	backupPath, err := os.MkdirTemp(projectDir, ".agent-hub-txn-")
 	if err != nil {
@@ -319,12 +346,12 @@ func BeginTransaction(
 		return nil, err
 	}
 
-	for index, name := range names {
+	for index, skill := range skills {
 		record := transactionRecord{
-			Target:      string(targetName),
-			InstallName: name,
+			Target:      string(skill.Target),
+			InstallName: skill.InstallName,
 		}
-		source := SkillDir(projectDir, targetName, name)
+		source := SkillDir(projectDir, skill.Target, skill.InstallName)
 		if err := ensureNoSymlinkComponents(projectDir, source); err != nil {
 			return nil, err
 		}

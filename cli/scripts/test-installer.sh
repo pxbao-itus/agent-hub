@@ -3,7 +3,7 @@ set -eu
 
 script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cli_directory=$(CDPATH= cd -- "$script_directory/.." && pwd)
-test_root=$(mktemp -d "${TMPDIR:-/tmp}/agent-hub-installer-test.XXXXXX")
+test_root=$(mktemp -d "${TMPDIR:-/tmp}/agenthub-installer-test.XXXXXX")
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 
 fixture_directory=$test_root/release
@@ -11,29 +11,29 @@ fake_bin=$test_root/fake-bin
 payload_directory=$test_root/payload
 mkdir -p "$fixture_directory" "$fake_bin" "$payload_directory"
 
-cat >"$payload_directory/agent-hub" <<'EOF'
+cat >"$payload_directory/agenthub" <<'EOF'
 #!/bin/sh
 if [ "${1:-}" = "version" ]; then
-  echo "agent-hub 0.1.0 (commit fixture)"
+  echo "agenthub 0.1.0 (commit fixture)"
   exit 0
 fi
 exit 1
 EOF
-chmod 0755 "$payload_directory/agent-hub"
+chmod 0755 "$payload_directory/agenthub"
 printf '%s\n' "MIT License fixture" >"$payload_directory/LICENSE"
 printf '%s\n' "Agent Hub CLI fixture" >"$payload_directory/README.md"
 
 for architecture in arm64 amd64; do
-  archive=$fixture_directory/agent-hub_0.1.0_darwin_${architecture}.tar.gz
+  archive=$fixture_directory/agenthub_0.1.0_darwin_${architecture}.tar.gz
   (
     cd "$payload_directory"
-    tar -czf "$archive" LICENSE README.md agent-hub
+    tar -czf "$archive" LICENSE README.md agenthub
   )
 done
 
 (
   cd "$fixture_directory"
-  shasum -a 256 agent-hub_0.1.0_darwin_amd64.tar.gz agent-hub_0.1.0_darwin_arm64.tar.gz >checksums.txt
+  shasum -a 256 agenthub_0.1.0_darwin_amd64.tar.gz agenthub_0.1.0_darwin_arm64.tar.gz >checksums.txt
 )
 
 cat >"$fake_bin/uname" <<'EOF'
@@ -80,9 +80,10 @@ installer=$test_root/install.sh
   go run ./cmd/renderinstaller \
     --template "$script_directory/install.sh.tmpl" \
     --output "$installer" \
-    --version 0.1.0 \
-    --base-url https://example.test/releases/download/cli-v0.1.0
+    --version 0.1.0
 )
+
+release_base_url=https://example.test/releases/cli/cli-v0.1.0
 
 run_install() {
   architecture=$1
@@ -97,13 +98,15 @@ run_install() {
     TEST_UNAME_ARCH=$architecture \
     TEST_FIXTURE_DIRECTORY=$fixture_directory \
     TEST_CURL_LOG=$curl_log \
-    sh "$installer" --install-dir "$install_directory"
-  "$install_directory/agent-hub" version | grep "agent-hub 0.1.0" >/dev/null
+    sh "$installer" \
+      --release-base-url "$release_base_url" \
+      --install-dir "$install_directory"
+  "$install_directory/agenthub" version | grep "agenthub 0.1.0" >/dev/null
   case "$architecture" in
     arm64) expected=darwin_arm64 ;;
     x86_64) expected=darwin_amd64 ;;
   esac
-  grep "agent-hub_0.1.0_${expected}.tar.gz" "$curl_log" >/dev/null
+  grep "agenthub_0.1.0_${expected}.tar.gz" "$curl_log" >/dev/null
 }
 
 run_install arm64
@@ -118,18 +121,20 @@ HOME=$tilde_home \
   TEST_UNAME_ARCH=arm64 \
   TEST_FIXTURE_DIRECTORY=$fixture_directory \
   TEST_CURL_LOG=$test_root/curl-tilde.log \
-  sh "$installer" --install-dir '~/.custom/bin'
-"$tilde_home/.custom/bin/agent-hub" version | grep "agent-hub 0.1.0" >/dev/null
+  sh "$installer" \
+    --release-base-url "$release_base_url" \
+    --install-dir '~/.custom/bin'
+"$tilde_home/.custom/bin/agenthub" version | grep "agenthub 0.1.0" >/dev/null
 
 # A checksum failure must leave the existing binary untouched.
 failure_home=$test_root/home-failure
 failure_install=$failure_home/bin
 mkdir -p "$failure_install"
-cat >"$failure_install/agent-hub" <<'EOF'
+cat >"$failure_install/agenthub" <<'EOF'
 #!/bin/sh
 echo preserved
 EOF
-chmod 0755 "$failure_install/agent-hub"
+chmod 0755 "$failure_install/agenthub"
 cp "$fixture_directory/checksums.txt" "$test_root/checksums.valid"
 sed 's/^[0-9a-f]*/0000000000000000000000000000000000000000000000000000000000000000/' \
   "$test_root/checksums.valid" >"$fixture_directory/checksums.txt"
@@ -139,11 +144,13 @@ if HOME=$failure_home \
   TEST_UNAME_ARCH=arm64 \
   TEST_FIXTURE_DIRECTORY=$fixture_directory \
   TEST_CURL_LOG=$test_root/curl-failure.log \
-  sh "$installer" --install-dir "$failure_install"; then
+  sh "$installer" \
+    --release-base-url "$release_base_url" \
+    --install-dir "$failure_install"; then
   echo "checksum failure unexpectedly installed" >&2
   exit 1
 fi
-[ "$("$failure_install/agent-hub")" = "preserved" ]
+[ "$("$failure_install/agenthub")" = "preserved" ]
 mv "$test_root/checksums.valid" "$fixture_directory/checksums.txt"
 
 # Unsupported operating systems fail before any download.
@@ -154,10 +161,32 @@ if HOME=$test_root/home-unsupported \
   TEST_UNAME_ARCH=x86_64 \
   TEST_FIXTURE_DIRECTORY=$fixture_directory \
   TEST_CURL_LOG=$test_root/curl-unsupported.log \
-  sh "$installer"; then
+  sh "$installer" --release-base-url "$release_base_url"; then
   echo "unsupported OS unexpectedly installed" >&2
   exit 1
 fi
 [ ! -s "$test_root/curl-unsupported.log" ]
+
+# Unsafe or mismatched release URLs fail before any download.
+for invalid_url in \
+  http://example.test/releases/cli/cli-v0.1.0 \
+  https://user@example.test/releases/cli/cli-v0.1.0 \
+  https://example.test/releases/cli/latest \
+  'https://example.test/releases/cli/cli-v0.1.0?asset=bad'
+do
+  invalid_log=$test_root/curl-invalid.log
+  : >"$invalid_log"
+  if HOME=$test_root/home-invalid \
+    PATH="$fake_bin:$PATH" \
+    TEST_UNAME_OS=Darwin \
+    TEST_UNAME_ARCH=arm64 \
+    TEST_FIXTURE_DIRECTORY=$fixture_directory \
+    TEST_CURL_LOG=$invalid_log \
+    sh "$installer" --release-base-url "$invalid_url"; then
+    echo "invalid release URL unexpectedly accepted: $invalid_url" >&2
+    exit 1
+  fi
+  [ ! -s "$invalid_log" ]
+done
 
 echo "Installer functional tests passed"

@@ -90,7 +90,7 @@ func (c *Client) callTool(name string, args map[string]string) (string, error) {
 
 	switch resp.StatusCode {
 	case http.StatusUnauthorized:
-		return "", fmt.Errorf("unauthorized — the token may be revoked; run `agent-hub login` again")
+		return "", fmt.Errorf("unauthorized — the token may be revoked; run `agenthub login` again")
 	case http.StatusTooManyRequests:
 		retryAfter := resp.Header.Get("Retry-After")
 		if retryAfter != "" {

@@ -9,5 +9,5 @@ var (
 )
 
 func String() string {
-	return fmt.Sprintf("agent-hub %s (commit %s)", Version, Commit)
+	return fmt.Sprintf("agenthub %s (commit %s)", Version, Commit)
 }

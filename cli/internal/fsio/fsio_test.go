@@ -159,3 +159,33 @@ func TestRecoverPendingTransactionAfterInterruptedApply(t *testing.T) {
 		t.Fatalf("review=%+v err=%v", review, err)
 	}
 }
+
+func TestMultiTargetTransactionRollbackRestoresBothAgents(t *testing.T) {
+	dir := t.TempDir()
+	for _, targetName := range []target.Name{target.Claude, target.Codex} {
+		if _, _, err := ReplaceSkill(dir, targetName, "agenthub-review", string(targetName), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	transaction, err := BeginMultiTargetTransaction(dir, []ManagedSkillRef{
+		{Target: target.Claude, InstallName: "agenthub-review"},
+		{Target: target.Codex, InstallName: "agenthub-review"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, targetName := range []target.Name{target.Claude, target.Codex} {
+		if err := RemoveManagedSkill(dir, targetName, "agenthub-review"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := transaction.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	for _, targetName := range []target.Name{target.Claude, target.Codex} {
+		skill, err := ReadSkillFromDisk(dir, targetName, "agenthub-review")
+		if err != nil || skill == nil || skill.Body != string(targetName) {
+			t.Fatalf("%s skill=%+v err=%v", targetName, skill, err)
+		}
+	}
+}

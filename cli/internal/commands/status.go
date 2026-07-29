@@ -27,7 +27,7 @@ func Status(args []string) error {
 	}
 	warnLegacyKits(m)
 	if len(m.SlugsForTarget(opts.target)) == 0 {
-		fmt.Printf("Nothing installed for %s — run `agent-hub pull skill <slug> --target %s`.\n", opts.target, opts.target)
+		fmt.Printf("Nothing installed for %s — run `agenthub pull skill <slug> --target %s`.\n", opts.target, opts.target)
 		return nil
 	}
 	slugs, err := client.ListSkills()

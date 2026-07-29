@@ -11,8 +11,10 @@ import (
 	"testing"
 
 	"agent-hub-cli/internal/config"
+	"agent-hub-cli/internal/hashutil"
 	"agent-hub-cli/internal/manifest"
 	"agent-hub-cli/internal/mcp"
+	"agent-hub-cli/internal/skillrender"
 	"agent-hub-cli/internal/target"
 )
 
@@ -86,14 +88,14 @@ func TestInstallOneTargetsAndAuthoritativeOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claudeResult.Action != ActionInstall || claudeResult.InstallName != "review" {
+	if claudeResult.Action != ActionInstall || claudeResult.InstallName != "agenthub-review" {
 		t.Fatalf("Claude result = %+v", claudeResult)
 	}
 	if _, err := InstallOne(bundle, target.Codex, "", m, dir, true); err != nil {
 		t.Fatal(err)
 	}
-	claudePath := filepath.Join(dir, ".claude", "skills", "review", "SKILL.md")
-	codexPath := filepath.Join(dir, ".agents", "skills", "review", "SKILL.md")
+	claudePath := filepath.Join(dir, ".claude", "skills", "agenthub-review", "SKILL.md")
+	codexPath := filepath.Join(dir, ".agents", "skills", "agenthub-review", "SKILL.md")
 	if _, err := os.Stat(claudePath); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +114,7 @@ func TestInstallOneTargetsAndAuthoritativeOverwrite(t *testing.T) {
 		t.Fatalf("action = %s", overwrite.Action)
 	}
 	content, _ := os.ReadFile(claudePath)
-	if strings.Contains(string(content), "local edit") || !strings.Contains(string(content), "name: review") {
+	if strings.Contains(string(content), "local edit") || !strings.Contains(string(content), "name: agenthub-review") {
 		t.Fatalf("managed local edit was not overwritten:\n%s", content)
 	}
 }
@@ -175,7 +177,7 @@ func TestSelectedSyncDoesNotInstallNewAccessibleSkill(t *testing.T) {
 
 func TestUntrackedDestinationIsProtected(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, ".claude", "skills", "review")
+	path := filepath.Join(dir, ".claude", "skills", "agenthub-review")
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -203,5 +205,99 @@ func TestDryRunDoesNotWrite(t *testing.T) {
 	}
 	if len(m.Skills) != 0 {
 		t.Fatal("dry run changed manifest")
+	}
+}
+
+func TestLegacyDefaultNameMigratesToAgentHubPrefix(t *testing.T) {
+	dir := t.TempDir()
+	m, _ := manifest.Load(dir)
+	bundle := testBundle("org.team.review", "# Review\n", 1)
+	legacyBody, err := skillrender.Render(bundle, "review", target.Claude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := filepath.Join(target.Claude.ProjectSkillRoot(dir), "review")
+	if err := os.MkdirAll(legacyPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyPath, "SKILL.md"), []byte(legacyBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.Set(bundle.Slug, target.Claude, manifest.Installation{
+		InstallName:     "review",
+		VersionNo:       1,
+		RendererVersion: 1,
+		ContentHash:     hashutil.HashContent(legacyBody, nil),
+		ManagedFiles:    []string{"SKILL.md"},
+	})
+	if err := manifest.Save(m, dir); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := InstallOne(bundle, target.Claude, "", m, dir, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Action != ActionRename || result.InstallName != "agenthub-review" {
+		t.Fatalf("result = %+v", result)
+	}
+	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
+		t.Fatal("legacy Skill directory remains")
+	}
+	if _, err := os.Stat(filepath.Join(target.Claude.ProjectSkillRoot(dir), "agenthub-review", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLegacyCustomNameRemainsExact(t *testing.T) {
+	dir := t.TempDir()
+	m, _ := manifest.Load(dir)
+	bundle := testBundle("org.team.review", "# Review\n", 1)
+	customBody, err := skillrender.Render(bundle, "custom-review", target.Claude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	customPath := filepath.Join(target.Claude.ProjectSkillRoot(dir), "custom-review")
+	if err := os.MkdirAll(customPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(customPath, "SKILL.md"), []byte(customBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.Set(bundle.Slug, target.Claude, manifest.Installation{
+		InstallName:     "custom-review",
+		VersionNo:       1,
+		RendererVersion: 1,
+		ContentHash:     hashutil.HashContent(customBody, nil),
+		ManagedFiles:    []string{"SKILL.md"},
+	})
+
+	result, err := InstallOne(bundle, target.Claude, "", m, dir, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.InstallName != "custom-review" {
+		t.Fatalf("result = %+v", result)
+	}
+	installation, ok := m.Get(bundle.Slug, target.Claude)
+	if !ok || !installation.CustomName {
+		t.Fatalf("installation = %+v", installation)
+	}
+}
+
+func TestExplicitAliasRemainsUnprefixed(t *testing.T) {
+	dir := t.TempDir()
+	m, _ := manifest.Load(dir)
+	bundle := testBundle("org.team.review", "# Review\n", 1)
+	result, err := InstallOne(bundle, target.Claude, "custom-review", m, dir, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.InstallName != "custom-review" {
+		t.Fatalf("result = %+v", result)
+	}
+	installation, ok := m.Get(bundle.Slug, target.Claude)
+	if !ok || !installation.CustomName {
+		t.Fatalf("installation = %+v", installation)
 	}
 }
