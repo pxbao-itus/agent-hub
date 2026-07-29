@@ -7,201 +7,201 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agent-hub-cli/internal/config"
 	"agent-hub-cli/internal/manifest"
 	"agent-hub-cli/internal/mcp"
+	"agent-hub-cli/internal/target"
 )
 
-// newTestServer returns an httptest server that answers every tools/call
-// request with the given bundle (JSON-marshaled), framed as the SSE
-// response body internal/mcp's parseSSE expects.
-func newTestServer(t *testing.T, bundle any) (*httptest.Server, *mcp.Client) {
+func newClient(t *testing.T, bundles map[string]mcp.SkillBundle) *mcp.Client {
 	t.Helper()
-	payload, err := json.Marshal(bundle)
-	if err != nil {
-		t.Fatalf("marshal bundle: %v", err)
-	}
-	rpcBody, err := json.Marshal(map[string]any{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"result": map[string]any{
-			"content": []map[string]string{{"type": "text", "text": string(payload)}},
-		},
-	})
-	if err != nil {
-		t.Fatalf("marshal rpc envelope: %v", err)
-	}
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Params struct {
+				Name      string            `json:"name"`
+				Arguments map[string]string `json:"arguments"`
+			} `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		var text string
+		switch request.Params.Name {
+		case "list_skills":
+			var lines []string
+			for slug := range bundles {
+				lines = append(lines, "- "+slug+": test")
+			}
+			text = strings.Join(lines, "\n")
+			if text == "" {
+				text = "No skills available."
+			}
+		case "pull_skill":
+			bundle, ok := bundles[request.Params.Arguments["slug"]]
+			if !ok {
+				text = `{"error":"not found"}`
+			} else {
+				data, _ := json.Marshal(bundle)
+				text = string(data)
+			}
+		default:
+			t.Fatalf("unexpected tool %s", request.Params.Name)
+		}
+		rpc, _ := json.Marshal(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"result": map[string]any{
+				"content": []map[string]string{{"type": "text", "text": text}},
+			},
+		})
 		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprintf(w, "data: %s\n", rpcBody)
+		fmt.Fprintf(w, "data: %s\n", rpc)
 	}))
 	t.Cleanup(server.Close)
-
-	client := mcp.NewClient(config.Config{BaseURL: server.URL, Token: "test-token"})
-	return server, client
+	return mcp.NewClient(config.Config{BaseURL: server.URL, Token: "test"})
 }
 
-func TestReconcileTrackedSkillUpToDate(t *testing.T) {
-	dir := t.TempDir()
-	bundle := mcp.SkillBundle{Slug: "s1", Body: "body v1", Files: nil, VersionNo: 1}
-	_, client := newTestServer(t, bundle)
-
-	m := manifest.Load(dir)
-	// First reconcile: nothing on disk yet -> "update", writes the skill.
-	first, err := ReconcileTrackedSkill(client, "s1", m, SyncOptions{Apply: true}, dir)
-	if err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
-	if first.Action != ActionUpdate {
-		t.Fatalf("first reconcile: got %q, want update", first.Action)
-	}
-
-	// Second reconcile against the same unchanged bundle: disk now matches
-	// the manifest's last-known hash -> up-to-date.
-	second, err := ReconcileTrackedSkill(client, "s1", m, SyncOptions{Apply: true}, dir)
-	if err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
-	if second.Action != ActionUpToDate {
-		t.Fatalf("second reconcile: got %q, want up-to-date", second.Action)
+func testBundle(slug, body string, version int) mcp.SkillBundle {
+	description := "A test Skill"
+	return mcp.SkillBundle{
+		SchemaVersion: 1,
+		Kind:          "skill",
+		Slug:          slug,
+		Title:         "Test Skill",
+		Description:   &description,
+		Body:          body,
+		VersionNo:     version,
 	}
 }
 
-func TestReconcileTrackedSkillLocalOnly(t *testing.T) {
+func TestInstallOneTargetsAndAuthoritativeOverwrite(t *testing.T) {
 	dir := t.TempDir()
-	bundle := mcp.SkillBundle{Slug: "s1", Body: "body v1", Files: nil, VersionNo: 1}
-	_, client := newTestServer(t, bundle)
+	m, _ := manifest.Load(dir)
+	bundle := testBundle("org.team.review", "# Review\n", 1)
 
-	m := manifest.Load(dir)
-	if _, err := ReconcileTrackedSkill(client, "s1", m, SyncOptions{Apply: true}, dir); err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
-
-	// Simulate a local edit — disk now differs from the manifest's last-known hash.
-	skillMd := filepath.Join(dir, ".claude", "skills", "s1", "SKILL.md")
-	if err := os.WriteFile(skillMd, []byte("locally edited"), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-
-	result, err := ReconcileTrackedSkill(client, "s1", m, SyncOptions{Apply: true}, dir)
+	claudeResult, err := InstallOne(bundle, target.Claude, "", m, dir, true)
 	if err != nil {
-		t.Fatalf("reconcile: %v", err)
+		t.Fatal(err)
 	}
-	if result.Action != ActionLocalOnly {
-		t.Fatalf("got %q, want local-only", result.Action)
+	if claudeResult.Action != ActionInstall || claudeResult.InstallName != "review" {
+		t.Fatalf("Claude result = %+v", claudeResult)
 	}
-	content, _ := os.ReadFile(skillMd)
-	if string(content) != "locally edited" {
-		t.Error("local-only edit should not be overwritten")
+	if _, err := InstallOne(bundle, target.Codex, "", m, dir, true); err != nil {
+		t.Fatal(err)
+	}
+	claudePath := filepath.Join(dir, ".claude", "skills", "review", "SKILL.md")
+	codexPath := filepath.Join(dir, ".agents", "skills", "review", "SKILL.md")
+	if _, err := os.Stat(claudePath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(codexPath); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(claudePath, []byte("local edit"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	overwrite, err := InstallOne(bundle, target.Claude, "", m, dir, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overwrite.Action != ActionOverwriteLocal {
+		t.Fatalf("action = %s", overwrite.Action)
+	}
+	content, _ := os.ReadFile(claudePath)
+	if strings.Contains(string(content), "local edit") || !strings.Contains(string(content), "name: review") {
+		t.Fatalf("managed local edit was not overwritten:\n%s", content)
 	}
 }
 
-func TestReconcileTrackedSkillConflictRequiresForce(t *testing.T) {
+func TestReconcileSnapshotIncludesNewAndPrunesInaccessible(t *testing.T) {
 	dir := t.TempDir()
-	bundle := mcp.SkillBundle{Slug: "s1", Body: "body v1", Files: nil, VersionNo: 1}
-	server, client := newTestServer(t, bundle)
-
-	m := manifest.Load(dir)
-	if _, err := ReconcileTrackedSkill(client, "s1", m, SyncOptions{Apply: true}, dir); err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
-
-	// Local edit AND a new server version -> conflict.
-	skillMd := filepath.Join(dir, ".claude", "skills", "s1", "SKILL.md")
-	if err := os.WriteFile(skillMd, []byte("locally edited"), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	server.Close()
-	bundle.Body = "body v2"
-	bundle.VersionNo = 2
-	_, client = newTestServer(t, bundle)
-
-	withoutForce, err := ReconcileTrackedSkill(client, "s1", m, SyncOptions{Apply: true, Force: false}, dir)
+	m, _ := manifest.Load(dir)
+	first := testBundle("org.one", "one", 1)
+	second := testBundle("org.two", "two", 1)
+	client := newClient(t, map[string]mcp.SkillBundle{
+		first.Slug:  first,
+		second.Slug: second,
+	})
+	slugs, err := client.ListSkills()
 	if err != nil {
-		t.Fatalf("reconcile: %v", err)
+		t.Fatal(err)
 	}
-	if withoutForce.Action != ActionConflict {
-		t.Fatalf("got %q, want conflict", withoutForce.Action)
-	}
-	content, _ := os.ReadFile(skillMd)
-	if string(content) != "locally edited" {
-		t.Error("conflict without --force should not overwrite the local edit")
+	results, err := ReconcileSnapshot(client, slugs, target.Claude, m, dir, true, true)
+	if err != nil || len(results) != 2 {
+		t.Fatalf("results=%+v err=%v", results, err)
 	}
 
-	withForce, err := ReconcileTrackedSkill(client, "s1", m, SyncOptions{Apply: true, Force: true}, dir)
+	client = newClient(t, map[string]mcp.SkillBundle{second.Slug: second})
+	slugs, _ = client.ListSkills()
+	results, err = ReconcileSnapshot(client, slugs, target.Claude, m, dir, false, true)
 	if err != nil {
-		t.Fatalf("reconcile: %v", err)
+		t.Fatal(err)
 	}
-	if withForce.Action != ActionConflict {
-		t.Fatalf("got %q, want conflict", withForce.Action)
+	foundRemove := false
+	for _, result := range results {
+		if result.RemoteSlug == first.Slug && result.Action == ActionRemove {
+			foundRemove = true
+		}
 	}
-	content, _ = os.ReadFile(skillMd)
-	if string(content) != "body v2" {
-		t.Error("conflict with --force should overwrite the local edit")
+	if !foundRemove {
+		t.Fatalf("missing remove result: %+v", results)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "skills", "one")); !os.IsNotExist(err) {
+		t.Fatal("inaccessible Skill was not removed")
 	}
 }
 
-func TestReconcileTrackedSkillRemovesStaleFiles(t *testing.T) {
+func TestSelectedSyncDoesNotInstallNewAccessibleSkill(t *testing.T) {
 	dir := t.TempDir()
-	bundle := mcp.SkillBundle{
-		Slug:      "s1",
-		Body:      "body",
-		Files:     []mcp.FileEntry{{Path: "keep.md", Content: "keep"}, {Path: "drop.md", Content: "drop"}},
-		VersionNo: 1,
+	m, _ := manifest.Load(dir)
+	one := testBundle("org.one", "one", 1)
+	two := testBundle("org.two", "two", 1)
+	if _, err := InstallOne(one, target.Claude, "", m, dir, true); err != nil {
+		t.Fatal(err)
 	}
-	server, client := newTestServer(t, bundle)
-	m := manifest.Load(dir)
-	if _, err := ReconcileTrackedSkill(client, "s1", m, SyncOptions{Apply: true}, dir); err != nil {
-		t.Fatalf("reconcile: %v", err)
+	client := newClient(t, map[string]mcp.SkillBundle{one.Slug: one, two.Slug: two})
+	slugs, _ := client.ListSkills()
+	if _, err := ReconcileSnapshot(client, slugs, target.Claude, m, dir, false, true); err != nil {
+		t.Fatal(err)
 	}
-
-	dropPath := filepath.Join(dir, ".claude", "skills", "s1", "drop.md")
-	if _, err := os.Stat(dropPath); err != nil {
-		t.Fatalf("expected drop.md to exist after first pull: %v", err)
-	}
-
-	// Server drops drop.md from the next version of the bundle.
-	server.Close()
-	bundle.Files = []mcp.FileEntry{{Path: "keep.md", Content: "keep"}}
-	bundle.VersionNo = 2
-	_, client = newTestServer(t, bundle)
-
-	result, err := ReconcileTrackedSkill(client, "s1", m, SyncOptions{Apply: true}, dir)
-	if err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
-	if result.Action != ActionUpdate {
-		t.Fatalf("got %q, want update", result.Action)
-	}
-	if _, err := os.Stat(dropPath); !os.IsNotExist(err) {
-		t.Errorf("expected drop.md to be removed as stale, stat err: %v", err)
-	}
-	keepPath := filepath.Join(dir, ".claude", "skills", "s1", "keep.md")
-	if _, err := os.Stat(keepPath); err != nil {
-		t.Errorf("expected keep.md to remain: %v", err)
+	if _, ok := m.Get(two.Slug, target.Claude); ok {
+		t.Fatal("selected sync installed a newly accessible untracked Skill")
 	}
 }
 
-func TestReconcileTrackedSkillDryRunDoesNotWrite(t *testing.T) {
+func TestUntrackedDestinationIsProtected(t *testing.T) {
 	dir := t.TempDir()
-	bundle := mcp.SkillBundle{Slug: "s1", Body: "body", VersionNo: 1}
-	_, client := newTestServer(t, bundle)
-
-	m := manifest.Load(dir)
-	result, err := ReconcileTrackedSkill(client, "s1", m, SyncOptions{Apply: false}, dir)
-	if err != nil {
-		t.Fatalf("reconcile: %v", err)
+	path := filepath.Join(dir, ".claude", "skills", "review")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if result.Action != ActionUpdate {
-		t.Fatalf("got %q, want update", result.Action)
+	if err := os.WriteFile(filepath.Join(path, "SKILL.md"), []byte("manual"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := manifest.Load(dir)
+	if _, err := InstallOne(testBundle("org.review", "remote", 1), target.Claude, "", m, dir, true); err == nil {
+		t.Fatal("expected untracked destination error")
+	}
+	content, _ := os.ReadFile(filepath.Join(path, "SKILL.md"))
+	if string(content) != "manual" {
+		t.Fatal("untracked Skill was modified")
+	}
+}
+
+func TestDryRunDoesNotWrite(t *testing.T) {
+	dir := t.TempDir()
+	m, _ := manifest.Load(dir)
+	if _, err := InstallOne(testBundle("org.review", "remote", 1), target.Claude, "", m, dir, false); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".claude")); !os.IsNotExist(err) {
-		t.Error("status (apply=false) must not write anything to disk")
+		t.Fatal("dry run wrote target root")
 	}
 	if len(m.Skills) != 0 {
-		t.Error("status (apply=false) must not update the manifest")
+		t.Fatal("dry run changed manifest")
 	}
 }

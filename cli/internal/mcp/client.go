@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -158,4 +160,41 @@ func (c *Client) PullSkill(slug string) (SkillBundle, error) {
 	var bundle SkillBundle
 	err := callPullTool(c, "pull_skill", slug, &bundle)
 	return bundle, err
+}
+
+var skillSlugPattern = regexp.MustCompile(`^[a-z0-9-]+(?:\.[a-z0-9-]+)*$`)
+
+func parseSkillList(text string) ([]string, error) {
+	text = strings.TrimSpace(text)
+	if text == "" || text == "No skills available." {
+		return []string{}, nil
+	}
+	var slugs []string
+	haveEntry := false
+	for _, line := range strings.Split(text, "\n") {
+		if !strings.HasPrefix(line, "- ") {
+			if haveEntry {
+				continue // a multiline description continuation
+			}
+			return nil, fmt.Errorf("could not parse list_skills response: %q", line)
+		}
+		value := strings.TrimPrefix(line, "- ")
+		slug, _, _ := strings.Cut(value, ":")
+		slug = strings.TrimSpace(slug)
+		if !skillSlugPattern.MatchString(slug) {
+			return nil, fmt.Errorf("list_skills returned invalid slug %q", slug)
+		}
+		slugs = append(slugs, slug)
+		haveEntry = true
+	}
+	sort.Strings(slugs)
+	return slugs, nil
+}
+
+func (c *Client) ListSkills() ([]string, error) {
+	text, err := c.callTool("list_skills", map[string]string{})
+	if err != nil {
+		return nil, err
+	}
+	return parseSkillList(text)
 }

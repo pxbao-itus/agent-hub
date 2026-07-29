@@ -1,113 +1,161 @@
 package fsio
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"agent-hub-cli/internal/mcp"
+	"agent-hub-cli/internal/target"
 )
 
-func makeBundle(files []mcp.FileEntry) mcp.SkillBundle {
-	if files == nil {
-		files = []mcp.FileEntry{{Path: "checklist.md", Content: "- [ ] item"}}
-	}
-	return mcp.SkillBundle{
-		SchemaVersion: 1,
-		Kind:          "skill",
-		Slug:          "test-skill",
-		Title:         "Test skill",
-		Body:          "# Test skill\n",
-		Files:         files,
-		VersionNo:     1,
-		UpdatedAt:     "2026-01-01T00:00:00.000Z",
-	}
-}
-
-func TestWriteSkillRoundTrip(t *testing.T) {
+func TestReplaceSkillRoundTripAndStaleRemoval(t *testing.T) {
 	dir := t.TempDir()
-	bundle := makeBundle(nil)
-	if _, err := WriteSkill(bundle, dir); err != nil {
-		t.Fatalf("WriteSkill: %v", err)
-	}
-
-	disk, err := ReadSkillFromDisk(bundle.Slug, dir)
+	files := []mcp.FileEntry{{Path: "scripts/run.sh", Content: "echo one"}}
+	managed, path, err := ReplaceSkill(dir, target.Claude, "review", "body one", files)
 	if err != nil {
-		t.Fatalf("ReadSkillFromDisk: %v", err)
+		t.Fatal(err)
 	}
-	if disk == nil {
-		t.Fatal("expected disk skill, got nil")
+	if path != filepath.Join(dir, ".claude", "skills", "review") || len(managed) != 2 {
+		t.Fatalf("path=%q managed=%v", path, managed)
 	}
-	if disk.Body != bundle.Body {
-		t.Errorf("body mismatch: got %q, want %q", disk.Body, bundle.Body)
+	disk, err := ReadSkillFromDisk(dir, target.Claude, "review")
+	if err != nil || disk.Body != "body one" || len(disk.Files) != 1 {
+		t.Fatalf("disk=%+v err=%v", disk, err)
 	}
-	if len(disk.Files) != 1 || disk.Files[0].Path != "checklist.md" || disk.Files[0].Content != "- [ ] item" {
-		t.Errorf("files mismatch: got %+v", disk.Files)
+	if _, _, err := ReplaceSkill(dir, target.Claude, "review", "body two", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(path, "scripts", "run.sh")); !os.IsNotExist(err) {
+		t.Fatalf("stale file still exists: %v", err)
 	}
 }
 
-func TestWriteSkillNestedFilePath(t *testing.T) {
+func TestTargetIsolation(t *testing.T) {
 	dir := t.TempDir()
-	bundle := makeBundle([]mcp.FileEntry{{Path: "scripts/run.sh", Content: "echo hi"}})
-	if _, err := WriteSkill(bundle, dir); err != nil {
-		t.Fatalf("WriteSkill: %v", err)
+	if _, _, err := ReplaceSkill(dir, target.Claude, "review", "claude", nil); err != nil {
+		t.Fatal(err)
 	}
-
-	disk, err := ReadSkillFromDisk(bundle.Slug, dir)
-	if err != nil {
-		t.Fatalf("ReadSkillFromDisk: %v", err)
+	if _, _, err := ReplaceSkill(dir, target.Codex, "review", "codex", nil); err != nil {
+		t.Fatal(err)
 	}
-	if len(disk.Files) != 1 || disk.Files[0].Path != "scripts/run.sh" || disk.Files[0].Content != "echo hi" {
-		t.Errorf("nested file mismatch: got %+v", disk.Files)
-	}
-}
-
-func TestReadSkillFromDiskNeverPulled(t *testing.T) {
-	dir := t.TempDir()
-	disk, err := ReadSkillFromDisk("never-pulled", dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if disk != nil {
-		t.Errorf("expected nil for a skill never pulled, got %+v", disk)
+	claude, _ := ReadSkillFromDisk(dir, target.Claude, "review")
+	codex, _ := ReadSkillFromDisk(dir, target.Codex, "review")
+	if claude.Body != "claude" || codex.Body != "codex" {
+		t.Fatalf("claude=%+v codex=%+v", claude, codex)
 	}
 }
 
-func TestWriteSkillRefusesPathEscape(t *testing.T) {
-	dir := t.TempDir()
-	bundle := makeBundle([]mcp.FileEntry{{Path: "../../etc/passwd", Content: "pwned"}})
-	_, err := WriteSkill(bundle, dir)
-	if err == nil {
-		t.Fatal("expected an error for a path that escapes the skill directory")
-	}
-}
-
-func TestWriteSkillRefusesAbsolutePath(t *testing.T) {
-	dir := t.TempDir()
-	bundle := makeBundle([]mcp.FileEntry{{Path: "/etc/passwd", Content: "pwned"}})
-	_, err := WriteSkill(bundle, dir)
-	if err == nil {
-		t.Fatal("expected an error for an absolute path")
-	}
-}
-
-func TestAssertSafeRelativePath(t *testing.T) {
+func TestValidateBundleFiles(t *testing.T) {
 	cases := []struct {
-		path    string
-		wantErr bool
+		name  string
+		files []mcp.FileEntry
 	}{
-		{"checklist.md", false},
-		{"scripts/run.sh", false},
-		{"../escape.md", true},
-		{"a/../../escape.md", true},
-		{"/etc/passwd", true},
-		{"..", true},
+		{"escape", []mcp.FileEntry{{Path: "../escape", Content: "x"}}},
+		{"absolute", []mcp.FileEntry{{Path: "/tmp/x", Content: "x"}}},
+		{"reserved", []mcp.FileEntry{{Path: "SKILL.md", Content: "x"}}},
+		{"duplicate", []mcp.FileEntry{{Path: "A.md"}, {Path: "a.md"}}},
+		{"prefix", []mcp.FileEntry{{Path: "scripts"}, {Path: "scripts/run.sh"}}},
 	}
-	for _, c := range cases {
-		err := AssertSafeRelativePath(c.path)
-		if c.wantErr && err == nil {
-			t.Errorf("AssertSafeRelativePath(%q): expected error, got nil", c.path)
-		}
-		if !c.wantErr && err != nil {
-			t.Errorf("AssertSafeRelativePath(%q): unexpected error: %v", c.path, err)
-		}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if err := ValidateBundleFiles(test.files); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
+func TestUnmanagedSymlinkIsRejected(t *testing.T) {
+	dir := t.TempDir()
+	outside := t.TempDir()
+	root := filepath.Join(dir, ".claude", "skills")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "review")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadSkillFromDisk(dir, target.Claude, "review"); err == nil {
+		t.Fatal("expected symlink rejection")
+	}
+}
+
+func TestRemoveManagedSkillOnlySelectedTarget(t *testing.T) {
+	dir := t.TempDir()
+	_, _, _ = ReplaceSkill(dir, target.Claude, "review", "claude", nil)
+	_, _, _ = ReplaceSkill(dir, target.Codex, "review", "codex", nil)
+	if err := RemoveManagedSkill(dir, target.Claude, "review"); err != nil {
+		t.Fatal(err)
+	}
+	if exists, _ := Exists(dir, target.Claude, "review"); exists {
+		t.Fatal("Claude skill was not removed")
+	}
+	if exists, _ := Exists(dir, target.Codex, "review"); !exists {
+		t.Fatal("Codex skill was unexpectedly removed")
+	}
+}
+
+func TestTransactionRollbackRestoresSkillsAndManifest(t *testing.T) {
+	dir := t.TempDir()
+	if _, _, err := ReplaceSkill(dir, target.Claude, "review", "old body", nil); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(dir, manifestFilename)
+	if err := os.WriteFile(manifestPath, []byte("old manifest"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	transaction, err := BeginTransaction(dir, target.Claude, []string{"review", "new-skill"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReplaceSkill(dir, target.Claude, "review", "new body", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReplaceSkill(dir, target.Claude, "new-skill", "created", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, []byte("new manifest"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := transaction.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+
+	review, err := ReadSkillFromDisk(dir, target.Claude, "review")
+	if err != nil || review == nil || review.Body != "old body" {
+		t.Fatalf("review=%+v err=%v", review, err)
+	}
+	if exists, _ := Exists(dir, target.Claude, "new-skill"); exists {
+		t.Fatal("new Skill survived rollback")
+	}
+	content, err := os.ReadFile(manifestPath)
+	if err != nil || string(content) != "old manifest" {
+		t.Fatalf("manifest=%q err=%v", content, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, transactionJournal)); !os.IsNotExist(err) {
+		t.Fatalf("journal survived rollback: %v", err)
+	}
+}
+
+func TestRecoverPendingTransactionAfterInterruptedApply(t *testing.T) {
+	dir := t.TempDir()
+	if _, _, err := ReplaceSkill(dir, target.Codex, "review", "before", nil); err != nil {
+		t.Fatal(err)
+	}
+	_, err := BeginTransaction(dir, target.Codex, []string{"review"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReplaceSkill(dir, target.Codex, "review", "interrupted", nil); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate losing the in-memory handle while the durable journal remains.
+	if err := RecoverPending(dir); err != nil {
+		t.Fatal(err)
+	}
+	review, err := ReadSkillFromDisk(dir, target.Codex, "review")
+	if err != nil || review == nil || review.Body != "before" {
+		t.Fatalf("review=%+v err=%v", review, err)
 	}
 }

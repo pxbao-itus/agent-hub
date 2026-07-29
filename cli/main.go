@@ -13,9 +13,9 @@ import (
 func usage() {
 	fmt.Fprintln(os.Stderr, "Usage: agent-hub <login|pull|sync|status> ...")
 	fmt.Fprintln(os.Stderr, "  agent-hub login <base-url> <token>")
-	fmt.Fprintln(os.Stderr, "  agent-hub pull skill <slug>")
-	fmt.Fprintln(os.Stderr, "  agent-hub sync [--force]")
-	fmt.Fprintln(os.Stderr, "  agent-hub status")
+	fmt.Fprintln(os.Stderr, "  agent-hub pull skill <slug>|--all [--target claude|codex] [--as name] [--dry-run]")
+	fmt.Fprintln(os.Stderr, "  agent-hub sync [--target claude|codex] [--dry-run]")
+	fmt.Fprintln(os.Stderr, "  agent-hub status [--target claude|codex]")
 }
 
 func run() error {

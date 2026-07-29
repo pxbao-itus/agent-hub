@@ -9,44 +9,43 @@ import (
 	"agent-hub-cli/internal/syncengine"
 )
 
-func describeStatus(r syncengine.SyncResult) string {
-	switch r.Action {
-	case syncengine.ActionUpToDate:
-		return fmt.Sprintf("%s: up to date (v%d)", r.Slug, r.VersionNo)
-	case syncengine.ActionUpdate:
-		return fmt.Sprintf("%s: server has v%d (not yet pulled — run `agent-hub sync`)", r.Slug, r.VersionNo)
-	case syncengine.ActionLocalOnly:
-		return fmt.Sprintf("%s: local changes, server unchanged", r.Slug)
-	case syncengine.ActionConflict:
-		return fmt.Sprintf("%s: CONFLICT — local edits AND server v%d both changed", r.Slug, r.VersionNo)
+func Status(args []string) error {
+	opts, err := parseSyncOptions(args)
+	if err != nil {
+		return err
 	}
-	return fmt.Sprintf("%s: unknown action %q", r.Slug, r.Action)
-}
-
-// Status is a read-only dry run of sync's diff logic — writes nothing
-// (plans/42-cli-filesystem-sync.md §7, carried over 1:1 in the Go rewrite).
-func Status(_ []string) error {
+	opts.dryRun = true
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
 	client := mcp.NewClient(cfg)
-	rootDir := "."
-	m := manifest.Load(rootDir)
+	projectDir := "."
+	m, err := manifest.Load(projectDir)
+	if err != nil {
+		return fmt.Errorf("could not read .agent-hub-lock.json safely: %w", err)
+	}
 	warnLegacyKits(m)
-	opts := syncengine.SyncOptions{Apply: false, Force: false}
-
-	if len(m.Skills) == 0 {
-		fmt.Println("Nothing installed yet — run `agent-hub pull skill <slug>`.")
+	if len(m.SlugsForTarget(opts.target)) == 0 {
+		fmt.Printf("Nothing installed for %s — run `agent-hub pull skill <slug> --target %s`.\n", opts.target, opts.target)
 		return nil
 	}
-
-	for _, slug := range sortedKeys(m.Skills) {
-		result, err := syncengine.ReconcileTrackedSkill(client, slug, m, opts, rootDir)
-		if err != nil {
-			return err
-		}
-		fmt.Println(describeStatus(result))
+	slugs, err := client.ListSkills()
+	if err != nil {
+		return err
 	}
+	results, err := syncengine.ReconcileSnapshot(
+		client,
+		slugs,
+		opts.target,
+		m,
+		projectDir,
+		false,
+		false,
+	)
+	if err != nil {
+		return err
+	}
+	printSummary(results, true)
 	return nil
 }
