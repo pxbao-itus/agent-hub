@@ -17,6 +17,10 @@ làm gián đoạn integration khác.
 
 Không đưa token vào artifact, screenshot, repository hoặc chat dùng chung.
 
+Nếu muốn Claude Code hoặc Codex discover Skill từ filesystem local, mở
+**Integrations → CLI**. CLI dùng MCP token để xác thực nhưng được cài riêng với
+cấu hình MCP client.
+
 ## Cấu hình client
 
 Dùng example hiển thị trên trang MCP Tokens cho đúng client. Các client có thể

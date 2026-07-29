@@ -172,8 +172,11 @@ Once connected:
   **`set_follow_preference`**; comments created this way are marked as MCP
   activity and support the same `@username` mention rules as the UI.
 
-For native local Skills, build the zero-dependency Go CLI in `cli/`, log in
-with the same MCP token, then pull one Skill or the complete accessible set:
+For native local Skills, open **Integrations → CLI** after signing in. The
+authenticated installer page offers the current macOS Preview as a
+checksum-verifying terminal installer or direct Apple Silicon/Intel downloads.
+Log in with the
+same MCP token, then pull one Skill or the complete accessible set:
 
 ```shell
 agent-hub pull skill <slug>                    # Claude: .claude/skills, /name
@@ -187,6 +190,17 @@ overwrites their local copies and removes managed Skills that disappear from
 the token's accessible set. Untracked local Skills are never modified. See
 [`cli/README.md`](cli/README.md) for dry-run, aliases, status and sync.
 
+Self-hosted instances enable downloads by pinning one immutable release:
+
+```env
+CLI_RELEASE_VERSION="0.1.0"
+CLI_RELEASE_BASE_URL="https://github.com/OWNER/REPOSITORY/releases/download/cli-v0.1.0"
+```
+
+Leave both values unset to keep the CLI page educational while disabling
+install/download actions. An internal HTTPS mirror may implement the same asset
+naming contract.
+
 ## User guide
 
 After signing in, open **Help** from the navigation for the bilingual
@@ -197,7 +211,7 @@ administration.
 
 ## License
 
-Intended license: **MIT**. The `LICENSE` file will be added with the first tagged release.
+Agent Hub is available under the [MIT License](LICENSE).
 
 ## Contributing
 

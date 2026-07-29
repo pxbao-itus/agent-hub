@@ -64,7 +64,7 @@ export const HELP_TOPICS = [
     },
     audience: ["user", "admin", "superadmin"],
     related: ["cli-sync", "connect-agent"],
-    lastReviewed: "2026-07-28",
+    lastReviewed: "2026-07-29",
   },
   {
     slug: "docs",
@@ -160,7 +160,7 @@ export const HELP_TOPICS = [
     },
     audience: ["user", "admin", "superadmin"],
     related: ["prompts", "skills", "cli-sync"],
-    lastReviewed: "2026-07-27",
+    lastReviewed: "2026-07-29",
   },
   {
     slug: "cli-sync",
@@ -172,7 +172,7 @@ export const HELP_TOPICS = [
     },
     audience: ["user", "admin", "superadmin"],
     related: ["skills", "connect-agent"],
-    lastReviewed: "2026-07-28",
+    lastReviewed: "2026-07-29",
   },
   {
     slug: "spaces-and-permissions",

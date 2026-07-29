@@ -17,6 +17,10 @@ without interrupting unrelated integrations.
 
 Never put a token in an artifact, screenshot, repository, or shared chat.
 
+If you want Claude Code or Codex to discover Skills from the local filesystem,
+open **Integrations → CLI**. The CLI uses an MCP token for authentication but
+is installed separately from the MCP client configuration.
+
 ## Configure the client
 
 Use the setup example shown on the MCP Tokens page for your client. Clients may

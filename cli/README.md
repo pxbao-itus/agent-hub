@@ -8,6 +8,34 @@ Zero dependencies beyond the Go standard library — it speaks raw
 JSON-RPC-over-HTTP to `/api/mcp` (calling `pull_skill`), with no MCP SDK and no
 shared code with the app. It builds to a single static binary.
 
+## Install on macOS
+
+Open **Integrations → CLI** in your Agent Hub instance. The page pins an
+immutable CLI release and provides:
+
+- a terminal installer that detects Apple Silicon or Intel;
+- direct archives for both macOS architectures;
+- SHA-256 checksums and release notes;
+- login and Skill pull commands for that instance.
+
+The macOS build is currently an unsigned Preview. The installer verifies the
+archive checksum, installs to `~/.local/bin/agent-hub`, never uses `sudo`, and
+does not edit shell profiles or macOS security settings.
+
+Verify:
+
+```sh
+agent-hub version
+```
+
+Re-run the same versioned installer to replace/update the binary. To uninstall:
+
+```sh
+rm "$HOME/.local/bin/agent-hub"
+```
+
+Ubuntu and Windows downloads are not published yet.
+
 ## Build
 
 ```sh
@@ -16,6 +44,10 @@ go build -o agent-hub .
 ```
 
 Requires Go 1.23+. Run `go test ./...` to run the test suite.
+
+Release operators should follow [RELEASING.md](RELEASING.md). Creating a
+`cli-vX.Y.Z` tag publishes deterministic macOS archives, checksums, a versioned
+installer, and build provenance through GitHub Actions.
 
 ## Usage
 

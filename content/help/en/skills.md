@@ -26,6 +26,9 @@ invokes the result as `/skill-name`; use `--target codex` to install the same
 Skill for Codex, where it can be selected through `/skills` or invoked as
 `$skill-name`. Bulk pull mirrors every Skill currently accessible to the token.
 
+Use **Use with CLI** on a Skill detail page to open the installation surface
+with the canonical pull command prepared for Claude and Codex.
+
 Each save creates a new version of the Skill body and its bundled files. Review
 the version before updating a widely used Skill, because connected agents may
 retrieve the latest version immediately.

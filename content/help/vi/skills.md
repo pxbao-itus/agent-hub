@@ -24,6 +24,9 @@ bằng `/skill-name`; dùng `--target codex` để cài cùng Skill cho Codex, s
 chọn qua `/skills` hoặc gọi bằng `$skill-name`. Bulk pull mirror mọi Skill mà
 token hiện tại truy cập được.
 
+Dùng **Use with CLI** trên màn hình chi tiết Skill để mở trang cài đặt với lệnh
+pull canonical đã được chuẩn bị cho Claude và Codex.
+
 Mỗi lần lưu tạo version mới cho body và bundled files. Nên review version trước
 khi cập nhật Skill được dùng rộng rãi vì agent có thể lấy version mới nhất ngay
 sau đó.

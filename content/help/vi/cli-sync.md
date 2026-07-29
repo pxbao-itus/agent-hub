@@ -8,17 +8,31 @@ Claude là target mặc định và cài vào `.claude/skills/`. Codex cài vào
 
 ## Kết nối và pull
 
-Build hoặc cài CLI theo CLI README của project, sau đó:
+Mở **Integrations → CLI**. Bản macOS Preview hỗ trợ Apple Silicon và Intel:
 
-1. Login bằng Agent Hub base URL và MCP token.
-2. Pull một Skill theo slug, hoặc dùng `pull skill --all` để cài mọi Skill mà
+- dùng lệnh terminal để tự phát hiện kiến trúc và kiểm tra checksum; hoặc
+- tải archive đúng kiến trúc theo cách thủ công.
+
+Ubuntu và Windows hiện chỉ hiển thị trạng thái coming soon và chưa thể tải.
+Binary macOS chưa được Apple sign hoặc notarize. Installer không dùng sudo,
+không sửa shell profile và không thay đổi thiết lập bảo mật macOS.
+
+Sau khi cài:
+
+1. Chạy `agent-hub version`.
+2. Tạo MCP token và login bằng lệnh trên trang CLI.
+3. Pull một Skill theo slug, hoặc dùng `pull skill --all` để cài mọi Skill mà
    token hiện tại truy cập được.
-3. Dùng `--target codex` khi cài cho Codex; nếu bỏ target thì mặc định là
+4. Dùng `--target codex` khi cài cho Codex; nếu bỏ target thì mặc định là
    Claude.
-4. Review file được tạo trước khi cho agent chạy script.
+5. Review file được tạo trước khi cho agent chạy script.
 
 Cấu hình login được lưu trong user profile với file permission hạn chế. Luôn bảo
 vệ token.
+
+Trên màn hình chi tiết Skill, **Use with CLI** mở trang cài đặt với lệnh pull
+một Skill đã được chuẩn bị theo canonical slug. Token không được đưa vào link
+đó.
 
 ## Theo dõi và đồng bộ
 
@@ -48,5 +62,7 @@ Claude gọi Skill bằng `/skill-name`. Codex gọi bằng `$skill-name` hoặc
 - Chạy `status` hoặc `--dry-run` trước bulk sync sau khi permission hoặc token
   scope thay đổi.
 - Lưu custom có chủ đích lên Agent Hub thay vì sửa managed local copy.
+- Chạy lại installer versioned để update. Xóa
+  `~/.local/bin/agent-hub` để uninstall vị trí mặc định.
 
 Xem [Kết nối AI agent](/help/connect-agent) để thiết lập token.

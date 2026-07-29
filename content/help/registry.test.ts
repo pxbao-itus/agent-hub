@@ -65,6 +65,7 @@ describe("contextual guide routes", () => {
     ["/explore", "finding-content"],
     ["/import", "reuse-and-portability"],
     ["/settings/tokens", "connect-agent"],
+    ["/cli", "cli-sync"],
     ["/settings/orgs/id", "spaces-and-permissions"],
     ["/settings/users", "users-and-roles"],
     ["/users/id", "users-and-roles"],

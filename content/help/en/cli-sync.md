@@ -8,17 +8,32 @@ into `.agents/skills/`.
 
 ## Connect and pull
 
-Build or install the CLI according to the project CLI README, then:
+Open **Integrations → CLI**. macOS Preview supports Apple Silicon and Intel:
 
-1. Log in with the Agent Hub base URL and an MCP token.
-2. Pull one Skill by slug, or use `pull skill --all` for every Skill currently
+- use the terminal command for automatic architecture detection and checksum
+  verification; or
+- download the matching archive manually.
+
+Ubuntu and Windows are visible as coming soon but cannot be downloaded yet.
+The macOS binary is not Apple-signed or notarized. The installer does not use
+sudo, edit your shell profile, or change macOS security settings.
+
+After installation:
+
+1. Run `agent-hub version`.
+2. Create an MCP token and log in using the command shown on the CLI page.
+3. Pull one Skill by slug, or use `pull skill --all` for every Skill currently
    accessible to the token.
-3. Select `--target codex` when the installation is for Codex; omitted target
+4. Select `--target codex` when the installation is for Codex; omitted target
    means Claude.
-4. Review generated files before allowing an agent to execute scripts.
+5. Review generated files before allowing an agent to execute scripts.
 
 The login configuration is stored under your user profile with restricted file
 permissions. Keep the token private.
+
+On a Skill detail page, **Use with CLI** opens this installation surface with
+the canonical one-Skill command already prepared. Tokens are never placed in
+that link.
 
 ## Track and synchronize
 
@@ -50,5 +65,7 @@ Claude Skills are invoked as `/skill-name`. Codex Skills are invoked as
   token scope changed.
 - Store intentional customizations in Agent Hub rather than editing a managed
   local copy.
+- Re-run the same versioned installer to update. Remove
+  `~/.local/bin/agent-hub` to uninstall the default installation.
 
 For token setup, see [Connect an AI agent](/help/connect-agent).
