@@ -1,6 +1,7 @@
 import type { HelpTopicSlug } from "@/content/help/registry";
 
 const PREFIX_TOPICS: Array<[prefix: string, topic: HelpTopicSlug]> = [
+  ["/cli", "cli-sync"],
   ["/my-work", "sharing-and-assignment"],
   ["/users", "users-and-roles"],
   ["/settings/orgs", "spaces-and-permissions"],

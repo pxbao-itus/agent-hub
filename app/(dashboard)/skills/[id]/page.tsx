@@ -26,7 +26,7 @@ import { DeleteSkillButton } from "../_components/delete-skill-button";
 import { SkillVersionHistory } from "./_components/skill-version-history";
 import { ShareDialog } from "../../_components/share-dialog";
 import { LinkedDocsSection } from "../../_components/linked-docs-section";
-import { ChevronDown, ChevronRight, FileText } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, SquareTerminal } from "lucide-react";
 
 const getSkill = cache(async (id: string) =>
   db.query.artifacts.findFirst({
@@ -153,6 +153,12 @@ export default async function SkillDetailPage({ params }: { params: Promise<{ id
           </div>
           <div className="flex flex-wrap gap-2 sm:shrink-0 sm:justify-end">
             <FavoriteButton artifactId={id} initialFavorited={favorited} />
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/cli?skill=${encodeURIComponent(fullSlug)}#skill-command`}>
+                <SquareTerminal className="h-4 w-4" />
+                Use with CLI
+              </Link>
+            </Button>
             <DuplicateArtifactButton artifactId={id} kind="skill" />
             <ExportArtifactButton artifactId={id} title={skill.title} />
             {canShare && <ShareDialog artifactId={id} artifactTitle={skill.title} />}

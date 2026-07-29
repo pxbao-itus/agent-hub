@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { LayoutDashboard, BookText, Wrench, ClipboardList, FileText, FolderKanban, GitBranch, Compass, Building2, Key, Sun, Moon, Users, Search, Upload, ShieldCheck, CircleHelp, ListChecks } from "lucide-react";
+import { LayoutDashboard, BookText, Wrench, ClipboardList, FileText, FolderKanban, GitBranch, Compass, Building2, Key, Sun, Moon, Users, Search, Upload, ShieldCheck, CircleHelp, ListChecks, SquareTerminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -23,7 +23,11 @@ const MAIN_NAV = [
 const SETTINGS_NAV = [
   { label: "Import", href: "/import", icon: Upload },
   { label: "Organizations", href: "/settings/orgs", icon: Building2 },
+];
+
+const INTEGRATIONS_NAV = [
   { label: "MCP Tokens", href: "/settings/tokens", icon: Key },
+  { label: "CLI", href: "/cli", icon: SquareTerminal },
 ];
 
 export function SidebarNav({
@@ -92,6 +96,15 @@ export function SidebarNav({
         </p>
         <ul className="space-y-0.5">
           {MAIN_NAV.map((item) => <NavItem key={item.href} {...item} />)}
+        </ul>
+      </div>
+
+      <div>
+        <p className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Integrations
+        </p>
+        <ul className="space-y-0.5">
+          {INTEGRATIONS_NAV.map((item) => <NavItem key={item.href} {...item} />)}
         </ul>
       </div>
 
