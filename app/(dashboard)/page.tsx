@@ -5,10 +5,12 @@ import { artifacts, orgs, mcpTokens, memberships, artifactFavorites } from "@/se
 import { eq, and, desc, count, isNull, gt, or } from "drizzle-orm";
 import { artifactAccessCondition } from "@/server/auth/access";
 import { listMyWork } from "@/server/services/my-work";
+import { getDashboardCardLayout } from "@/server/services/dashboard-preferences";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { BookText, Wrench, ClipboardList, FileText, Building2, Key, Plus, Sparkles, Flame, Star, ListChecks } from "lucide-react";
+import { DashboardCardGrid } from "./_components/dashboard-card-grid";
+import type { DashboardCardId } from "@/lib/dashboard-cards";
+import { BookText, Wrench, ClipboardList, FileText, Plus, Sparkles, Flame, Star, ListChecks } from "lucide-react";
 
 export const metadata = { title: "Dashboard" };
 
@@ -34,7 +36,7 @@ export default async function DashboardHome() {
   const accessWhere = await artifactAccessCondition(userId, isSuperAdmin ? "superadmin" : "user", db);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
-  const [[{ promptCount }], [{ skillCount }], [{ planCount }], [{ docCount }], [{ orgCount }], [{ tokenCount }], recentActivity, mostUsed, favorites] = await Promise.all([
+  const [[{ promptCount }], [{ skillCount }], [{ planCount }], [{ docCount }], [{ orgCount }], [{ tokenCount }], recentActivity, mostUsed, favorites, dashboardLayout] = await Promise.all([
     db.select({ promptCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "prompt"), accessWhere)),
     db.select({ skillCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "skill"), accessWhere)),
     db.select({ planCount: count() }).from(artifacts).where(and(eq(artifacts.kind, "plan"), accessWhere)),
@@ -69,6 +71,7 @@ export default async function DashboardHome() {
       .where(and(eq(artifactFavorites.userId, userId), accessWhere))
       .orderBy(desc(artifactFavorites.createdAt))
       .limit(10),
+    getDashboardCardLayout(userId, db),
   ]);
 
   const totalArtifacts = promptCount + skillCount + planCount + docCount;
@@ -78,6 +81,14 @@ export default async function DashboardHome() {
     { view: "assigned_to_me", sort: "due_date", limit: 5 },
     db,
   );
+  const dashboardValues: Record<DashboardCardId, number> = {
+    prompts: promptCount,
+    skills: skillCount,
+    plans: planCount,
+    docs: docCount,
+    organizations: orgCount,
+    mcp_tokens: tokenCount,
+  };
 
   return (
     <div className="space-y-8">
@@ -86,69 +97,7 @@ export default async function DashboardHome() {
         <p className="text-sm text-muted-foreground mt-1">Here&apos;s what&apos;s happening in your workspace.</p>
       </div>
 
-      {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between px-4 pt-4 pb-2">
-            <CardTitle className="text-sm text-muted-foreground font-medium">Prompts</CardTitle>
-            <BookText className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="px-4 pb-4 pt-0">
-            <p className="text-3xl font-bold">{promptCount}</p>
-            <p className="text-xs text-muted-foreground mt-1">accessible to you</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between px-4 pt-4 pb-2">
-            <CardTitle className="text-sm text-muted-foreground font-medium">Skills</CardTitle>
-            <Wrench className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="px-4 pb-4 pt-0">
-            <p className="text-3xl font-bold">{skillCount}</p>
-            <p className="text-xs text-muted-foreground mt-1">accessible to you</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between px-4 pt-4 pb-2">
-            <CardTitle className="text-sm text-muted-foreground font-medium">Plans</CardTitle>
-            <ClipboardList className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="px-4 pb-4 pt-0">
-            <p className="text-3xl font-bold">{planCount}</p>
-            <p className="text-xs text-muted-foreground mt-1">accessible to you</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between px-4 pt-4 pb-2">
-            <CardTitle className="text-sm text-muted-foreground font-medium">Docs</CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="px-4 pb-4 pt-0">
-            <p className="text-3xl font-bold">{docCount}</p>
-            <p className="text-xs text-muted-foreground mt-1">accessible to you</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between px-4 pt-4 pb-2">
-            <CardTitle className="text-sm text-muted-foreground font-medium">Organizations</CardTitle>
-            <Building2 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="px-4 pb-4 pt-0">
-            <p className="text-3xl font-bold">{orgCount}</p>
-            <p className="text-xs text-muted-foreground mt-1">you&apos;re a member of</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between px-4 pt-4 pb-2">
-            <CardTitle className="text-sm text-muted-foreground font-medium">MCP Tokens</CardTitle>
-            <Key className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="px-4 pb-4 pt-0">
-            <p className="text-3xl font-bold">{tokenCount}</p>
-            <p className="text-xs text-muted-foreground mt-1">active tokens</p>
-          </CardContent>
-        </Card>
-      </div>
+      <DashboardCardGrid initialLayout={dashboardLayout} values={dashboardValues} />
 
       {/* Quick actions */}
       <div className="flex flex-wrap gap-2">

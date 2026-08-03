@@ -15,6 +15,14 @@ The main artifact types are:
 Projects organize docs and plans around an initiative. Workflows organize work
 into stages and can attach the artifacts needed at each stage.
 
+## Personalize the dashboard
+
+The overview cards on the dashboard open their corresponding content or
+settings page. Select **Customize cards** to reorder them, hide cards you do
+not need, or add a hidden card back. Changes are saved to your account and
+follow you across browsers and devices. **Cancel** discards the current draft;
+**Reset** restores the default six-card order after you save.
+
 ## Understand spaces and visibility
 
 Every artifact belongs either to your personal space or to an organization,

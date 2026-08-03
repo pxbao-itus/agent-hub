@@ -15,6 +15,14 @@ Các loại artifact chính:
 Project gom doc và plan theo một sáng kiến. Workflow chia công việc thành các
 stage và có thể gắn artifact cần thiết cho từng stage.
 
+## Cá nhân hóa dashboard
+
+Các overview card trên dashboard mở trang nội dung hoặc settings tương ứng.
+Chọn **Customize cards** để đổi thứ tự, ẩn card không cần dùng hoặc thêm lại
+card đang bị ẩn. Thay đổi được lưu theo tài khoản và đồng bộ giữa các trình
+duyệt, thiết bị. **Cancel** bỏ bản chỉnh sửa hiện tại; **Reset** khôi phục thứ
+tự sáu card mặc định sau khi bạn lưu.
+
 ## Hiểu space và visibility
 
 Mỗi artifact thuộc personal space hoặc một organization, department hay team.

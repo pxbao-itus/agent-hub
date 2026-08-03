@@ -111,6 +111,16 @@ export const users = pgTable(
   ],
 );
 
+/** Cross-device ordering and visibility of the signed-in user's dashboard summary cards. */
+export const userDashboardPreferences = pgTable("user_dashboard_preferences", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  cardIds: text("card_ids").array().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 /** OAuth accounts (Auth.js adapter shape). */
 export const accounts = pgTable(
   "accounts",
