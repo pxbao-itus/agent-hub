@@ -11,17 +11,17 @@ func TestParsePullDefaultsToClaude(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.target != target.Claude || opts.slug != "org.team.review" || opts.all {
+	if opts.target != target.Claude || opts.slug != "org.team.review" || opts.all || opts.global {
 		t.Fatalf("options = %+v", opts)
 	}
 }
 
-func TestParsePullAllCodexDryRun(t *testing.T) {
-	opts, err := parsePull([]string{"skill", "--all", "--target", "codex", "--dry-run"})
+func TestParsePullAllCodexGlobalDryRun(t *testing.T) {
+	opts, err := parsePull([]string{"skill", "--all", "--target", "codex", "--global", "--dry-run"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.target != target.Codex || !opts.all || !opts.dryRun {
+	if opts.target != target.Codex || !opts.all || !opts.global || !opts.dryRun {
 		t.Fatalf("options = %+v", opts)
 	}
 }
@@ -51,12 +51,22 @@ func TestParsePullRejectsAmbiguousInputs(t *testing.T) {
 	}
 }
 
-func TestParseSyncTarget(t *testing.T) {
-	opts, err := parseSyncOptions([]string{"--target=codex", "--dry-run"})
+func TestParseSyncTargetAndGlobalScope(t *testing.T) {
+	opts, err := parseSyncOptions([]string{"--target=codex", "--global", "--dry-run"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.target != target.Codex || !opts.dryRun {
+	if opts.target != target.Codex || !opts.global || !opts.dryRun {
+		t.Fatalf("options = %+v", opts)
+	}
+}
+
+func TestParseCleanGlobalScope(t *testing.T) {
+	opts, err := parseCleanOptions([]string{"--global", "--target=claude", "--yes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.global || opts.target == nil || *opts.target != target.Claude || !opts.yes {
 		t.Fatalf("options = %+v", opts)
 	}
 }

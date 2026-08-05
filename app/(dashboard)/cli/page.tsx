@@ -356,7 +356,7 @@ export default async function CliPage({ searchParams }: Props) {
           </StepCard>
           <StepCard number="4" title="Pull accessible Skills">
             <CodeBlock>
-              {"# Claude Code (default)\nagenthub pull skill --all\n\n# Codex\nagenthub pull skill --all --target codex"}
+              {"# Project-local Claude Code (default)\nagenthub pull skill --all\n\n# User-wide Claude Code\nagenthub pull skill --all --global\n\n# User-wide Codex\nagenthub pull skill --all --target codex --global"}
             </CodeBlock>
           </StepCard>
         </div>
@@ -367,12 +367,12 @@ export default async function CliPage({ searchParams }: Props) {
           <CardHeader>
             <CardTitle>Use {skill} with the CLI</CardTitle>
             <CardDescription>
-              Run one command from the project where the Skill should be installed.
+              Install in the current project, or add --global to make the Skill user-wide.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <CodeBlock>
-              {`# Claude Code (default)\nagenthub pull skill ${shellQuote(skill)}\n\n# Codex\nagenthub pull skill ${shellQuote(skill)} --target codex`}
+              {`# Project-local Claude Code (default)\nagenthub pull skill ${shellQuote(skill)}\n\n# User-wide Claude Code\nagenthub pull skill ${shellQuote(skill)} --global\n\n# User-wide Codex\nagenthub pull skill ${shellQuote(skill)} --target codex --global`}
             </CodeBlock>
           </CardContent>
         </Card>

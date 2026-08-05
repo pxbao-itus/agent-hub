@@ -15,6 +15,7 @@ import (
 
 type cleanOptions struct {
 	target *target.Name
+	global bool
 	dryRun bool
 	yes    bool
 }
@@ -33,6 +34,8 @@ func parseCleanOptions(args []string) (cleanOptions, error) {
 			opts.dryRun = true
 		case args[i] == "--yes":
 			opts.yes = true
+		case args[i] == "--global":
+			opts.global = true
 		case args[i] == "--target":
 			value, err := parseValue(args, &i, "--target")
 			if err != nil {
@@ -118,6 +121,10 @@ func cleanProject(
 	interactive bool,
 ) error {
 	opts, err := parseCleanOptions(args)
+	if err != nil {
+		return err
+	}
+	projectDir, err = resolveScopeRoot(projectDir, opts.global)
 	if err != nil {
 		return err
 	}

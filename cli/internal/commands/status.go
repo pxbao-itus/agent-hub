@@ -20,14 +20,21 @@ func Status(args []string) error {
 		return err
 	}
 	client := mcp.NewClient(cfg)
-	projectDir := "."
+	projectDir, err := resolveScopeRoot(".", opts.global)
+	if err != nil {
+		return err
+	}
 	m, err := manifest.Load(projectDir)
 	if err != nil {
 		return fmt.Errorf("could not read .agent-hub-lock.json safely: %w", err)
 	}
 	warnLegacyKits(m)
 	if len(m.SlugsForTarget(opts.target)) == 0 {
-		fmt.Printf("Nothing installed for %s — run `agenthub pull skill <slug> --target %s`.\n", opts.target, opts.target)
+		scopeFlag := ""
+		if opts.global {
+			scopeFlag = " --global"
+		}
+		fmt.Printf("Nothing installed for %s — run `agenthub pull skill <slug> --target %s%s`.\n", opts.target, opts.target, scopeFlag)
 		return nil
 	}
 	slugs, err := client.ListSkills()

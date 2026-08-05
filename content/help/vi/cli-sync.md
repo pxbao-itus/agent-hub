@@ -4,7 +4,9 @@ MCP cho phép agent lấy nội dung khi cần. Dùng Agent Hub CLI khi Claude C
 Codex cần discover Skill native từ filesystem local.
 
 Claude là target mặc định và cài vào `.claude/skills/`. Codex cài vào
-`.agents/skills/`.
+`.agents/skills/`. Mặc định đây là các đường dẫn trong project hiện tại. Thêm
+`--global` để cài user-wide vào `~/.claude/skills/` hoặc `~/.agents/skills/` và
+dùng được trong mọi project của user hiện tại.
 
 ## Kết nối và pull
 
@@ -25,7 +27,9 @@ Sau khi cài:
    token hiện tại truy cập được.
 4. Dùng `--target codex` khi cài cho Codex; nếu bỏ target thì mặc định là
    Claude.
-5. Review file được tạo trước khi cho agent chạy script.
+5. Thêm `--global` nếu muốn Skill khả dụng user-wide; bỏ flag này để giữ
+   installation trong project hiện tại.
+6. Review file được tạo trước khi cho agent chạy script.
 
 Cấu hình login được lưu trong user profile với file permission hạn chế. Luôn bảo
 vệ token.
@@ -36,9 +40,11 @@ một Skill đã được chuẩn bị theo canonical slug. Token không đượ
 
 ## Theo dõi và đồng bộ
 
-Workspace lock file ghi nhận remote Skill cùng installation Claude/Codex độc
-lập. Dùng `status` hoặc `--dry-run` để preview mà không ghi file. Dùng `sync`
-để refresh các Skill đang được track của target đã chọn.
+Lock file của scope đã chọn ghi nhận remote Skill cùng installation
+Claude/Codex độc lập. State project nằm ở `./.agent-hub-lock.json`; state global
+nằm ở `~/.agent-hub-lock.json`. Dùng `status` hoặc `--dry-run` để preview mà
+không ghi file. Dùng `sync` để refresh target và scope đã chọn. CLI không tự
+gộp hoặc migrate installation giữa hai scope.
 
 Agent Hub là source of truth cho managed Skill. Pull và sync ghi đè thay đổi
 local, thay toàn bộ Skill tree được quản lý và xóa bundled file đã stale.
@@ -60,8 +66,9 @@ Tên mặc định có dạng `agenthub-<short-slug>`. Nếu dùng `--as custom-
 migrate bằng transaction ở lần pull hoặc sync tiếp theo.
 
 Dùng `agenthub clean` để xem danh sách managed Skill của Claude và Codex rồi
-xác nhận xóa khỏi workspace hiện tại. Thêm `--target claude|codex` để giới hạn
-target, `--dry-run` để chỉ preview hoặc `--yes` cho automation.
+xác nhận xóa khỏi project hiện tại. Thêm `--target claude|codex` để giới hạn
+target, `--global` để chọn collection user-wide, `--dry-run` để chỉ preview
+hoặc `--yes` cho automation.
 
 ## Sử dụng an toàn
 

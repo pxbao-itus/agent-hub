@@ -17,6 +17,7 @@ type pullOptions struct {
 	slug   string
 	all    bool
 	target target.Name
+	global bool
 	alias  string
 	dryRun bool
 }
@@ -31,7 +32,7 @@ func parseValue(args []string, index *int, option string) (string, error) {
 
 func parsePull(args []string) (pullOptions, error) {
 	if len(args) == 0 || args[0] != "skill" {
-		return pullOptions{}, fmt.Errorf("usage: agenthub pull skill <slug>|--all [--target claude|codex] [--as name] [--dry-run]")
+		return pullOptions{}, fmt.Errorf("usage: agenthub pull skill <slug>|--all [--target claude|codex] [--global] [--as name] [--dry-run]")
 	}
 	opts := pullOptions{target: target.Claude}
 	for i := 1; i < len(args); i++ {
@@ -41,6 +42,8 @@ func parsePull(args []string) (pullOptions, error) {
 			opts.all = true
 		case arg == "--dry-run":
 			opts.dryRun = true
+		case arg == "--global":
+			opts.global = true
 		case arg == "--target":
 			value, err := parseValue(args, &i, "--target")
 			if err != nil {
@@ -126,7 +129,10 @@ func Pull(args []string) error {
 		return err
 	}
 	client := mcp.NewClient(cfg)
-	projectDir := "."
+	projectDir, err := resolveScopeRoot(".", opts.global)
+	if err != nil {
+		return err
+	}
 	if !opts.dryRun {
 		if err := fsio.RecoverPending(projectDir); err != nil {
 			return err

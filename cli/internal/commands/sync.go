@@ -15,6 +15,7 @@ import (
 
 type syncOptions struct {
 	target target.Name
+	global bool
 	dryRun bool
 }
 
@@ -24,6 +25,8 @@ func parseSyncOptions(args []string) (syncOptions, error) {
 		switch {
 		case args[i] == "--dry-run":
 			opts.dryRun = true
+		case args[i] == "--global":
+			opts.global = true
 		case args[i] == "--force":
 			fmt.Fprintln(os.Stderr, "Warning: --force is no longer needed; managed Skills are authoritative and always overwritten.")
 		case args[i] == "--target":
@@ -69,7 +72,10 @@ func Sync(args []string) error {
 		return err
 	}
 	client := mcp.NewClient(cfg)
-	projectDir := "."
+	projectDir, err := resolveScopeRoot(".", opts.global)
+	if err != nil {
+		return err
+	}
 	if !opts.dryRun {
 		if err := fsio.RecoverPending(projectDir); err != nil {
 			return err

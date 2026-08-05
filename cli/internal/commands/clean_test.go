@@ -118,3 +118,34 @@ func TestCleanDryRunAndNonInteractiveGuard(t *testing.T) {
 		t.Fatal("dry-run removed a managed Skill")
 	}
 }
+
+func TestCleanGlobalUsesHomeAndPreservesProjectScope(t *testing.T) {
+	projectDir, _ := cleanFixture(t)
+	homeDir, _ := cleanFixture(t)
+	t.Setenv("HOME", homeDir)
+
+	var output bytes.Buffer
+	if err := cleanProject([]string{"--global", "--target", "claude", "--yes"}, nil, &output, projectDir, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(target.Claude.ProjectSkillRoot(homeDir), "agenthub-review")); !os.IsNotExist(err) {
+		t.Fatal("global Claude Skill was not removed")
+	}
+	if _, err := os.Stat(filepath.Join(target.Claude.ProjectSkillRoot(projectDir), "agenthub-review")); err != nil {
+		t.Fatal("project Claude Skill was modified by global clean")
+	}
+	globalManifest, err := manifest.Load(homeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := globalManifest.Get("org.team.review", target.Claude); ok {
+		t.Fatal("global Claude lock entry remains")
+	}
+	projectManifest, err := manifest.Load(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := projectManifest.Get("org.team.review", target.Claude); !ok {
+		t.Fatal("project Claude lock entry was removed")
+	}
+}

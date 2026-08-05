@@ -60,6 +60,8 @@ agenthub pull skill <slug> --target codex
 agenthub pull skill <slug> --as local-name
 agenthub pull skill --all               # mirror every accessible Skill to Claude
 agenthub pull skill --all --target codex
+agenthub pull skill --all --global      # user-wide Claude install
+agenthub pull skill --all --target codex --global
 ```
 
 For local development, `agenthub login localhost:3000 <mcp-token>` is
@@ -69,17 +71,24 @@ explicit `https://` URL so the bearer token is never sent over plaintext HTTP.
 Get an MCP token from **Settings → MCP Tokens** in the app. Config is saved to `~/.agent-hub/config.json` (directory `0700`, file `0600`).
 
 ```sh
-agenthub status [--target claude|codex]
-agenthub sync [--target claude|codex] [--dry-run]
-agenthub clean [--target claude|codex] [--dry-run] [--yes]
+agenthub status [--target claude|codex] [--global]
+agenthub sync [--target claude|codex] [--global] [--dry-run]
+agenthub clean [--target claude|codex] [--global] [--dry-run] [--yes]
 ```
 
-`claude` is the default target:
+`claude` is the default target. Installation is project-local unless
+`--global` is present:
 
-| Target | Project directory | Invoke |
-| --- | --- | --- |
-| Claude Code | `.claude/skills/<name>/` | `/<name>` |
-| Codex | `.agents/skills/<name>/` | `$<name>` or `/skills` |
+| Target | Project root | Global root | Invoke |
+| --- | --- | --- | --- |
+| Claude Code | `.claude/skills/<name>/` | `~/.claude/skills/<name>/` | `/<name>` |
+| Codex | `.agents/skills/<name>/` | `~/.agents/skills/<name>/` | `$<name>` or `/skills` |
+
+Target and scope are independent: `--target` chooses Claude or Codex, while
+`--global` chooses the user-wide collection. The project lock lives at
+`./.agent-hub-lock.json`; the global lock lives at
+`~/.agent-hub-lock.json`. Commands never migrate or merge installations across
+scopes automatically.
 
 The CLI renders a native `SKILL.md` frontmatter header when the Agent Hub body
 does not already contain one. Existing frontmatter extensions and bundled
@@ -112,12 +121,15 @@ Use `--dry-run` to preview a pull or sync without writing:
 ```sh
 agenthub pull skill --all --target claude --dry-run
 agenthub sync --target codex --dry-run
+agenthub status --target claude --global
+agenthub clean --target claude --global --dry-run
 ```
 
-`clean` removes only installations tracked in `.agent-hub-lock.json`, asks for
-confirmation by default, and preserves every untracked local Skill. Use
-`--target` to limit cleanup to Claude or Codex, `--dry-run` to preview, or
-`--yes` for non-interactive automation.
+`clean` removes only installations tracked in the selected scope's
+`.agent-hub-lock.json`, asks for confirmation by default, and preserves every
+untracked local Skill. Use `--target` to limit cleanup to Claude or Codex,
+`--global` for the user-wide collection, `--dry-run` to preview, or `--yes` for
+non-interactive automation.
 
 Older lock files may still contain Kit tracking from a pre-release Agent Hub
 build. The CLI warns and removes that obsolete tracking the next time it writes

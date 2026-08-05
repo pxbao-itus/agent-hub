@@ -4,7 +4,9 @@ MCP lets an agent retrieve content on demand. Use the Agent Hub CLI when Claude
 Code or Codex should discover a Skill natively from the local filesystem.
 
 Claude is the default target and installs into `.claude/skills/`. Codex installs
-into `.agents/skills/`.
+into `.agents/skills/`. These paths are project-local by default. Add
+`--global` to install under `~/.claude/skills/` or `~/.agents/skills/` for every
+project owned by the current user.
 
 ## Connect and pull
 
@@ -26,7 +28,9 @@ After installation:
    accessible to the token.
 4. Select `--target codex` when the installation is for Codex; omitted target
    means Claude.
-5. Review generated files before allowing an agent to execute scripts.
+5. Add `--global` when the Skill should be available user-wide; omit it to keep
+   the installation in the current project.
+6. Review generated files before allowing an agent to execute scripts.
 
 The login configuration is stored under your user profile with restricted file
 permissions. Keep the token private.
@@ -37,9 +41,11 @@ that link.
 
 ## Track and synchronize
 
-The workspace lock file records each remote Skill and its independent Claude
-or Codex installation. Use `status` or `--dry-run` to preview differences
-without writing. Use `sync` to refresh the selected target's tracked Skills.
+The selected scope's lock file records each remote Skill and its independent
+Claude or Codex installation. Project state lives in `./.agent-hub-lock.json`;
+global state lives in `~/.agent-hub-lock.json`. Use `status` or `--dry-run` to
+preview differences without writing. Use `sync` to refresh the selected target
+and scope. Scope collections are not merged or migrated automatically.
 
 Agent Hub is authoritative for managed Skills. Pull and sync overwrite local
 changes, replace the complete managed Skill tree, and remove stale bundled
@@ -62,8 +68,9 @@ Default installs use `agenthub-<short-slug>` as their native name. An explicit
 are migrated transactionally on the next pull or sync.
 
 Use `agenthub clean` to preview the managed Claude and Codex Skills and confirm
-their removal from the current workspace. Add `--target claude|codex` to limit
-the operation, `--dry-run` to preview only, or `--yes` for automation.
+their removal from the current project. Add `--target claude|codex` to limit
+the operation, `--global` to select the user-wide collection, `--dry-run` to
+preview only, or `--yes` for automation.
 
 ## Safe use
 

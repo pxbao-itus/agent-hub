@@ -23,10 +23,10 @@ func printVersion(output io.Writer, args []string) error {
 func usage() {
 	fmt.Fprintln(os.Stderr, "Usage: agenthub <login|pull|sync|status|clean|version> ...")
 	fmt.Fprintln(os.Stderr, "  agenthub login <base-url> <token>")
-	fmt.Fprintln(os.Stderr, "  agenthub pull skill <slug>|--all [--target claude|codex] [--as name] [--dry-run]")
-	fmt.Fprintln(os.Stderr, "  agenthub sync [--target claude|codex] [--dry-run]")
-	fmt.Fprintln(os.Stderr, "  agenthub status [--target claude|codex]")
-	fmt.Fprintln(os.Stderr, "  agenthub clean [--target claude|codex] [--dry-run] [--yes]")
+	fmt.Fprintln(os.Stderr, "  agenthub pull skill <slug>|--all [--target claude|codex] [--global] [--as name] [--dry-run]")
+	fmt.Fprintln(os.Stderr, "  agenthub sync [--target claude|codex] [--global] [--dry-run]")
+	fmt.Fprintln(os.Stderr, "  agenthub status [--target claude|codex] [--global]")
+	fmt.Fprintln(os.Stderr, "  agenthub clean [--target claude|codex] [--global] [--dry-run] [--yes]")
 	fmt.Fprintln(os.Stderr, "  agenthub version")
 }
 

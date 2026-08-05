@@ -183,8 +183,13 @@ agenthub pull skill <slug>                    # Claude: .claude/skills, /agenthu
 agenthub pull skill --all
 agenthub pull skill <slug> --target codex     # Codex: .agents/skills, $agenthub-<short-slug>
 agenthub pull skill --all --target codex
+agenthub pull skill --all --target claude --global  # User-wide: ~/.claude/skills
 agenthub clean --dry-run
 ```
+
+Installations are project-local by default. Add `--global` to `pull`, `sync`,
+`status`, or `clean` to manage the independent user-wide collection under
+`~/.claude/skills` or `~/.agents/skills`.
 
 Agent Hub is authoritative for CLI-managed Skills: repeated pull/sync
 overwrites their local copies and removes managed Skills that disappear from
