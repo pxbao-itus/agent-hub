@@ -2,12 +2,22 @@
   "name": "agent-hub",
   "version": "0.1.0",
   "private": true,
+  "description": "Open-source platform to store, share and use reusable building blocks for AI agents over MCP",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pxbao-itus/agent-hub.git"
+  },
+  "homepage": "https://github.com/pxbao-itus/agent-hub#readme",
+  "bugs": {
+    "url": "https://github.com/pxbao-itus/agent-hub/issues"
+  },
   "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx server/db/seed.ts",
