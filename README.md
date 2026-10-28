@@ -139,11 +139,18 @@ agenthub clean --dry-run
 
 Installs are project-local by default; `--global` manages the separate user-wide collection under `~/.claude/skills` or `~/.agents/skills`. Agent Hub is authoritative for CLI-managed Skills: pull and sync overwrite their local copies and remove managed Skills that disappear from the token's accessible set, while untracked local Skills are never touched.
 
-The macOS builds are an unsigned preview, and no release has been published yet, so for now build from source (Go 1.23+):
+The macOS builds (Apple Silicon and Intel) are an unsigned preview. Install the latest [release](https://github.com/pxbao-itus/agent-hub/releases) with the checksum-verifying installer, which installs to `~/.local/bin` and never uses `sudo`:
 
 ```bash
-cd cli && go build -o agenthub .
+VERSION=0.2.0   # the cli-v* release you want
+BASE=https://github.com/pxbao-itus/agent-hub/releases/download/cli-v$VERSION
+
+curl -fsSLO "$BASE/install.sh"
+sh install.sh --release-base-url "$BASE"
+agenthub version
 ```
+
+You can also build from source with Go 1.23+: `cd cli && go build -o agenthub .`
 
 See [`cli/README.md`](cli/README.md) for all commands, how to serve downloads from your own instance, and [`cli/RELEASING.md`](cli/RELEASING.md) for the release process.
 

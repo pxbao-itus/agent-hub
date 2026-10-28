@@ -10,6 +10,22 @@ shared code with the app. It builds to a single static binary.
 
 ## Install on macOS
 
+### From GitHub Releases
+
+Every `cli-vX.Y.Z` tag publishes archives, `checksums.txt`, `release.json` and a
+host-independent `install.sh` as a
+[GitHub release](https://github.com/pxbao-itus/agent-hub/releases):
+
+```sh
+VERSION=0.2.0   # the cli-v* release you want
+BASE=https://github.com/pxbao-itus/agent-hub/releases/download/cli-v$VERSION
+
+curl -fsSLO "$BASE/install.sh"
+sh install.sh --release-base-url "$BASE"
+```
+
+### From your Agent Hub instance
+
 Open **Integrations → CLI** in your Agent Hub instance. The page pins an
 immutable CLI release served by that same Agent Hub host and provides:
 
