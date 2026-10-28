@@ -230,7 +230,7 @@ export const projectRouter = router({
     }),
 
   /**
-   * Bulk assign (Phase 45 B2 — "add to project" bulk action). Same
+   * Bulk assign ("add to project" bulk action). Same
    * per-item rules as `assignArtifact` (kind doc|plan + readable), applied
    * across the batch — items failing either check are skipped and
    * reported rather than failing the whole call.

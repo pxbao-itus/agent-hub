@@ -2,7 +2,7 @@
 // endpoint — just enough to call pull_skill. It talks raw
 // JSON-RPC-over-HTTP with the stdlib only (no MCP SDK): the endpoint accepts
 // a bare "tools/call" with no "initialize" handshake in stateless mode
-// (proven by qa/e2e/mcp-http.spec.ts), so there's nothing else to implement.
+// (proven by the e2e suite), so there's nothing else to implement.
 package mcp
 
 import (

@@ -1,6 +1,6 @@
 /**
  * Process-wide cache of resolved owner slug paths, keyed by `${ownerType}:${ownerId}`.
- * Same globalThis-Map pattern as version-cache.ts (D-018).
+ * Same globalThis-Map pattern as version-cache.ts.
  *
  * Unlike a version id, a group's slug path is NOT permanently immutable —
  * `department.update`/`team.update` accept a `slug` change, and that change

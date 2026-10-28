@@ -1,5 +1,5 @@
 /**
- * Rate-limit thresholds per protected surface (Phase 46), env-overridable with
+ * Rate-limit thresholds per protected surface, env-overridable with
  * sane defaults. Windows in ms. Read once at module load — restart to change.
  */
 function num(envVar: string | undefined, fallback: number): number {

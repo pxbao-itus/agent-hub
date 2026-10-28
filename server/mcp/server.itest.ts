@@ -115,7 +115,7 @@ beforeAll(async () => {
 
 afterAll(() => close());
 
-describe("D-016: read access inherits downward too (org-admin, no direct team/dept membership)", () => {
+describe("read access inherits downward too (org-admin, no direct team/dept membership)", () => {
   it("org-admin's list_skills includes a descendant team's group skill", async () => {
     const client = await connect({ userId: orgAdmin.id, systemRole: "user" });
     const result = await client.callTool({ name: "list_skills", arguments: {} });
@@ -310,7 +310,7 @@ describe("get_skill", () => {
   });
 });
 
-describe("pull_skill (CLI JSON bundle, Phase 42 M2)", () => {
+describe("pull_skill (CLI JSON bundle)", () => {
   it("pull_skill returns a JSON bundle with body, files, and version metadata", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" });
     const result = await client.callTool({ name: "pull_skill", arguments: { slug: skill1Slug } });
@@ -377,7 +377,7 @@ describe("workflow tools", () => {
     expect(t).toContain("project: Session bug fix");
   });
 
-  it("org-admin sees the workflow too (D-016 downward inheritance, no direct team membership)", async () => {
+  it("org-admin sees the workflow too (downward inheritance, no direct team membership)", async () => {
     const client = await connect({ userId: orgAdmin.id, systemRole: "user" });
     const result = await client.callTool({ name: "list_workflows", arguments: {} });
     expect(text(result)).toContain("Session bug fix process");
@@ -563,7 +563,7 @@ describe("project tools", () => {
   });
 });
 
-describe("list_groups (Phase 52)", () => {
+describe("list_groups", () => {
   it("returns eng-member's read cone with canWrite reflecting downward mutate authority", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" });
     const t = text(await client.callTool({ name: "list_groups", arguments: {} }));
@@ -602,7 +602,7 @@ describe("list_groups (Phase 52)", () => {
   });
 });
 
-describe("add/remove_artifact_to_project (Phase 52)", () => {
+describe("add/remove_artifact_to_project", () => {
   it("assigns then removes a plan (round trip), reporting no-op on a second remove", async () => {
     const project = await mustProject("Session bug fix");
 
@@ -721,7 +721,7 @@ describe("add/remove_artifact_to_project (Phase 52)", () => {
   });
 });
 
-describe("doc resources (MCP resources primitive, Phase 42 M1)", () => {
+describe("doc resources (MCP resources primitive)", () => {
   it("lists an accessible doc as a resource with the agenthub://doc/<slug> URI", async () => {
     const client = await connect({ userId: engMember.id, systemRole: "user" });
     const { resources } = await client.listResources();
@@ -1059,7 +1059,7 @@ describe("write round-trip (scope.write = true)", () => {
   });
 
   it("negative: attach_artifact_to_workflow_stage denies a viewer who can see but not manage the workflow", async () => {
-    // org-viewer's org membership covers backend team's cone (D-016) so they
+    // org-viewer's org membership covers backend team's cone so they
     // can view the workflow, but their role is "viewer" — not editor/admin —
     // so canManageWorkflow must reject the attach.
     const client = await connect({ userId: orgViewer.id, systemRole: "user" }, { write: true });
@@ -1083,7 +1083,7 @@ describe("write round-trip (scope.write = true)", () => {
   });
 });
 
-describe("update_doc / delete_doc (Phase 50 M0)", () => {
+describe("update_doc / delete_doc", () => {
   it("update_doc creates a new version, reflected in a fresh get_doc call", async () => {
     // orgAdmin's org membership is an *ancestor* of doc2's owning department
     // (engineering) — canMutatePrompt walks up the chain, so this is the
@@ -1116,7 +1116,7 @@ describe("update_doc / delete_doc (Phase 50 M0)", () => {
     // engMember is editor on team backend, a *descendant* of doc2's owning
     // department (engineering) — effectiveGroupRole only walks upward from
     // the owning group, so this role doesn't count. engMember can still
-    // read doc2 (D-016 cone includes descendants-of-ancestors), just not edit it.
+    // read doc2 (read cone includes descendants-of-ancestors), just not edit it.
     const client = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
     const doc2 = await mustArtifact("Next.js 16 migration notes");
     const doc2Slug = `${ENG_PATH}.${slugify(doc2.title)}`;
@@ -1178,7 +1178,7 @@ describe("update_doc / delete_doc (Phase 50 M0)", () => {
   });
 });
 
-describe("update_plan / delete_plan (Phase 50 M1)", () => {
+describe("update_plan / delete_plan", () => {
   it("update_plan creates a new version, reflected in a fresh get_plan call, without touching tasks", async () => {
     // plan2 is owned by department engineering, same access boundary as doc2
     // above: orgAdmin (admin on the ancestor org) can manage it.
@@ -1268,7 +1268,7 @@ describe("update_plan / delete_plan (Phase 50 M1)", () => {
   });
 });
 
-describe("create_skill / update_skill / delete_skill (Phase 50 M2)", () => {
+describe("create_skill / update_skill / delete_skill", () => {
   it("creates a personal skill with bundled files, retrievable via get_skill and pull_skill, then updates and deletes it", async () => {
     const createClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
     const createResult = await createClient.callTool({
@@ -1422,7 +1422,7 @@ describe("create_skill / update_skill / delete_skill (Phase 50 M2)", () => {
   });
 });
 
-describe("get_prompt / create_prompt / update_prompt / delete_prompt (Phase 51 M0)", () => {
+describe("get_prompt / create_prompt / update_prompt / delete_prompt", () => {
   it("creates a personal prompt with a {{variable}}, retrievable via get_prompt, then re-syncs variables on update and deletes it", async () => {
     const createClient = await connect({ userId: engMember.id, systemRole: "user" }, { write: true });
     const createResult = await createClient.callTool({

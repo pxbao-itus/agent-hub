@@ -4,7 +4,7 @@ type Props = {
   updatedAt: Date;
   authorName: string | null;
   versionNo?: number;
-  /** Usage analytics (Phase 41) — omit both to hide entirely (e.g. never pulled via MCP yet). */
+  /** Usage analytics — omit both to hide entirely (e.g. never pulled via MCP yet). */
   fetchCount?: number;
   lastFetchedAt?: Date | null;
 };

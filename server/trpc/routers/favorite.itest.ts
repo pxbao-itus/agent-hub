@@ -91,7 +91,7 @@ describe("favorite.list", () => {
   it("excludes a favorited artifact the caller can no longer access", async () => {
     // skill3 is private to marketing-member — eng-member has no access to it
     // even if a stale favorite row exists (simulated directly, bypassing
-    // toggle, since toggle itself doesn't gate on access — see D-028).
+    // toggle, since toggle itself doesn't gate on access).
     const skill3 = await mustArtifact("Debug memory leaks in Node.js");
     await db.insert(schema.artifactFavorites).values({ userId: engMember.id, artifactId: skill3.id });
 

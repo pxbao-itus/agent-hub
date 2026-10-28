@@ -76,7 +76,7 @@ describe("project.create", () => {
     expect(project.ownerGroupId).toBe(backend.id);
   });
 
-  it("allows an org admin to create a project owned by a descendant team (D-016 downward mutate)", async () => {
+  it("allows an org admin to create a project owned by a descendant team (downward mutate)", async () => {
     const project = await callerAs({ userId: orgAdmin.id, systemRole: "user" }).create({
       ownerGroupType: "team",
       ownerGroupId: content.id,
@@ -97,7 +97,7 @@ describe("project.create", () => {
   });
 });
 
-describe("project.list / listMine — cone visibility (D-016)", () => {
+describe("project.list / listMine — cone visibility", () => {
   it("an outsider with no membership anywhere sees no projects", async () => {
     const list = await callerAs({ userId: outsider.id, systemRole: "user" }).list();
     expect(list).toEqual([]);
@@ -257,7 +257,7 @@ describe("project.assignArtifact / unassignArtifact", () => {
   });
 });
 
-describe("project.assignArtifactsBulk (Phase 45 B2)", () => {
+describe("project.assignArtifactsBulk", () => {
   it("assigns readable doc/plan ids, skips a wrong-kind id", async () => {
     const project = await callerAs({ userId: engMember.id, systemRole: "user" }).create({
       ownerGroupType: "team",
@@ -320,7 +320,7 @@ describe("project.addMember / removeMember", () => {
     });
     createdProjectIds.push(project.id);
 
-    // orgAdmin's org membership covers backend team's cone (D-016).
+    // orgAdmin's org membership covers backend team's cone.
     await callerAs({ userId: engMember.id, systemRole: "user" }).addMember({
       projectId: project.id,
       userId: orgAdmin.id,

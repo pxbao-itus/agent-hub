@@ -6,7 +6,7 @@ import { projectArtifacts, projectMembers } from "@/server/db/schema";
 export type GroupType = "org" | "department" | "team";
 export type SessionUser = { userId: string; systemRole: "user" | "superadmin" };
 
-/** View-rights follow the same D-016 read cone as group-owned artifacts. */
+/** View-rights follow the same read cone as group-owned artifacts. */
 export async function canViewProject(
   user: SessionUser,
   project: { ownerGroupType: GroupType; ownerGroupId: string },
@@ -23,7 +23,7 @@ export async function canViewProject(
  * Manage-rights for a project come entirely from `effectiveGroupRole` on its
  * owning group — same threshold used for creating/editing group-owned
  * artifacts (skill.ts and the other artifact routers). Project membership itself grants nothing
- * (decision #1 in plans/44-projects.md — organizational only).
+ * (organizational only).
  */
 export async function canManageProject(
   user: SessionUser,

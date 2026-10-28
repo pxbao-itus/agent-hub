@@ -19,11 +19,11 @@ export type RequestSession = { userId: string; systemRole: "user" | "superadmin"
  *
  * This lives outside auth.ts's session/jwt callbacks on purpose: those
  * callbacks also run inside the Edge middleware (proxy.ts), which can't use
- * `pg` (D-031). The tRPC context only runs in the Node runtime, so the DB
+ * `pg`. The tRPC context only runs in the Node runtime, so the DB
  * check is safe here. It's also a standalone module (not inlined into
  * context.ts) so it's unit-testable — importing context.ts pulls in
  * `next-auth`, which doesn't load under Vitest (same reason authorizeCredentials
- * was extracted in Phase 46). Cost is one indexed PK lookup per tRPC HTTP
+ * was extracted earlier). Cost is one indexed PK lookup per tRPC HTTP
  * request (context is built once per request, not per batched procedure).
  */
 export async function resolveSession(user: SessionUser, database: DbClient): Promise<RequestSession> {

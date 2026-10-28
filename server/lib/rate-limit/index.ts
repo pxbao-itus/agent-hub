@@ -3,7 +3,7 @@ import { InMemoryRateLimiter } from "./memory";
 export type ConsumeResult = { ok: boolean; retryAfterMs: number };
 
 /**
- * Pluggable rate limiter (Phase 46). Same shape as the Embedder abstraction
+ * Pluggable rate limiter. Same shape as the Embedder abstraction
  * (server/embedder/index.ts): one interface, a globalThis singleton, and a
  * factory that picks the implementation from an env var — so a future
  * shared-store backend (Redis/Memcached) drops in without touching any of
@@ -18,7 +18,7 @@ export interface RateLimiter {
 
 // globalThis singleton — a plain module `let` does NOT reliably share state
 // across module realms in Next (same reason documented in
-// server/embedder/index.ts and server/lib/version-cache.ts, D-018).
+// server/embedder/index.ts and server/lib/version-cache.ts).
 const g = globalThis as unknown as { __rateLimiter?: RateLimiter };
 
 function createFromEnv(): RateLimiter {

@@ -40,7 +40,7 @@ export type AuditEntry = {
 
 /**
  * Append one audit event. Awaited by callers (a write path, not the hot read
- * path — same deliberate choice as notifyVersionChange, D-024): a failure to
+ * path — same deliberate choice as notifyVersionChange): a failure to
  * record should surface, not be silently swallowed.
  */
 export async function recordAudit(entry: AuditEntry, db: DbClient): Promise<void> {

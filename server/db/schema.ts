@@ -46,7 +46,7 @@ export const shareRoleEnum = pgEnum("share_role", ["viewer", "editor"]);
 export type ShareRole = "viewer" | "editor";
 export type TaskStatus = "todo" | "doing" | "done";
 
-/** Role within a doc/plan assignment: one assigner, many assignees (Phase 53). */
+/** Role within a doc/plan assignment: one assigner, many assignees. */
 export const assignmentRoleEnum = pgEnum("assignment_role", ["assigner", "assignee"]);
 export type AssignmentRole = "assigner" | "assignee";
 
@@ -90,7 +90,7 @@ export const users = pgTable(
     email: text("email").notNull().unique(),
     /**
      * Immutable mention handle. Nullable only so existing self-hosted databases
-     * can add the column before the idempotent Phase 57 backfill runs.
+     * can add the column before the idempotent username backfill runs.
      */
     username: text("username"),
     emailVerified: timestamp("email_verified", { withTimezone: true }),
@@ -276,7 +276,7 @@ export const artifacts = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     /**
-     * Usage analytics (Phase 41): bumped fire-and-forget whenever an agent
+     * Usage analytics: bumped fire-and-forget whenever an agent
      * actually pulls this artifact's content over MCP (prompt invoked,
      * get_skill/get_plan/get_doc) — not on search results or list
      * views, which only surface a candidate, not a use.
@@ -289,7 +289,7 @@ export const artifacts = pgTable(
     index("artifacts_visibility_idx").on(t.visibility),
     // Full-text search over title + description. Must be declared here (not
     // just in a raw-SQL migration) so `drizzle-kit push`-built databases get
-    // it too — otherwise search falls back to a per-row seq scan (D-019).
+    // it too — otherwise search falls back to a per-row seq scan.
     // The tsvector expression must match runTs()/runFts() in lib/search.ts
     // exactly for the planner to use this index.
     index("artifacts_fts_idx").using(
@@ -297,7 +297,7 @@ export const artifacts = pgTable(
       sql`to_tsvector('english', ${t.title} || ' ' || coalesce(${t.description}, ''))`,
     ),
     // Slug is unique per owner scope, but NULL slugs are unlimited. Same
-    // schema-vs-migration divergence as the FTS index (D-019): without this
+    // schema-vs-migration divergence as the FTS index: without this
     // in schema.ts, push-built DBs have no DB-level guard against duplicate
     // slugs — checkSlug in the router is only a TOCTOU check, not a guarantee.
     uniqueIndex("artifacts_owner_slug_uniq")
@@ -414,7 +414,7 @@ export const artifactShares = pgTable(
 );
 
 /**
- * Assigner/assignee for a doc or plan (Phase 53) — mirrors `artifactShares`'
+ * Assigner/assignee for a doc or plan — mirrors `artifactShares`'
  * shape (one table, `role` discriminates). Assignee is many-per-artifact;
  * assigner is at most one (enforced by the partial unique index below) and is
  * an override — when absent, the *effective* assigner is resolved at read
@@ -538,8 +538,8 @@ export const artifactSubscriptions = pgTable(
 /**
  * In-app notification. `type` discriminates the trigger: 'version' (an
  * artifact shared with `userId` per `artifactShares` got a new version —
- * `artifactVersionId` set, the original Phase 41 shape) or 'assignment'
- * (Phase 53 — assigner/assignee changed; `artifactVersionId` null,
+ * `artifactVersionId` set, the original shape) or 'assignment'
+ * (assigner/assignee changed; `artifactVersionId` null,
  * `metadata` carries the event). One row per (recipient, event) —
  * append-only, only `isRead` ever changes.
  */
@@ -568,7 +568,7 @@ export const notifications = pgTable(
   ]
 );
 
-/** Per-user "starred" artifacts (Phase 43 M3.3) — one row per (user, artifact), toggled on/off. */
+/** Per-user "starred" artifacts — one row per (user, artifact), toggled on/off. */
 export const artifactFavorites = pgTable(
   "artifact_favorites",
   {
@@ -646,7 +646,7 @@ export const artifactEmbeddings = pgTable(
 );
 
 /* -------------------------------------------------------------------------- */
-/* Audit log (Phase 46) — security-relevant mutations                          */
+/* Audit log — security-relevant mutations                          */
 /* -------------------------------------------------------------------------- */
 
 /**
@@ -682,13 +682,13 @@ export const auditEvents = pgTable(
 );
 
 /* -------------------------------------------------------------------------- */
-/* Projects (Phase 44) — organizational grouping of doc/plan artifacts        */
+/* Projects — organizational grouping of doc/plan artifacts        */
 /* -------------------------------------------------------------------------- */
 
 /**
  * A project is a purely organizational grouping of doc/plan artifacts, owned
  * by a group (org/dept/team). It does NOT grant any access — visibility of a
- * project follows `getAccessibleGroups` (D-016 cone) on its owner group, and
+ * project follows `getAccessibleGroups` (read cone) on its owner group, and
  * management follows `effectiveGroupRole` on that same group, exactly like
  * group-owned artifacts. `ownerGroupId` is polymorphic (no FK), same pattern
  * as `memberships.groupId`.
@@ -755,13 +755,13 @@ export const projectMembers = pgTable(
 );
 
 /* -------------------------------------------------------------------------- */
-/* Workflows (Phase 47) — named process of ordered stages over the lifecycle  */
+/* Workflows — named process of ordered stages over the lifecycle  */
 /* -------------------------------------------------------------------------- */
 
 /**
  * A workflow is a named process made of ordered stages (e.g. Spec → Build →
  * Review), owned by a group — same access model as projects, zero new
- * access-control code (D-016 cone for view, effectiveGroupRole for manage).
+ * access-control code (read cone for view, effectiveGroupRole for manage).
  * Optionally linked to a project (`projectId` nullable) — a workflow can be
  * a standalone recurring process (e.g. "bug triage") or scoped to one project.
  */

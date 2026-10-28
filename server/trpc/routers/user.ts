@@ -100,7 +100,7 @@ export const userRouter = router({
    * Gate: any authenticated user — needed so any artifact owner can find a
    * recipient to share with (canShareArtifact already allows this; search
    * used to be admin-only, which made per-user sharing unusable for regular
-   * owners, see D-017 in docs/decisions.md).
+   * owners).
    */
   search: protectedProcedure
     .input(

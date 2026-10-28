@@ -58,7 +58,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
   );
 
   // One access resolution + one query for every kind
-  // (Phase 39 perf) — getAccessibleGroups/getSharedArtifactIds/findMany were
+  // — getAccessibleGroups/getSharedArtifactIds/findMany were
   // each re-run per kind despite returning the same thing every time.
   const byKind = await getArtifactsForIdentity(identity, scope, ALL_KINDS);
   const rows = byKind.prompt;
@@ -127,7 +127,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
     }
   }
 
-  // slug → prompt map (Phase 51) — mirrors skillBySlug/docBySlug/planBySlug,
+  // slug → prompt map — mirrors skillBySlug/docBySlug/planBySlug,
   // reusing the slug this same loop already computes for registerPrompt()
   // instead of resolving it a second time.
   const promptBySlug = new Map<string, typeof rows[number]>();
@@ -174,7 +174,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
   // Raw body + variable names, no rendering/substitution — that's the native
   // `prompts` primitive's job (getPrompt). This is a fallback for clients
   // that don't surface prompts well, and for reading a template before
-  // forking/editing it (Phase 51).
+  // forking/editing it.
 
   server.tool(
     "get_prompt",
@@ -248,7 +248,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
       }
       bumpUsage(skill.id);
 
-      // Cached by version id (Phase 39 perf) — this used to re-fetch the
+      // Cached by version id — this used to re-fetch the
       // whole version row (body included, though only .files was actually
       // used; body already came from the batched fetch above) on every call,
       // uncached. Versions are immutable, so once a version id has been
@@ -282,10 +282,10 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
   );
 
   // ── Tool: pull_skill ──────────────────────────────────────────────────────
-  // Machine-readable counterpart to get_skill, for the CLI (Phase 42 M2,
-  // plans/42-cli-filesystem-sync.md) — tRPC's artifact.export bundle isn't
+  // Machine-readable counterpart to get_skill, for the CLI. tRPC's
+  // artifact.export bundle isn't
   // reachable with an MCP bearer token (session-cookie-only), so this is a
-  // dedicated JSON surface reusing the same bundle shape (Phase 40).
+  // dedicated JSON surface reusing the same bundle shape.
   // get_skill's markdown output is unchanged; this is an additive tool.
 
   server.tool(
@@ -505,7 +505,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
       }
 
       // One query for every plan's tasks instead of one query per plan
-      // (Phase 39 perf) — counted and grouped in JS below.
+      // — counted and grouped in JS below.
       const allTasks = await db.query.artifactTasks.findMany({
         where: inArray(artifactTasks.artifactId, planRows.map((p) => p.id)),
         columns: { artifactId: true, status: true },
@@ -770,7 +770,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
   // ── Workflow tools ───────────────────────────────────────────────────────
   // Workflows aren't artifacts (no kind/visibility/slug) so they sit outside
   // getArtifactsForIdentity's batch — visibility follows the plain user cone
-  // (D-016), same as the workflow tRPC router. Stage artifact references are
+  //, same as the workflow tRPC router. Stage artifact references are
   // resolved through `searchMeta`, which was built from the already
   // scope-filtered per-kind rows above: an attachment whose id isn't in that
   // map is invisible to this identity/token and is silently dropped, so
@@ -999,7 +999,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
 
   // ── Project tools ─────────────────────────────────────────────────────────
   // Projects aren't artifacts either (same reasoning as workflows above) —
-  // visibility follows the plain user cone (D-016), mirroring the project
+  // visibility follows the plain user cone, mirroring the project
   // tRPC router exactly (server/trpc/routers/project.ts).
 
   async function listAccessibleProjects() {
@@ -1124,7 +1124,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
     },
     async ({ writableOnly }) => {
       // Superadmin sees every group (mirrors listAccessibleProjects); everyone
-      // else gets their D-016 read cone.
+      // else gets their read cone.
       let groupRefs: { groupType: "org" | "department" | "team"; groupId: string }[];
       if (identity.systemRole === "superadmin") {
         const [orgRows, deptRows, teamRows] = await Promise.all([
@@ -2175,7 +2175,7 @@ export async function createMcpServer(identity: Identity, scope: TokenScope = {}
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * Path-safety for agent-supplied skill files (Phase 50 M2) — mirrors the Go
+ * Path-safety for agent-supplied skill files — mirrors the Go
  * CLI's AssertSafeRelativePath (src/cli/internal/fsio/fsio.go): reject
  * absolute paths and any path that escapes its directory via "..". Unlike
  * the tRPC skill router (trusted, UI-authenticated input only), this reaches
@@ -2219,8 +2219,8 @@ async function isSlugTaken(
 }
 
 /**
- * Usage analytics (Phase 41) — fire-and-forget, deliberately not awaited on
- * the tool-response path (Phase 39 cut this exact request down to 8 queries;
+ * Usage analytics — fire-and-forget, deliberately not awaited on
+ * the tool-response path (this request was cut down to 8 queries;
  * blocking every content read on a write would give half of that back).
  * Called only where an agent actually retrieves content (prompt invoked,
  * get_skill/get_plan/get_doc) — not on list/search, which only
@@ -2250,7 +2250,7 @@ function uniqueSlug(title: string, id: string, seen: Set<string>): string {
 
 /**
  * Fetches every accessible artifact across all of `kinds` in one query and
- * groups the results by kind (Phase 39 perf — see the call site comment).
+ * groups the results by kind (see the call site comment).
  * Access resolution (accessible groups + shares) is computed once here
  * regardless of how many kinds are requested.
  */

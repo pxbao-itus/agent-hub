@@ -9,7 +9,7 @@ type NotificationDb = Pick<DbClient, "select" | "insert">;
  * with (per `artifactShares` — not group-membership) when a new version is
  * created. Awaited by the caller, not fire-and-forget: this runs on an
  * already-latency-tolerant write path (a user just clicked Save), so there's
- * no reason to risk the silent-no-op class of bug documented in D-023.
+ * no reason to risk a silent no-op.
  */
 export async function notifyVersionChange(
   artifactId: string,
@@ -35,7 +35,7 @@ export async function notifyVersionChange(
 }
 
 /**
- * Fan out an in-app notification of type 'assignment' (Phase 53) — assigner
+ * Fan out an in-app notification of type 'assignment' — assigner
  * changed or an assignee was added/removed. `metadata` is a plain bag (mirrors
  * `recordAudit`'s convention) carrying whatever the caller already resolved
  * (ids + name snapshots) so rendering never needs a follow-up join for a user

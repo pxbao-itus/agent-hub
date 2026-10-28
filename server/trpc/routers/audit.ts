@@ -7,7 +7,7 @@ import { auditEvents, users } from "@/server/db/schema";
 /**
  * Read access to the audit trail. Superadmin-only in v1 (matches
  * /settings/users). Group-scoped views for group admins are a possible
- * follow-up — see plans/46-security-hardening.md §3.
+ * follow-up.
  */
 export const auditRouter = router({
   list: protectedProcedure

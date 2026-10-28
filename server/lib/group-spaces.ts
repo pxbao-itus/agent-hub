@@ -36,7 +36,7 @@ function membershipKey(type: GroupSpaceType, id: string) {
 
 /**
  * Pure capability resolution used by the DB-backed list function and unit
- * tests. Read access follows D-016's bidirectional cone; mutation authority
+ * tests. Read access follows the bidirectional cone; mutation authority
  * follows effectiveGroupRole's downward-only inheritance.
  */
 export function resolveGroupSpaces(input: {

@@ -88,7 +88,7 @@ describe("workflow.create", () => {
     expect(stages.map((s) => s.name).sort()).toEqual(["Build", "Spec"]);
   });
 
-  it("allows an org admin to create for a descendant team (D-016 downward mutate)", async () => {
+  it("allows an org admin to create for a descendant team (downward mutate)", async () => {
     const workflow = await callerAs({ userId: orgAdmin.id, systemRole: "user" }).create({
       ownerGroupType: "team",
       ownerGroupId: content.id,
@@ -136,7 +136,7 @@ describe("workflow.create", () => {
   });
 });
 
-describe("workflow.list / listForProject — cone visibility (D-016)", () => {
+describe("workflow.list / listForProject — cone visibility", () => {
   it("an outsider with no membership anywhere sees no workflows", async () => {
     const list = await callerAs({ userId: outsider.id, systemRole: "user" }).list();
     expect(list).toEqual([]);

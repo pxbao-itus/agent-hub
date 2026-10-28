@@ -6,7 +6,7 @@ import * as schema from "./schema";
 import { hashPassword } from "../auth/password";
 
 /**
- * Resets and seeds bilingual (VN/EN) fixtures for the qa/ e2e harness and
+ * Resets and seeds bilingual (VN/EN) fixtures for the e2e harness and
  * integration tests. Truncates every app table first, so this is destructive
  * by design — the TEST_DATABASE_URL guard below exists to make sure that
  * destruction can only ever land on a disposable "*_test" database, never on
@@ -131,10 +131,10 @@ async function main() {
   // orgAdmin: org-level admin membership (gate for dept/team management;
   //   also proves mutate/share authority flows down to descendant groups).
   // orgViewer: org-level VIEWER membership — no admin/editor role anywhere.
-  //   Proves READ inherits downward for every role (D-016), not just admin:
+  //   Proves READ inherits downward for every role, not just admin:
   //   orgViewer must see descendant group artifacts but must NOT be able to
   //   mutate/share them (that's still admin/editor-only, effectiveGroupRole
-  //   is unchanged by D-016).
+  //   is unchanged).
   // engMember: team-level member of Backend (inherits Engineering + QA Org).
   // marketingMember: team-level member of Content (inherits Marketing + QA Org)
   //   — used as the negative case: must NOT see Backend/Engineering-only
@@ -171,7 +171,7 @@ async function main() {
 
   // ---- Memberships ----------------------------------------------------------
   // Read access (getAccessibleGroups) inherits both up AND down from each of
-  // these (D-016) — e.g. orgAdmin/orgViewer's org membership also covers
+  // these — e.g. orgAdmin/orgViewer's org membership also covers
   // Engineering/Marketing and Backend/Content. Mutate/share authority
   // (effectiveGroupRole) inherits DOWN only, and role still matters there:
   // orgAdmin can edit a descendant team's artifacts, orgViewer cannot.
@@ -184,8 +184,8 @@ async function main() {
 
   // ---- Prompts --------------------------------------------------------------
   // #1 and #2 are deliberately worded so a *semantic* query (different
-  // keywords, same meaning) should still surface them — see qa/cases/ for the
-  // paired queries used to evaluate search quality against a real embedder.
+  // keywords, same meaning) should still surface them — useful as paired
+  // queries when evaluating search quality against a real embedder.
   const { artifact: prompt1 } = await createArtifact({
     kind: "prompt",
     ownerType: "team",
@@ -407,8 +407,8 @@ async function main() {
     grantedBy: engMember.id,
   });
 
-  // ---- Project (Phase 44) — owned by Backend team ------------------------
-  // Visibility follows the same D-016 cone as backend's other group
+  // ---- Project — owned by Backend team ------------------------
+  // Visibility follows the same read cone as backend's other group
   // artifacts: engMember (direct team editor), orgAdmin/orgViewer (org
   // membership covers descendant team) should all see it; marketingMember
   // (different team) and outsider should not.
@@ -431,8 +431,8 @@ async function main() {
     userId: engMember.id,
   });
 
-  // ---- Workflow (Phase 47) — owned by Backend team, linked to project1 ---
-  // Same D-016 visibility cone as the project above. Stages cover the same
+  // ---- Workflow — owned by Backend team, linked to project1 ---
+  // Same visibility cone as the project above. Stages cover the same
   // lifecycle idea as the plan: Spec (done) → Build (doing) → Review (todo).
   const [workflow1] = await db
     .insert(schema.workflows)

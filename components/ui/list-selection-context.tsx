@@ -14,7 +14,7 @@ type ListSelectionContextValue = {
 
 const ListSelectionContext = createContext<ListSelectionContextValue | null>(null);
 
-/** Wrap a list page's grid to enable multi-select + bulk actions (Phase 45 B2). */
+/** Wrap a list page's grid to enable multi-select + bulk actions. */
 export function ListSelectionProvider({ children }: { children: React.ReactNode }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pendingDelete, setPendingDelete] = useState<Set<string>>(new Set());

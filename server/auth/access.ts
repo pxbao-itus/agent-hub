@@ -15,7 +15,7 @@ type DeptRow = { id: string; orgId: string };
  * Pure function — no DB calls. Given a user's direct memberships plus
  * hierarchy maps, returns the full READ-access cone for each membership:
  * every ancestor, the membership's own group, and every descendant
- * (D-016 — read now inherits both ways; mutate/share authority is a
+ * (read now inherits both ways; mutate/share authority is a
  * separate, downward-only concern, see effectiveGroupRole below).
  *
  * `teamsMap`/`deptsMap` must contain every row needed to walk both
@@ -180,7 +180,7 @@ export async function getAccessibleGroups(
  * in the chain.
  *
  * This is independent of READ access (see getAccessibleGroups /
- * resolveAccessibleGroups above, D-016) — read inherits both up and down
+ * resolveAccessibleGroups above) — read inherits both up and down
  * from a membership, mutate/share authority only flows down. A team editor
  * can therefore read their parent department's own artifacts but not edit
  * them; an org admin can both read and edit a descendant team's artifacts.

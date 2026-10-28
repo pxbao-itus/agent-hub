@@ -93,7 +93,7 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
   const total = tasks.length;
   const pct = total > 0 ? Math.round((done / total) * 100) : null;
 
-  // Projects this plan belongs to, filtered to what the caller can see (D-016 cone).
+  // Projects this plan belongs to, filtered to what the caller can see (read cone).
   const projectRows = await db
     .select({ project: projects })
     .from(projectArtifacts)

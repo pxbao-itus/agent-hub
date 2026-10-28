@@ -6,11 +6,11 @@ const UNDO_WINDOW_MS = 5000;
 // Module-level, not component state: a pending action must still fire (or
 // stay cancellable) across client-side navigation, since the Toaster lives
 // at the layout level, not the page level. A real reload/tab close does
-// lose it — accepted limitation, see plans/45-perf-ux-p3.md §3 B1.
+// lose it — accepted limitation.
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /**
- * Delayed-execute pattern for destructive actions (Phase 45 B1 — "Undo").
+ * Delayed-execute pattern for destructive actions ("Undo").
  * Shows a toast with an Undo action; `commit()` only runs once the grace
  * window elapses uncancelled. No schema change needed — the mutation
  * itself is a normal, immediate call, just deferred a few seconds.

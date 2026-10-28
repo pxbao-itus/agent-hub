@@ -1,7 +1,7 @@
 import "dotenv/config";
 
 /**
- * Ad-hoc query-count harness for Phase 39 (performance). Counts every SQL
+ * Ad-hoc query-count harness for performance work. Counts every SQL
  * statement issued against Postgres for a given operation, by monkey-patching
  * Pool.prototype.query (what drizzle-orm/node-postgres calls per-statement
  * for non-transaction queries — confirmed by reading its session.js) before
@@ -73,7 +73,7 @@ async function main() {
   // get_skill via two separate /api/mcp-equivalent requests (two fresh
   // createMcpServer calls, matching the real stateless HTTP transport) —
   // the second call should cost zero extra queries for the skill's own
-  // content once its version id has been resolved once (Phase 39 M4 cache).
+  // content once its version id has been resolved once.
   const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
   const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
   async function callGetSkill() {

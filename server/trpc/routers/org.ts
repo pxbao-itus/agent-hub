@@ -133,7 +133,7 @@ export const orgRouter = router({
     return rows.map((r) => r.org);
   }),
 
-  /** Every space in the caller's D-016 read cone, used by read/scope pickers. */
+  /** Every space in the caller's read cone, used by read/scope pickers. */
   mySpaces: protectedProcedure.query(async ({ ctx }) => {
     return listGroupSpaces(ctx.session, "viewable", ctx.db);
   }),

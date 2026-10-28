@@ -36,7 +36,7 @@ let content: typeof schema.teams.$inferSelect;
 // exact artifact counts against the same database, and vitest doesn't
 // guarantee this file runs before that one — track every id created here and
 // delete them in afterAll (FK cascade handles the version/member/task/file
-// rows underneath each), same fix as server.itest.ts's Phase 36 M4.1 finding.
+// rows underneath each), same fix as in server.itest.ts.
 const createdArtifactIds: string[] = [];
 
 beforeAll(async () => {
@@ -304,7 +304,7 @@ describe("artifact.import", () => {
   });
 });
 
-describe("artifact.bulkDelete (Phase 45 B2)", () => {
+describe("artifact.bulkDelete", () => {
   it("deletes every id the caller can mutate", async () => {
     const a = await createArtifact(
       { kind: "prompt", ownerType: "user", ownerId: engMember.id, title: "bulk-delete a", body: "x", createdBy: engMember.id },
@@ -349,7 +349,7 @@ describe("artifact.bulkDelete (Phase 45 B2)", () => {
   });
 });
 
-describe("artifact.bulkAddTag (Phase 45 B2)", () => {
+describe("artifact.bulkAddTag", () => {
   it("adds the tag to every mutable id, without duplicating an already-present tag", async () => {
     const a = await createArtifact(
       { kind: "prompt", ownerType: "user", ownerId: engMember.id, title: "bulk-tag a", body: "x", tags: [], createdBy: engMember.id },

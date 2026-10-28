@@ -38,8 +38,7 @@ function wrongKind(): Failure {
 /**
  * Effective assigner for a doc/plan: an explicit override row (set via
  * setAssigner), else the owner-user, else `createdBy` for group-owned
- * artifacts (chosen so existing docs/plans need no backfill — see
- * plans/53-doc-plan-assignment.md §2.2).
+ * artifacts (chosen so existing docs/plans need no backfill).
  */
 export async function resolveAssigner(
   artifact: Pick<AssignableArtifact, "id" | "ownerType" | "ownerId" | "createdBy">,

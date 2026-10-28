@@ -17,7 +17,7 @@ import {
  * This file creates real, permanent throwaway artifacts (+ shares) to
  * exercise assignment without mutating seeded fixtures other suites depend
  * on — same isolation lesson as notification.itest.ts / server.itest.ts
- * (Phase 52's ambiguous-slug test paid for skipping this).
+ * (an earlier ambiguous-slug test paid for skipping this).
  */
 
 const { db, close } = createTestDb();

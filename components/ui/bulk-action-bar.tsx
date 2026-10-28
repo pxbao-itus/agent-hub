@@ -15,7 +15,7 @@ import { Tag, FolderKanban, Trash2, UserPlus, X } from "lucide-react";
 type Props = { kind: "prompt" | "skill" | "plan" | "doc" };
 
 /**
- * Floating bulk-action bar (Phase 45 B2). Renders nothing with an empty
+ * Floating bulk-action bar. Renders nothing with an empty
  * selection. Delete uses the delayed-execute/Undo pattern (B1) — items are
  * marked "pending" (dimmed, non-interactive) immediately, the real
  * bulkDelete call only fires once the grace window elapses uncancelled.

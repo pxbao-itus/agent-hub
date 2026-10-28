@@ -223,7 +223,7 @@ export const artifactRouter = router({
           ownerId: targetOwnerId,
           title: bundle.title,
           // Reset, same reasoning as duplicate: avoid colliding with the
-          // owner-scoped unique slug index (D-019/P38) on re-import.
+          // owner-scoped unique slug index on re-import.
           slug: null,
           description: bundle.description ?? undefined,
           tags: bundle.tags,
@@ -241,7 +241,7 @@ export const artifactRouter = router({
     }),
 
   /**
-   * Bulk delete (Phase 45 B2). The client is expected to call this only
+   * Bulk delete. The client is expected to call this only
    * after its own delayed-execute/Undo grace window elapses (B1) — this
    * mutation itself deletes immediately, same as the single-kind `delete`
    * mutations. Skips (and reports) ids the caller can't mutate rather than
@@ -274,7 +274,7 @@ export const artifactRouter = router({
       return { deletedIds: deletableIds, skippedIds };
     }),
 
-  /** Bulk-add a tag (Phase 45 B2). Skips ids the caller can't mutate; a no-op (still counted as success) if the tag is already present. */
+  /** Bulk-add a tag. Skips ids the caller can't mutate; a no-op (still counted as success) if the tag is already present. */
   bulkAddTag: protectedProcedure
     .input(z.object({ ids: z.array(z.string().uuid()).min(1).max(BULK_MAX), tag: z.string().min(1).max(50) }))
     .mutation(async ({ ctx, input }) => {

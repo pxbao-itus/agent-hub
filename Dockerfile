@@ -55,7 +55,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # stays intact for anything not in this copy) adds it back. This does make
 # the runner meaningfully bigger than a pure standalone image; that's an
 # accepted trade-off for "docker compose up actually applies the schema"
-# over image size, for a single-instance self-host (D-013).
+# over image size, for a single-instance self-host.
 COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --chown=nextjs:nodejs drizzle.config.ts ./
 COPY --chown=nextjs:nodejs tsconfig.json ./

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Applies the schema (schema.ts is the single source of truth — no versioned
-# migrations, see D-019) on every container start, before the app boots. This
+# migrations) on every container start, before the app boots. This
 # is what makes `docker compose up` a true one-command self-host: there is no
 # separate manual "apply migrations" step to remember (or to have silently
 # never work — the previous instructions ran a binary that isn't even present

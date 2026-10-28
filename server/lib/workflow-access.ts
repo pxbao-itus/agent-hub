@@ -6,7 +6,7 @@ import { workflowStages } from "@/server/db/schema";
 export type GroupType = "org" | "department" | "team";
 export type SessionUser = { userId: string; systemRole: "user" | "superadmin" };
 
-/** View-rights follow the same D-016 read cone as group-owned artifacts/projects. */
+/** View-rights follow the same read cone as group-owned artifacts/projects. */
 export async function canViewWorkflow(
   user: SessionUser,
   workflow: { ownerGroupType: GroupType; ownerGroupId: string },

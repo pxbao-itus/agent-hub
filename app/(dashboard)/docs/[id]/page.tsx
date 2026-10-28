@@ -99,7 +99,7 @@ export default async function DocDetailPage({ params }: { params: Promise<{ id: 
     if (ok) accessibleSources.push(link);
   }
 
-  // Projects this doc belongs to, filtered to what the caller can see (D-016 cone).
+  // Projects this doc belongs to, filtered to what the caller can see (read cone).
   const projectRows = await db
     .select({ project: projects })
     .from(projectArtifacts)

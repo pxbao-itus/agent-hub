@@ -33,9 +33,9 @@ export type CreateArtifactInput = {
  * plans — callers (routers, MCP tools) own authorization; this just writes.
  *
  * Not currently wired into every kind-specific `create` mutation — those
- * keep their inline inserts for now (matches Phase 40's scope: this exists
- * so fork/duplicate and import have one creation path to call, not a
- * mandate to migrate every existing call site in the same phase).
+ * keep their inline inserts for now (this exists so fork/duplicate and
+ * import have one creation path to call, not a mandate to migrate every
+ * existing call site at once).
  */
 export async function createArtifact(input: CreateArtifactInput, db: DbClient) {
   return db.transaction(async (tx) => {
@@ -114,8 +114,8 @@ export type UpdateArtifactInput = {
  * bump, replacing bundled files for skills). Generalizes what doc.ts/plan.ts/
  * skill.ts/prompt.ts's own `update` mutations each duplicate inline —
  * added here so MCP's update_doc/update_plan/update_skill have one path to
- * call (Phase 50) without a mandate to migrate the existing tRPC call sites
- * in the same phase (same reasoning as createArtifact, Phase 40).
+ * call without a mandate to migrate the existing tRPC call sites
+ * (same reasoning as createArtifact).
  */
 export async function updateArtifact(artifactId: string, input: UpdateArtifactInput, db: DbClient) {
   const { updated, newVersionId } = await db.transaction(async (tx) => {
@@ -179,7 +179,7 @@ export async function updateArtifact(artifactId: string, input: UpdateArtifactIn
 /**
  * Sync artifactVariables to whatever {{var}} placeholders currently appear in
  * a prompt's body — prompt only, but lives here (not prompt.ts's router)
- * since MCP's create_prompt/update_prompt (Phase 51) need the same logic and
+ * since MCP's create_prompt/update_prompt need the same logic and
  * can't import from a route file. Preserves existing variable rows that are
  * still referenced; only adds/removes what changed.
  */

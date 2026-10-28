@@ -2,7 +2,7 @@ import type { Embedder } from "@/server/embedder";
 
 /**
  * Process-wide cache of query embeddings, keyed by `${embedderId}:${normalizedQuery}`.
- * Same globalThis-Map pattern as version-cache.ts (D-018) — no framework
+ * Same globalThis-Map pattern as version-cache.ts — no framework
  * cache API, so it behaves identically in tests, dev, and prod.
  *
  * Unlike version-cache.ts (key = immutable version id, safe to grow

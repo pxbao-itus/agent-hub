@@ -3,8 +3,8 @@ import type { ConsumeResult, RateLimiter } from "./index";
 type Bucket = { count: number; windowStartMs: number; windowMs: number };
 
 /**
- * In-memory fixed-window rate limiter (Phase 46 v1). Counters live in a Map on
- * globalThis — same pattern/caveats as version-cache.ts (D-018): behaves
+ * In-memory fixed-window rate limiter. Counters live in a Map on
+ * globalThis — same pattern/caveats as version-cache.ts: behaves
  * identically under tests, dev, and prod, no framework cache API.
  *
  * CAVEAT (documented, accepted for a single-instance self-host): state is

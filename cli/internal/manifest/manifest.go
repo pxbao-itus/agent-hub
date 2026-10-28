@@ -1,5 +1,5 @@
 // Package manifest owns .agent-hub-lock.json, including v1 compatibility and
-// target-specific native Skill installations introduced in Phase 61.
+// target-specific native Skill installations.
 package manifest
 
 import (
