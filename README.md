@@ -6,6 +6,19 @@ Instead of copy-pasting prompts and instructions between projects, keep them in 
 
 > ⚠️ **Status: early / work-in-progress.** Usable for self-hosting, but APIs and schema may still change. Not yet hardened for production.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/dashboard.png" alt="Dashboard with an overview of prompts, skills, plans and docs, and recent activity" /><br /><sub><b>Dashboard</b> — everything you can access, plus recent activity.</sub></td>
+    <td width="50%"><img src="docs/screenshots/skill-detail.png" alt="A skill with rendered Markdown instructions, bundled files, version history and an MCP snippet" /><br /><sub><b>Skills</b> — versioned instructions with bundled files and a ready-to-use MCP call.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/plan-detail.png" alt="A plan with a progress bar, a task list, linked docs and assignment" /><br /><sub><b>Plans</b> — task lists that agents can read and update, linked to the docs behind them.</sub></td>
+    <td width="50%"><img src="docs/screenshots/workflow.png" alt="A workflow with three stages, each with attached artifacts" /><br /><sub><b>Workflows</b> — ordered stages with the prompts, skills, plans and docs each one needs.</sub></td>
+  </tr>
+</table>
+
 ## Features
 
 - 📦 **Prompts** — with tags, descriptions, and template variables `{{var}}`.

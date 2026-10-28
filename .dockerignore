@@ -12,3 +12,6 @@ public/releases/cli/*
 npm-debug.log*
 Dockerfile
 .dockerignore
+
+# Documentation assets (README screenshots) are not needed in the image
+docs
