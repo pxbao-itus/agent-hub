@@ -47,7 +47,7 @@ One principle: minimal moving parts — all TypeScript on top of a single Postgr
 Requirements: Docker 24+, Docker Compose v2.
 
 ```bash
-git clone https://github.com/your-org/agent-hub.git
+git clone https://github.com/pxbao-itus/agent-hub.git
 cd agent-hub
 
 cp .env.example .env
@@ -99,7 +99,7 @@ pnpm db:seed                 # (optional) seed sample data
 pnpm dev                     # http://localhost:3000
 ```
 
-A `Makefile` wraps the common flows: `make setup` (DB up + push + dev), `make db/up`, `make db/push`, `make db/seed`, `make db/create-root email=you@example.com password=secret`, `make test`, `make typecheck`.
+A `Makefile` wraps the common flows: `make setup` (DB up + push + dev), `make db/up`, `make db/push`, `make db/seed`, `make db/create-root email=you@example.com password=secret`, `make test`, `make typecheck`, `make lint`.
 
 Other DB commands: `pnpm db:studio`.
 
@@ -251,4 +251,7 @@ Agent Hub is available under the [MIT License](LICENSE).
 
 ## Contributing
 
-The project is in early stages. Issues, ideas, and feedback are welcome.
+The project is in early stages. Issues, ideas, and feedback are welcome — see
+[CONTRIBUTING.md](CONTRIBUTING.md) for the development setup and the checks CI
+runs. Please report security problems privately, as described in
+[SECURITY.md](SECURITY.md).

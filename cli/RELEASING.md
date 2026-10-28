@@ -57,7 +57,7 @@ agenthub
 
    ```sh
    gh attestation verify agenthub_0.2.0_darwin_arm64.tar.gz \
-     -R OWNER/REPOSITORY
+     -R pxbao-itus/agent-hub
    ```
 
 7. Test installation on Apple Silicon and Intel where available.
