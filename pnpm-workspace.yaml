@@ -1,11 +1,10 @@
 
-# pnpm 10+ blocks dependency build scripts by default. These packages have
-# legitimate native/postinstall builds the app needs (argon2 = password
-# hashing, onnxruntime-node = local embedder, sharp = image handling, the
-# rest are build tooling). `onlyBuiltDependencies` is the correct key — the
-# previous `allowBuilds:` block with "set this to true or false" placeholder
-# values was a no-op, so a fresh `pnpm install` (local, Docker, or CI)
-# silently skipped these builds.
+# pnpm 10+ blocks dependency build scripts unless they are approved. These
+# packages have legitimate native/postinstall builds the app needs (argon2 =
+# password hashing, onnxruntime-node = local embedder, sharp = image handling,
+# the rest are build tooling). pnpm 10 reads `onlyBuiltDependencies`, pnpm 11
+# reads `allowBuilds`, so the same list is declared under both keys. Without
+# it a fresh `pnpm install` fails with ERR_PNPM_IGNORED_BUILDS.
 onlyBuiltDependencies:
   - '@tailwindcss/oxide'
   - argon2
@@ -14,6 +13,15 @@ onlyBuiltDependencies:
   - protobufjs
   - sharp
   - unrs-resolver
+
+allowBuilds:
+  '@tailwindcss/oxide': true
+  argon2: true
+  esbuild: true
+  onnxruntime-node: true
+  protobufjs: true
+  sharp: true
+  unrs-resolver: true
 
 # Transitive dependencies pinned to patched releases (security advisories) —
 # the parents (@modelcontextprotocol/sdk, next, ...) still allow the old ranges.
@@ -24,9 +32,3 @@ overrides:
   ip-address: ^10.3.1
   source-map-js: ^1.2.2
   'nanoid@>=4 <5.1.16': ^5.1.16
-
-# pnpm 11 reads `allowBuilds` (not `onlyBuiltDependencies`) to approve build
-# scripts. onnxruntime-node downloads its native binaries in postinstall and is
-# required by the local embedder.
-allowBuilds:
-  onnxruntime-node: true
